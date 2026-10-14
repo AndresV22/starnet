@@ -61,6 +61,15 @@ const server = http.createServer((req, res) => {
     assert.match(state.messages.at(-1).content, /EXACT_SHARED_VERSION_1/);
     assert.ok(requests.some(r => (r.tools || []).some(t => t.function.name === 'group_handoff')));
     assert.ok(requests.every(r => !(r.tools || []).some(t => t.function.name === 'team_dispatch')));
+    // THE GROUP'S LEAD IS THE ORCHESTRATOR: the lead holds the station kit (station.layout on the wire, the builder in its
+    // deferred index, told to use them instead of the screen); the other participant stays a worker without it
+    const sysOf = r => (r.messages || []).filter(m => m.role === 'system').map(m => m.content).join('\n');
+    const leadReqs = requests.filter(r => sysOf(r).includes('IDENTITY_ENGINEER') && (r.tools || []).length);
+    const qaReqs = requests.filter(r => sysOf(r).includes('IDENTITY_QA') && (r.tools || []).length);
+    assert.ok(leadReqs.length && qaReqs.length, 'both participants ran with tools');
+    assert.ok(leadReqs.every(r => r.tools.some(t => t.function.name === 'station_layout')), 'the group lead can read the assembly lines');
+    assert.ok(leadReqs.every(r => /station_build/.test(sysOf(r)) && /you lead this group chat/.test(sysOf(r))), 'the group lead is told where the station builder is');
+    assert.ok(qaReqs.every(r => !r.tools.some(t => /^station_(layout|build|plan|map)$/.test(t.function.name)) && !/station_build/.test(sysOf(r))), 'a non-lead participant gets no station kit');
     const download = await fixture.request('/api/groups?id=' + g.id + '&file=' + state.artifacts[0].id);
     assert.equal(await download.text(), 'EXACT_SHARED_VERSION_1');
     const attached = await request('POST', '', { op: 'create', members: ['agent'], title: 'Message attachment proof' });

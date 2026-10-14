@@ -188,7 +188,8 @@ const CONCEPTS =
   '- COMMS: the chat. Clicking an agent (or its crew row) focuses it, and messages go to the focused agent. GROUP CHAT: "+ Add ' +
   'agents" in the COMMS bar (or @-mentioning an agent) turns a direct chat into a group; the lead answers anything unaddressed ' +
   'and cannot be removed. Enter while an agent is working QUEUES the message; /steer <text> steers the live run; /stop stops it. ' +
-  'You: station.control session.rename|pin|archive|delete; group.configure changes a group chat\'s members, lead, title or instructions.\n' +
+  'You: station.control session.rename|pin|archive|delete; group.add brings crew into this chat (a one-on-one chat becomes a group ' +
+  'chat when your reply ends); group.configure changes an existing group chat\'s members (its whole list), lead, title or instructions.\n' +
   '- ACCESS (one setting, three answers): CHECK WITH ME (asks first, only placed gear), LET IT WORK (asks first, works in approved ' +
   'project folders), FULL POWER (never asks, the whole computer). Set station-wide or per agent in SETTINGS › PERMISSIONS ' +
   '[settings-permissions]; per agent also in dossier CONFIG [agent-config]. In the ask modes a paused agent shows an approval card ' +

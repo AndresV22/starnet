@@ -26,58 +26,93 @@ const GroupChat = (() => {
      the keys under it; the whole question is one tap away) · the answers as full-width keys, the agent's suggestion lit
      and ★-marked · one plain line on how to answer · the reason and the draft folded on one line. Rebuilt only when ITS
      question changes (paint reconciles), so focus, hover, an open fold and a press survive the 900 ms poll. */
-  const openFolds = new Set();
+  const openFolds = new Set(), openWholes = new Set();
   const questionCards = new Map(), stateRows = new Map();   // keyed, reused while unchanged (paint reconciles them)
+  // the message box as items: at each item an option is matched WHOLE (longest first, so an option that itself contains
+  // ";" stays one pick and never lights a shorter one inside it); anything else the Commander typed is kept as written
+  function pickItems(value, options) {
+    const text = String(value || ''), sorted = options.slice().sort((a, b) => b.length - a.length), items = [];
+    let i = 0;
+    while (i < text.length) {
+      while (i < text.length && /[\s;]/.test(text[i])) i++;
+      if (i >= text.length) break;
+      const hit = sorted.find(o => o && text.startsWith(o, i) && /^\s*(?:;|$)/.test(text.slice(i + o.length)));
+      if (hit) { items.push({ option: hit, text: hit }); i += hit.length; continue; }
+      const j = text.indexOf(';', i);
+      items.push({ option: null, text: (j < 0 ? text.slice(i) : text.slice(i, j)).trim() }); i = j < 0 ? text.length : j;
+    }
+    return items;
+  }
+  function pickedIn(value, options) { return new Set(pickItems(value, options).filter(x => x.option).map(x => x.option)); }
+  function togglePick(value, option, options) {
+    let items = pickItems(value, options);
+    if (items.some(x => x.option === option)) items = items.filter(x => x.option !== option); else items.push({ option, text: option });
+    return items.map(x => x.text).filter(Boolean).join('; ');
+  }
   // a pick-several key shows ✓ exactly when its answer is in the message box — the box is the truth (you may edit it)
   function syncPicks(card) {
     if (!card || !card._picks) return;
-    const box = $('chat-input'), parts = box && box.value ? box.value.split(';').map(x => x.trim()).filter(Boolean) : [];
+    const box = $('chat-input'), on = pickedIn(box && box.value, [...card._picks.keys()]);
     for (const [option, key] of card._picks) {
-      const on = parts.includes(option);
-      key.setAttribute('aria-pressed', on ? 'true' : 'false');
-      key.textContent = (on ? '✓ ' : '') + (key._star ? '★ ' : '') + option;
+      const pressed = on.has(option);
+      key.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+      key.textContent = (pressed ? '✓ ' : '') + (key._star ? '★ ' : '') + option;
     }
   }
+  // "Show the whole question" shows exactly while the question is clamped; a question that cannot be measured (the strip
+  // is hidden) keeps its key — re-measured whenever the strip changes size
+  const wholeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(list => requestAnimationFrame(() => { for (const e of list) { const c = e.target.closest && e.target.closest('.gc-question'); if (c && c._fit) c._fit(); } })) : null;
   function questionCard(groupId, q) {
     const who = name(q.agentId), color = colorOf(q.agentId);
     const card = h('div', { class: 'gc-question', role: 'group', 'aria-label': who + ' asks you a question' });
     if (color) card.style.setProperty('--gc-c', color);
     const text = h('p', { class: 'gc-q-text' }, q.question);
-    card.append(h('div', { class: 'gc-q-who' }, who + ' asks'), text);
-    // a long question shows three lines and offers the rest (measured after layout: a short one shows no key)
-    const whole = h('button', { type: 'button', class: 'gc-q-whole', hidden: '' }, '▸ Show the whole question');
-    whole.addEventListener('click', () => {
-      const open = !card.classList.contains('whole');
-      card.classList.toggle('whole', open); whole.textContent = open ? '▾ Show less' : '▸ Show the whole question';
-    });
+    // who asks (and its place in a batch: one more tap ends it), then a cue when more is waiting below in the strip
+    const seq = Number(q.total) > 1 && Number(q.ordinal) > 0 ? ' (' + q.ordinal + ' of ' + q.total + ')' : '';
+    const cue = h('span', { class: 'gc-q-cue' });
+    const whoLine = h('div', { class: 'gc-q-who' }); whoLine.append(who + ' asks' + seq, cue); card._cue = cue;
+    card.append(whoLine, text);
+    const whole = h('button', { type: 'button', class: 'gc-q-whole' }, '▸ Show the whole question');
+    const setWhole = open => { card.classList.toggle('whole', open); whole.textContent = open ? '▾ Show less' : '▸ Show the whole question'; if (open) openWholes.add(q.id); else openWholes.delete(q.id); };
+    whole.addEventListener('click', () => setWhole(!card.classList.contains('whole')));
     card.append(whole);
-    card._fit = () => { if (!card.classList.contains('whole') && text.clientHeight > 0) { if (text.scrollHeight > text.clientHeight + 2) whole.removeAttribute('hidden'); else whole.setAttribute('hidden', ''); } };
+    if (openWholes.has(q.id)) setWhole(true);
+    card._fit = () => { if (card.classList.contains('whole')) return; if (text.clientHeight > 0 && text.scrollHeight <= text.clientHeight + 2) whole.setAttribute('hidden', ''); else whole.removeAttribute('hidden'); };
+    if (wholeObserver) wholeObserver.observe(text);
     const options = Array.isArray(q.options) ? q.options : [];
     const pickMany = q.multiSelect || q.mode === 'conversation';
-    const star = !pickMany && q.recommended && options.includes(q.recommended) ? q.recommended : '';
+    // the SAME law as the one-on-one card: the Commander's own history (a real count) outranks the agent's guess
+    const g = q.grounded && Array.isArray(q.grounded.options) ? q.grounded.options.filter(o => options.includes(o)) : [];
+    const gCount = Number(q.grounded && q.grounded.count) || 0, useGrounded = g.length > 0 && gCount >= 2 && q.mode !== 'conversation';
+    const starred = useGrounded ? g : (q.recommended && options.includes(q.recommended) && q.mode !== 'conversation' ? [q.recommended] : []);
     const choices = h('div', { class: 'gc-question-choices' }), keys = [];
-    const howTo = q.multiSelect ? 'Pick all that apply, then send your answer below.'
+    const starLine = useGrounded ? (g.length > 1 ? ' ★ are your usual picks (chosen ' + gCount + '+ times before).' : ' ★ is your usual pick (chosen ' + gCount + ' times before).')
+      : starred.length ? ' ★ is ' + who + '\'s suggestion.' : '';
+    const howTo = q.multiSelect ? 'Pick all that apply, then send your answer below.' + starLine
       : q.mode === 'conversation' && options.length ? 'Tap a starting point or type your answer below, then send it.'
-      : options.length ? 'Tap an answer, or type your own below.' + (star ? ' ★ is ' + who + '\'s suggestion.' : '') : 'Type your answer below.';
+      : options.length ? 'Tap an answer, or type your own below.' + starLine : 'Type your answer below.';
     const hint = h('div', { class: 'gc-q-hint' }, howTo);
     let sending = false;   // one answer in flight per card, whatever fires the click
     for (const option of options) {
-      const key = h('button', { type: 'button', class: 'gc-q-choice' + (option === star ? ' lit' : '') }, (option === star ? '★ ' : '') + option);
-      key._star = option === star;
+      const lit = starred.includes(option);
+      const key = h('button', { type: 'button', class: 'gc-q-choice' + (lit ? ' lit' : '') }, (lit ? '★ ' : '') + option);
+      key._star = lit;
       if (pickMany) key.setAttribute('aria-pressed', 'false');
       key.addEventListener('click', () => Promise.resolve().then(async () => {
         if (!pickMany) {
           // one tap answers: every key waits while it is on its way (no second answer), a refusal frees them again
           if (sending) return; sending = true;
           for (const k of keys) k.disabled = true; key.classList.add('chosen'); hint.textContent = 'Sending your answer…';
-          try { return await answerQuestion(groupId, q.id, option); }
-          catch (e) { sending = false; for (const k of keys) k.disabled = false; key.classList.remove('chosen'); hint.textContent = howTo; throw e; }
+          try {
+            const r = await answerQuestion(groupId, q.id, option);
+            // the pressed key leaves with its card: the keyboard lands in the message box, never on <body>
+            const a = document.activeElement; if ((!a || a === document.body || !a.isConnected) && $('chat-input')) $('chat-input').focus();
+            return r;
+          } catch (e) { sending = false; for (const k of keys) k.disabled = false; key.classList.remove('chosen'); hint.textContent = howTo; throw e; }
         }
-        // pick several: each tap toggles that answer in the message box; the keys follow the box
-        const input = $('chat-input'); const parts = input.value ? input.value.split(';').map(x => x.trim()).filter(Boolean) : [];
-        const at = parts.indexOf(option);
-        if (at >= 0) parts.splice(at, 1); else parts.push(option);
-        input.value = parts.join('; '); draftKey = null; input.focus();
+        // pick several: each tap toggles that answer in the message box (the key keeps the focus); the keys follow the box
+        const input = $('chat-input');
+        input.value = togglePick(input.value, option, options); draftKey = null;
         syncPicks(card);
       }).catch(showError));
       keys.push(key); choices.append(key);
@@ -86,21 +121,35 @@ const GroupChat = (() => {
     if (options.length) card.append(choices);
     card.append(hint);
     const folds = h('div', { class: 'gc-q-folds' });
-    if (q.reason) folds.append(questionFold(q.id + ':why', 'Why ' + who + ' is asking', q.reason, ''));
-    if (q.sample) folds.append(questionFold(q.id + ':draft', 'See the draft ' + who + ' suggests', q.sample, 'gc-q-draft'));
+    if (q.reason) folds.append(questionFold(card, q.id + ':why', 'Why ' + who + ' is asking', q.reason, ''));
+    if (q.sample) folds.append(questionFold(card, q.id + ':draft', 'See the draft ' + who + ' suggests', q.sample, 'gc-q-draft'));
     if (folds.children.length) card.append(folds);
     syncPicks(card);
     return card;
   }
-  // a labelled fold; the open/closed choice is remembered by key, and opening one brings its text into view
-  function questionFold(key, label, text, cls) {
+  // the strip's scroller and its layout-px scale (TEXT SIZE is a body zoom)
+  function trayScroller(node) { return node && node.closest ? node.closest('.gc-tray-scroll') : null; }
+  function layoutScale(sc) { return sc.offsetHeight ? (sc.getBoundingClientRect().height / sc.offsetHeight) || 1 : 1; }
+  // a labelled fold; the open/closed choice is remembered by key. Opening one brings its text into view only as far as the
+  // card's top (the question) stays on screen, and closing it gives the strip back its place. A fold re-opened from memory
+  // when its card is rebuilt never scrolls.
+  function questionFold(card, key, label, text, cls) {
     const fold = h('details', { class: 'gc-q-more' });
     fold.append(h('summary', {}, label), h('p', { class: cls || '' }, text));
-    if (openFolds.has(key)) fold.open = true;
+    let restoring = openFolds.has(key), before = null;
+    if (restoring) fold.open = true;
     fold.addEventListener('toggle', () => {
+      if (restoring) { restoring = false; return; }
       if (fold.open) openFolds.add(key); else openFolds.delete(key);
       if (openFolds.size > 50) openFolds.delete(openFolds.values().next().value);
-      if (fold.open && fold.scrollIntoView && typeof requestAnimationFrame === 'function') requestAnimationFrame(() => fold.scrollIntoView({ block: 'nearest' }));
+      const sc = trayScroller(fold); if (!sc) return;
+      if (!fold.open) { if (before != null) sc.scrollTop = before; before = null; return; }
+      before = sc.scrollTop;
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
+        const k = layoutScale(sc), box = sc.getBoundingClientRect();
+        const below = (fold.getBoundingClientRect().bottom - box.bottom) / k, room = (card.getBoundingClientRect().top - box.top) / k - 4;
+        if (below > 0 && room > 0) sc.scrollTop += Math.min(below, room);
+      });
     });
     return fold;
   }
@@ -212,6 +261,7 @@ const GroupChat = (() => {
     $('chat-input').addEventListener('blur', () => setTimeout(() => { if (!mentionBusy && document.activeElement !== $('chat-input') && !$('gc-mentions')?.contains?.(document.activeElement)) closeMentions(); }, 150));
     const tray = h('div', { id: 'gc-tray', class: 'gc-tray' }), trayScroll = h('div', { class: 'gc-tray-scroll scrolly' });
     trayScroll.append(questions, states, preview); tray.append(trayScroll, files);
+    trayScroll.addEventListener('scroll', () => trayEdge(trayScroll), { passive: true });
     root.append(transcript, tray, recipient, h('div', { id: 'gc-notice', role: 'status' }));
     $('chat-log').before(root);
     const row = $('chat-inputrow'); if (row) row.before(mentions); else root.append(mentions);
@@ -221,10 +271,10 @@ const GroupChat = (() => {
       #group-chat[hidden],#gc-header[hidden],#group-chat .gc-files[hidden],#group-chat #gc-files[hidden]{display:none}
       #gc-tray{flex:0 1 auto;min-height:0;max-height:45%;display:flex;flex-direction:column}#gc-tray:has(#gc-questions .gc-question){max-height:max(45%,calc(100% - 170px))}#gc-tray:not(:has(.gc-question,.gc-state,#gc-preview:not(:empty),.gc-files:not([hidden]))){display:none}
       #gc-tray .gc-tray-scroll{flex:0 1 auto;min-height:0;overflow-y:auto;scrollbar-color:var(--ph) transparent}
+      #gc-tray .gc-tray-scroll.more-below{-webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent);mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
       #comms-idbar{flex:0 0 auto;flex-wrap:nowrap}#comms-idbar.gc-group>.comms-agent-wrap,#comms-idbar.gc-group>#comms-agent-model,#chat-panel #comms-idbar.gc-group>.comms-identity,#chat-panel #comms-idbar.gc-group>.comms-portrait{display:none}
       #gc-header{display:flex;align-items:center;gap:10px;flex:1;min-width:0;color:var(--ph)}
-      .gc-badge{flex:0 0 auto;align-self:center;font-size:12px;line-height:18px;letter-spacing:1.5px;color:var(--ph-bright);text-shadow:var(--pg-glow-soft,none);white-space:nowrap}
-      .gc-badge::before{content:'[ ';opacity:.6}.gc-badge::after{content:' ]';opacity:.6}
+      .gc-badge{flex:0 0 auto;align-self:baseline;font:inherit;font-size:15px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:var(--ph);text-shadow:var(--pg-glow-soft,none);white-space:nowrap}
       .gc-count{order:2;flex:0 0 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim);white-space:nowrap}
       #gc-add-agents{flex:0 0 auto;white-space:nowrap}
       .gc-people{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:12px;row-gap:2px;flex:1 1 0;min-width:0;max-height:38px;overflow:hidden;margin:0;padding:0;border:0;background:none;font:inherit;text-align:left;cursor:pointer;color:var(--ph)}
@@ -273,8 +323,8 @@ const GroupChat = (() => {
       .gc-state .gc-dot{flex:0 0 auto;color:var(--ph);text-shadow:0 0 6px var(--ph-glow);animation:1s steps(1) infinite comms-blink}.gc-state .gc-verb{letter-spacing:1.5px;text-transform:uppercase}.gc-state .gc-what{color:var(--text);font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis}
       .gc-state.hold{border-left-color:var(--gold);background:linear-gradient(180deg,color-mix(in srgb,var(--gold) 14%,transparent),rgba(0,0,0,.25))}.gc-state.hold .gc-dot,.gc-state.hold .gc-verb{color:var(--gold);animation:none;text-shadow:none}
       .gc-state.bad{border-left-color:var(--bad)}.gc-state.bad .gc-dot,.gc-state.bad .gc-verb{color:var(--bad);animation:none;text-shadow:none}
-      .gc-state .gc-inspect summary{cursor:pointer}.gc-state .gc-inspect pre{max-height:240px;overflow:auto;margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;font-family:inherit}.gc-state .gc-ok{margin-left:auto;min-height:36px;padding:6px 14px;font:inherit;font-size:var(--sn-type-control,16px);line-height:1.2;letter-spacing:.2px;color:var(--ph-bright);border:1px solid var(--beat-edge);border-radius:5px;background:rgba(var(--ph-rgb),.04);box-shadow:inset 0 1px 0 var(--beat-light);text-shadow:none;cursor:pointer}.gc-state .gc-ok+.gc-ok{margin-left:0}.gc-state .gc-ok.lit{border-color:rgba(var(--gold-rgb),.55);background:linear-gradient(140deg,rgba(var(--gold-rgb),.15),rgba(var(--ph-rgb),.04))}.gc-state .gc-ok.deny{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 35%,transparent);background:color-mix(in srgb,var(--bad) 5%,transparent)}.gc-state .gc-ok:hover:not(:disabled){background:var(--beat-hover)}.gc-state .gc-ok:disabled{opacity:.55;cursor:default}.gc-state .gc-ok:focus-visible{outline:2px solid var(--ph);outline-offset:2px}#gc-states .gc-state .gc-approval:not(.gc-inspect){font-size:var(--sn-type-control,16px)!important;color:var(--ph-bright);opacity:1}#gc-states .gc-state .gc-inspect :is(summary,pre){font-size:var(--sn-type-control,16px)!important;line-height:1.45}.gc-state .gc-approval{flex:1 0 100%;font-size:14px;line-height:1.45;color:var(--text);opacity:.9;overflow-wrap:anywhere}.gc-state .bb{margin-left:auto!important;font-size:15px!important;min-height:34px!important;padding:0 14px!important}.gc-state .bb+.bb{margin-left:0!important}
-      #gc-questions:empty{display:none}#gc-questions{padding:2px 12px 6px}.gc-question{margin:6px 0;padding:13px 15px;border:1px solid rgba(var(--ph-rgb),.2);border-left:2px solid var(--gc-c,rgba(var(--gold-rgb),.62));border-radius:5px;background:var(--cg-card,var(--beat-face));box-shadow:none;color:var(--text);text-shadow:none;overflow-wrap:anywhere;font-variant-ligatures:none}.gc-question .gc-q-who{font-size:var(--sn-type-meta,14px);line-height:1.3;letter-spacing:1.2px;text-transform:uppercase;color:var(--gc-c,var(--gold))}.gc-question .gc-q-text{margin:6px 0 2px;font-size:var(--sn-type-prose,18px);line-height:1.45;color:var(--ph-bright);white-space:pre-wrap;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}.gc-question.whole .gc-q-text{display:block;-webkit-line-clamp:unset;overflow:visible}.gc-question .gc-q-whole{display:block;margin:2px 0 0;padding:3px 0;font:inherit;font-size:var(--sn-type-meta,14px);letter-spacing:.3px;color:var(--ph);background:none;border:0;box-shadow:none;text-shadow:none;cursor:pointer}.gc-question .gc-q-whole[hidden]{display:none}.gc-question .gc-q-whole:focus-visible{outline:2px solid var(--ph);outline-offset:2px}.gc-question-choices{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin:10px 0}.gc-question .gc-q-choice{min-height:36px;width:100%;padding:6px 14px;font:inherit;font-size:var(--sn-type-control,16px);line-height:1.25;letter-spacing:.2px;text-align:left;white-space:normal;color:var(--ph-bright);border:1px solid var(--beat-edge);border-radius:5px;background:rgba(var(--ph-rgb),.04);box-shadow:inset 0 1px 0 var(--beat-light);text-shadow:none;cursor:pointer}.gc-question .gc-q-choice.lit{border-color:rgba(var(--gold-rgb),.55);background:linear-gradient(140deg,rgba(var(--gold-rgb),.15),rgba(var(--ph-rgb),.04))}.gc-question .gc-q-choice:hover:not(:disabled){background:var(--beat-hover);border-color:var(--ph-dim)}.gc-question .gc-q-choice[aria-pressed=true],.gc-question .gc-q-choice.chosen{border-color:var(--ph-bright);background:linear-gradient(140deg,rgba(var(--gold-rgb),.32),rgba(var(--ph-rgb),.08))}.gc-question .gc-q-choice:disabled{cursor:default;opacity:.55}.gc-question .gc-q-choice.chosen:disabled{opacity:1}.gc-question .gc-q-choice:focus-visible{outline:2px solid var(--ph);outline-offset:3px}.gc-question .gc-q-hint{font-size:var(--sn-type-meta,14px);line-height:1.4;color:var(--text);opacity:.85}.gc-question .gc-q-folds{display:flex;flex-wrap:wrap;gap:2px 22px;margin-top:6px}.gc-question .gc-q-folds>details[open]{flex-basis:100%}.gc-question .gc-q-more>summary{cursor:pointer;padding:3px 0;font-size:var(--sn-type-meta,14px);letter-spacing:.3px;color:var(--ph)}.gc-question .gc-q-more>summary:focus-visible{outline:2px solid var(--ph);outline-offset:2px}.gc-question .gc-q-more>p{margin:6px 0 2px;font-size:var(--sn-type-control,16px);line-height:1.5;color:var(--text);white-space:pre-wrap}.gc-question .gc-q-more>p.gc-q-draft{padding:10px 12px;border:1px solid var(--beat-edge);border-radius:5px;background:rgba(0,0,0,.2)}.gc-message .gc-asked{margin:0 0 4px;font-size:var(--sn-type-meta,14px);line-height:1.4;color:var(--text);opacity:.8;font-variant-ligatures:none}.gc-transfer{color:var(--ph-dim);font-size:12px;padding:2px 0 5px 14px;flex:0 0 auto}.gc-transfer{color:var(--ph-dim);font-size:12px;padding:2px 0 5px 14px;flex:0 0 auto}
+      .gc-state .gc-inspect summary{cursor:pointer;list-style:none;text-wrap:pretty}.gc-state .gc-inspect summary::-webkit-details-marker{display:none}.gc-state .gc-inspect summary::before{content:'▸ '}.gc-state .gc-inspect[open] summary::before{content:'▾ '}#gc-states .gc-state .gc-what.gc-asks{flex:1 1 auto;font-size:var(--sn-type-control,16px)!important;line-height:1.4;color:var(--ph-bright);overflow:visible;overflow-wrap:anywhere;white-space:normal;text-wrap:pretty}.gc-state .gc-ok-row{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 2px}.gc-state .gc-inspect pre{max-height:240px;overflow:auto;margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;font-family:inherit}.gc-state .gc-ok{min-width:8em;min-height:36px;padding:6px 14px;font:inherit;font-size:var(--sn-type-control,16px);line-height:1.2;letter-spacing:.2px;color:var(--ph-bright);border:1px solid var(--beat-edge);border-radius:5px;background:rgba(var(--ph-rgb),.04);box-shadow:inset 0 1px 0 var(--beat-light);text-shadow:none;cursor:pointer}.gc-state .gc-ok.lit{border-color:rgba(var(--gold-rgb),.55);background:linear-gradient(140deg,rgba(var(--gold-rgb),.15),rgba(var(--ph-rgb),.04))}.gc-state .gc-ok.deny{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 35%,transparent);background:color-mix(in srgb,var(--bad) 5%,transparent)}.gc-state .gc-ok:hover:not(:disabled){background:var(--beat-hover)}.gc-state .gc-ok:disabled{opacity:.55;cursor:default}.gc-state .gc-ok:focus-visible{outline:2px solid var(--ph);outline-offset:2px}#gc-states .gc-state .gc-approval:not(.gc-inspect){font-size:var(--sn-type-control,16px)!important;color:var(--ph-bright);opacity:1}#gc-states .gc-state .gc-inspect :is(summary,pre){font-size:var(--sn-type-control,16px)!important;line-height:1.45}.gc-state .gc-approval{flex:1 0 100%;font-size:14px;line-height:1.45;color:var(--text);opacity:.9;overflow-wrap:anywhere}.gc-state .bb{margin-left:auto!important;font-size:15px!important;min-height:34px!important;padding:0 14px!important}.gc-state .bb+.bb{margin-left:0!important}
+      #gc-questions:empty{display:none}#gc-questions{padding:2px 12px 6px}.gc-question{margin:6px 0;padding:13px 15px;border:1px solid rgba(var(--ph-rgb),.2);border-left:2px solid var(--gc-c,rgba(var(--gold-rgb),.62));border-radius:5px;background:var(--cg-card,var(--beat-face));box-shadow:none;color:var(--text);text-shadow:none;overflow-wrap:anywhere;font-variant-ligatures:none}.gc-question .gc-q-who{font-size:var(--sn-type-meta,14px);line-height:1.3;letter-spacing:1.2px;text-transform:uppercase;color:var(--gc-c,var(--gold))}.gc-question .gc-q-cue{color:var(--text);opacity:.85}.gc-question .gc-q-more>summary{list-style:none}.gc-question .gc-q-more>summary::-webkit-details-marker{display:none}.gc-question .gc-q-more>summary::before{content:'▸ '}.gc-question .gc-q-more[open]>summary::before{content:'▾ '}.gc-question .gc-q-hint,.gc-question .gc-q-more>summary{text-wrap:pretty}.gc-question .gc-q-text{margin:6px 0 2px;font-size:var(--sn-type-prose,18px);line-height:1.45;color:var(--ph-bright);white-space:pre-wrap;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}.gc-question.whole .gc-q-text{display:block;-webkit-line-clamp:unset;max-height:calc(1.45em * 7);overflow-y:auto}.gc-question .gc-q-whole{display:block;margin:2px 0 0;padding:3px 0;font:inherit;font-size:var(--sn-type-meta,14px);letter-spacing:.3px;color:var(--ph);background:none;border:0;box-shadow:none;text-shadow:none;cursor:pointer}.gc-question .gc-q-whole[hidden]{display:none}.gc-question .gc-q-whole:focus-visible{outline:2px solid var(--ph);outline-offset:2px}.gc-question-choices{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin:10px 0}.gc-question .gc-q-choice{min-height:36px;width:100%;padding:6px 14px;font:inherit;font-size:var(--sn-type-control,16px);line-height:1.25;letter-spacing:.2px;text-align:left;white-space:normal;color:var(--ph-bright);border:1px solid var(--beat-edge);border-radius:5px;background:rgba(var(--ph-rgb),.04);box-shadow:inset 0 1px 0 var(--beat-light);text-shadow:none;cursor:pointer}.gc-question .gc-q-choice.lit{border-color:rgba(var(--gold-rgb),.55);background:linear-gradient(140deg,rgba(var(--gold-rgb),.15),rgba(var(--ph-rgb),.04))}.gc-question .gc-q-choice:hover:not(:disabled){background:var(--beat-hover);border-color:var(--ph-dim)}.gc-question .gc-q-choice[aria-pressed=true],.gc-question .gc-q-choice.chosen{border-color:var(--ph-bright);background:linear-gradient(140deg,rgba(var(--gold-rgb),.32),rgba(var(--ph-rgb),.08))}.gc-question .gc-q-choice:disabled{cursor:default;opacity:.55}.gc-question .gc-q-choice.chosen:disabled{opacity:1}.gc-question .gc-q-choice:focus-visible{outline:2px solid var(--ph);outline-offset:3px}.gc-question .gc-q-hint{font-size:var(--sn-type-meta,14px);line-height:1.4;color:var(--text);opacity:.85}.gc-question .gc-q-folds{display:flex;flex-wrap:wrap;gap:2px 22px;margin-top:6px}.gc-question .gc-q-folds>details[open]{flex-basis:100%}.gc-question .gc-q-more>summary{cursor:pointer;padding:3px 0;font-size:var(--sn-type-meta,14px);letter-spacing:.3px;color:var(--ph)}.gc-question .gc-q-more>summary:focus-visible{outline:2px solid var(--ph);outline-offset:2px}.gc-question .gc-q-more>p{margin:6px 0 2px;font-size:var(--sn-type-control,16px);line-height:1.5;color:var(--text);white-space:pre-wrap}.gc-question .gc-q-more>p.gc-q-draft{padding:10px 12px;border:1px solid var(--beat-edge);border-radius:5px;background:rgba(0,0,0,.2)}.gc-message .gc-asked{margin:0 0 4px;font-size:var(--sn-type-meta,14px);line-height:1.4;color:var(--text);opacity:.8;font-variant-ligatures:none}.gc-transfer{color:var(--ph-dim);font-size:12px;padding:2px 0 5px 14px;flex:0 0 auto}.gc-transfer{color:var(--ph-dim);font-size:12px;padding:2px 0 5px 14px;flex:0 0 auto}
       #gc-notice:empty{display:none}#gc-notice{flex:0 0 auto;padding:4px 12px;font-size:13px;color:var(--gold);overflow-wrap:anywhere}
       /* the picker fills its window: the two lists share the height and scroll on their own, the footer never leaves view */
       .gc-picker{min-width:0;min-height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}.gc-picker>.key-input{flex:0 0 auto;display:block;width:100%;box-sizing:border-box;margin:0}
@@ -341,8 +391,16 @@ const GroupChat = (() => {
     for (const g of result.groups) adopt(g);
     save();
   }
+  // the message box says who hears it: everyone in the group, or — while a question waits — whom the reply answers
+  function setGroupPlaceholder() {
+    const box = $('chat-input'); if (!box || active?.conversationMode !== 'group') return;
+    const waiting = group && group.id === active.id ? (group.questions || []).find(q => q.state === 'pending') : null;
+    box.placeholder = waiting ? 'Answer ' + name(waiting.agentId) + ' · @name messages someone else' : 'Message the group · @ picks one agent';
+  }
+  // the strip never ends on a half-drawn line: while more is below, its last rows fade out
+  function trayEdge(sc) { if (sc && sc.classList) sc.classList.toggle('more-below', sc.scrollTop + sc.clientHeight < sc.scrollHeight - 2); }
   function bind(ws) {
-    init(); if (!root) return;
+    init(); settleStaleJoins(); if (!root) return;
     const enabled = !!ws && ws.conversationMode === 'group';
     $('gc-header').hidden = !enabled;
     $('comms-idbar').classList.toggle('gc-group', enabled);
@@ -353,7 +411,7 @@ const GroupChat = (() => {
     // the message box says who hears it: in a group, everyone (the lead answers an un-@ed message)
     const input = $('chat-input');
     if (input) {
-      if (enabled) { if (basePlaceholder == null) basePlaceholder = input.placeholder || ''; input.placeholder = 'Message the group · @ picks one agent'; }
+      if (enabled) { if (basePlaceholder == null) basePlaceholder = input.placeholder || ''; input.placeholder = 'Message the group · @ picks one agent'; if (active?.id === ws?.id) setGroupPlaceholder(); }
       else if (basePlaceholder != null) { input.placeholder = basePlaceholder; basePlaceholder = null; }
     }
     if (active?.id === ws?.id) return;
@@ -516,14 +574,17 @@ const GroupChat = (() => {
     let arrived = null;
     for (let i = 0; i < qNodes.length; i++) { const cur = questions.children[i]; if (cur !== qNodes[i]) { if (!qNodes[i].parentElement && !arrived) arrived = qNodes[i]; questions.insertBefore(qNodes[i], cur || null); } }
     for (const c of qNodes) syncPicks(c);
+    // more waiting under the first card (a second question, an approval) is said on its who line, in the same font
+    const approvalsWaiting = group.turns.filter(t => t.approval && t.state === 'waiting for approval').length;
+    qNodes.forEach((c, i) => { if (c._cue) { const more = i === 0 ? qNodes.length - 1 + approvalsWaiting : 0; c._cue.textContent = more ? ' · ' + more + ' more waiting below' : ''; } });
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
       for (const c of qNodes) if (c._fit) c._fit();
       // a question that just arrived shows from its top (who asks, what) — never its keys with the question cut off above
       const sc = questions.parentElement;
-      if (arrived && sc && arrived.getBoundingClientRect) sc.scrollTop += arrived.getBoundingClientRect().top - sc.getBoundingClientRect().top - 4;
+      if (arrived && sc && arrived.getBoundingClientRect) sc.scrollTop += (arrived.getBoundingClientRect().top - sc.getBoundingClientRect().top) / layoutScale(sc) - 4;
+      trayEdge(sc);
     });
-    const box = $('chat-input'), waiting = (group.questions || []).find(q => q.state === 'pending');
-    if (box && active?.conversationMode === 'group') box.placeholder = waiting ? 'Answer ' + name(waiting.agentId) + ' · @name messages someone else' : 'Message the group · @ picks one agent';
+    setGroupPlaceholder();
     const states = $('gc-states'), stateNodes = [];
     const VERB = { queued: 'queued', held: 'ready', connecting: 'connecting…', running: 'working', 'waiting for answer': 'waiting for your answer', 'waiting for approval': 'needs approval', stopping: 'stopping', failed: 'failed', interrupted: 'interrupted', stopped: 'stopped' };
     const pendingQ = (group.questions || []).find(q => q.state === 'pending');
@@ -546,7 +607,9 @@ const GroupChat = (() => {
         : t.state === 'queued' && group.paused ? 'paused — CONTINUE runs it, or send a new message'
         : t.state === 'queued' && pendingQ && pendingQ.agentId !== t.agentId ? 'waits for your answer to ' + name(pendingQ.agentId)
         : t.reason && t.state === 'queued' ? t.reason : VERB[t.state] || t.state;
-      row.append(h('span', { class: 'gc-dot', 'aria-hidden': 'true' }, '●'), h('span', { class: 'gc-verb', style: colorOf(t.agentId) && !tone ? 'color:' + colorOf(t.agentId) : '' }, name(t.agentId)), h('span', { class: 'gc-what' }, what));
+      const phrase = t.approval && typeof Chat !== 'undefined' && Chat.consentPhrase ? String(Chat.consentPhrase(t.approval) || '').trim() : '';
+      const said = t.approval ? (phrase ? 'wants to ' + phrase : 'needs approval: ' + String(t.approval.tool || 'an action')) : what;
+      row.append(h('span', { class: 'gc-dot', 'aria-hidden': 'true' }, '●'), h('span', { class: 'gc-verb', style: colorOf(t.agentId) && (!tone || t.approval) ? 'color:' + colorOf(t.agentId) : '' }, name(t.agentId)), h('span', { class: t.approval ? 'gc-what gc-asks' : 'gc-what' }, said));
       if (showContinue) row.append(button('CONTINUE', () => action('resume')));
       if (t.state === 'held' && t.reason) row.append(h('span', { class: 'gc-what' }, t.reason));
       if (t.state === 'held') row.append(button('CONTINUE', () => action('continue')));
@@ -565,17 +628,11 @@ const GroupChat = (() => {
           }).catch(showError));
           keys.push(k);
         });
-        row.append(...keys);
-        // argsSummary is the WHOLE request (user report 10-08): one glance line here, every character in INSPECT under it
-        // the desk card's own reading of it (Chat.consentInspect), so both surfaces show one request the same way
-        const raw = String(t.approval.argsSummary || '');
-        const ins = (typeof Chat !== 'undefined' && Chat.consentInspect ? Chat.consentInspect(t.approval) : null) || { text: raw };
-        const one = String(ins.copy || ins.text).replace(/\s+/g, ' ').trim();
-        // the line says WHAT in the desk card's own words ("to change opportunity-brief.md"), never raw JSON — and then every
-        // character is one click away under INSPECT (Andrew 2026-10-13: the cards must read at a glance)
-        const phrase = typeof Chat !== 'undefined' && Chat.consentPhrase ? String(Chat.consentPhrase(t.approval) || '').trim() : '';
-        row.append(h('div', { class: 'gc-approval' }, phrase ? 'to ' + phrase : t.approval.tool + (one ? ' · ' + (one.length > 160 ? one.slice(0, 159) + '…' : one) : '')));
-        if (phrase || one.length > 160 || /\n/.test(String(ins.text).trim())) {
+        const keyRow = h('div', { class: 'gc-ok-row' }); keyRow.append(...keys); row.append(keyRow);
+        // every character of the request is one click away under the keys — exactly where the desk card offers it
+        // (Chat.consentInspect: a file change as a file, a command as a command; none for a login or a station sentence)
+        const ins = typeof Chat !== 'undefined' && Chat.consentInspect ? Chat.consentInspect(t.approval) : null;
+        if (ins) {
           const pid = t.approval.promptId;
           const detail = h('details', { class: 'gc-approval gc-inspect', ontoggle: () => { if (detail.open) inspectOpen.add(pid); else inspectOpen.delete(pid); } });
           detail.open = inspectOpen.has(pid);   // a re-render keeps the panel the Commander opened
@@ -586,7 +643,7 @@ const GroupChat = (() => {
             const text = ins.copy || ins.text;   // Chat.copyText falls back to a selection copy where the clipboard API is refused
             try { (typeof Chat !== 'undefined' && Chat.copyText ? Chat.copyText(text) : navigator.clipboard.writeText(text).then(() => true)).then(done, () => done(false)); } catch (_) { done(false); }
           });
-          detail.append(h('summary', {}, ins.label || 'Inspect complete request (secret patterns redacted)'), h('pre', {}, ins.text), copy);
+          detail.append(h('summary', {}, ins.label || 'Inspect the full request (secrets redacted)'), h('pre', {}, ins.text), copy);
           row.append(detail);
         }
       }
@@ -738,19 +795,26 @@ const GroupChat = (() => {
      The General home stream is never converted: it stays the station's casual line, and a fresh group starts beside it
      (the same rule the rail's + NEW keeps — General is never rebound). */
   function isGeneral(ws) { return !!ws && typeof Workstreams !== 'undefined' && typeof Workstreams.generalId === 'function' && Workstreams.generalId() === ws.id; }
-  async function startGroup(origin, ids) {
+  async function startGroup(origin, ids, opts = {}) {   // opts.kickoff: the lead's next turn, when an agent brought the crew in
     if (!origin) throw new Error('Open a chat first');
     if (origin.conversationMode === 'group') throw new Error('This chat is already a group');
     const lead = origin.agentId || 'agent', general = isGeneral(origin);
     // the words in THIS chat's box, taken now: if you switch chats while it is created, the box holds another chat's words
     const box = $('chat-input'), draft = box && active?.id === origin.id ? box.value : (composerDrafts.get(origin.id) || '');
     const members = [lead, ...ids.filter(id => id !== lead)];
-    if (!general && typeof Chat !== 'undefined' && Chat.isBusy && active?.id === origin.id && Chat.isBusy()) throw new Error(name(lead) + ' is still working in this chat. Let the run finish (or stop it), then add agents.');
+    // THE chat being converted must be idle (not merely the one on screen): a reply still running there would be lost to the
+    // group, its approval cards hidden and its STOP retargeted. group.add waits for that reply instead (drainAfterRun).
+    if (!general && typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(origin.id)) throw new Error(name(lead) + ' is still working in this chat. Let the run finish (or stop it), then add agents.');
     if (typeof App !== 'undefined' && App.pushRoster) await App.pushRoster();   // the backend must know every agent it seats
     const id = general ? 'ws_' + uid().replace(/-/g, '').slice(0, 20) : origin.id;
     const title = general ? members.map(name).join(' + ') : (origin.title || 'Group chat');
-    const g = await api(general ? { op: 'create', id, members, leadId: lead, title }
-      : { op: 'create', id, conversionKey: origin.id, history: origin.history, originalAgentId: lead, members, leadId: lead, title });
+    // from General the new group carries the request it was made for (only that: General's own history stays in General)
+    const ask = general && opts.kickoff ? [...(origin.history || [])].reverse().find(m => m && m.role === 'user' && !m.sys && String(m.content || '').trim()) : null;
+    const kick = opts.kickoff ? { kickoff: opts.kickoff } : {};
+    const g = await api(general ? { op: 'create', id, members, leadId: lead, title, ...(ask ? { history: [{ role: 'user', content: ask.content, ts: ask.ts }], originalAgentId: lead } : {}), ...kick }
+      // only the dialogue: the local markers (a run-failed / stopped line, a history-cap marker, a status line) are this
+      // page's records, not anyone's words — imported, every member would read them as the lead's (chat.js historyWindowFrom)
+      : { op: 'create', id, conversionKey: origin.id, history: (origin.history || []).filter(m => !(m && (m.truncated || m.sys || m.error))), originalAgentId: lead, members, leadId: lead, title, ...kick });
     adopt(g); save();
     const still = !active || active.id === origin.id;
     // the words in the message box travel with the conversation — what is in it NOW if you stayed (you may have kept
@@ -773,6 +837,89 @@ const GroupChat = (() => {
       try {
         return await api({ op: 'configure', id, revision: fresh.revision, members, leadId: members.includes(fresh.leadId) ? fresh.leadId : members[0] });
       } catch (e) { if (attempt >= 3 || !/Session changed/i.test(e.message || '')) throw e; }
+    }
+  }
+
+  /* ---------- AN AGENT BRINGS CREW IN (station.control group.add, Andrew 2026-10-13) ----------
+     "add 2 agents into this chat … it actually refused to do it, I have to manually add it myself". The SAME paths the
+     + Add agents key takes, for three shapes of chat:
+     - a group: each new member is invited now (safe while a turn runs — the group keeps going);
+     - a chat with no reply running: it converts now, exactly as the key does (General opens a new group beside it);
+     - the chat whose reply IS running — the run that asked: the join waits for that reply to end. A chat cannot change
+       shape under a live reply (the reply, its approval cards and STOP belong to the one-on-one chat), so the join is
+       saved on the conversation and lands through the same startGroup the moment the reply ends; a stop, a failed reply
+       or a reload drops it and says so in the chat. The agent is told "joining when your reply ends", never "added". */
+  const agentNames = ids => { const n = ids.map(name); return n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : (n[0] || 'nobody'); };
+  async function addAgents(ws, ids, caller) {
+    if (!ws) throw new Error('that chat no longer exists');
+    if (ws.conversationMode === 'group') {
+      const fresh = await api(null, '?id=' + encodeURIComponent(ws.id));
+      const add = ids.filter(id => !(fresh.members || []).includes(id));
+      if (!add.length) throw new Error(agentNames(ids) + (ids.length > 1 ? ' are' : ' is') + ' already in this chat');
+      if (typeof App !== 'undefined' && App.pushRoster) await App.pushRoster();   // the backend must know every agent it seats
+      let g = fresh;
+      for (const agentId of add) g = await api({ op: 'invite', id: ws.id, agentId });
+      adopt(g); save();
+      if (active?.id === g.id) { group = g; lastPaint = ''; paint(); }
+      return { added: add, members: g.members };
+    }
+    const lead = ws.agentId || 'agent', add = ids.filter(id => id !== lead);
+    if (!add.length) throw new Error(name(lead) + ' is already this chat\'s agent: name someone else from the crew');
+    if (typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(ws.id)) {
+      // only the run that asked may queue its own chat's change (any other live reply there: refuse, never queue blind)
+      const runId = String((Channels.runIdOf && Channels.runIdOf(ws.id)) || '');
+      if (!caller || String(caller.streamId || '') !== ws.id || !runId || runId !== String(caller.runId || '')) {
+        throw new Error(name(lead) + ' is still answering in that chat: add agents after that reply ends');
+      }
+      const cur = ws.pendingJoin && ws.pendingJoin.runId === runId ? ws.pendingJoin.ids : [];
+      const all = [...new Set([...cur, ...add])].slice(0, 10);
+      ws.pendingJoin = { runId, ids: all, at: Date.now() }; save();
+      return { joining: true, agents: all.map(name), note: agentNames(all) + (all.length > 1 ? ' join ' : ' joins ')
+        + (isGeneral(ws) ? 'a new group chat that opens beside General' : 'this chat (it becomes a group chat, its history kept)')
+        + ' the moment this reply ends. If the reply is stopped or fails, nobody is added and the Commander is told in the chat.' };
+    }
+    const g = await startGroup(ws, add);
+    return { added: add, members: g.members, group: g.id, title: g.title };
+  }
+  // a line in the chat itself that says what did NOT happen (saved: it is still there after a reload), plus the bell
+  function notAdded(ws, ids, why) {
+    const text = agentNames(ids) + (ids.length > 1 ? ' were' : ' was') + ' not added to this chat: ' + why + '.';
+    if (ws && Array.isArray(ws.history)) { ws.history.push({ role: 'system', sys: true, content: text, ts: Date.now() }); save(); }
+    if (ws && typeof Workstreams !== 'undefined' && Workstreams.activeId && Workstreams.activeId() === ws.id && typeof Chat !== 'undefined' && Chat.localLine) Chat.localLine(text);
+    if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(text, 'bad');
+    return null;
+  }
+  // chat.js calls this as the asking reply's teardown ends (after the reply is saved in the history, before a queued
+  // follow-up is sent — which then goes to the new group): land the join, or say why it did not happen
+  async function drainAfterRun(wsId, runId, how) {
+    const ws = typeof Workstreams !== 'undefined' && Workstreams.get ? Workstreams.get(wsId) : null;
+    const job = ws && ws.pendingJoin;
+    if (!job || (runId && job.runId !== String(runId))) return null;
+    ws.pendingJoin = null; save();
+    if (how && how.stopped) return notAdded(ws, job.ids, 'the reply was stopped before it finished');
+    if (ws.lastRunOk === false) return notAdded(ws, job.ids, 'the reply failed before it finished');
+    const crew = (typeof App !== 'undefined' && App.agents && App.agents()) || [];
+    const ids = job.ids.filter(id => crew.some(a => a && a.id === id));
+    if (!ids.length) return notAdded(ws, job.ids, 'they are no longer on the crew');
+    try {
+      // the lead asked for them to work on the Commander's request: it gets the first turn in the group to hand them their parts
+      const kickoff = agentNames(ids) + (ids.length > 1 ? ' have' : ' has') + ' joined this chat at your request. Carry on with the Commander\'s request: give '
+        + (ids.length > 1 ? 'each of them their part' : 'them their part') + ' (group.handoff) and do your own.';
+      const out = ws.conversationMode === 'group' ? await addAgents(ws, ids, null) : await startGroup(ws, ids, { kickoff });
+      if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(agentNames(ids) + (ids.length > 1 ? ' joined ' : ' joined ') + (out && out.title ? '"' + out.title + '"' : 'the chat'), 'good');
+      return out;
+    } catch (e) { return notAdded(ws, ids, String((e && e.message) || e).replace(/\.$/, '')); }
+  }
+  // a reload or a closed tab ends every reply (the request dies with the page): a join still waiting on one never lands
+  let joinsSettled = false;
+  function settleStaleJoins() {
+    if (joinsSettled || typeof Workstreams === 'undefined' || !Workstreams.list) return; joinsSettled = true;
+    for (const ws of Workstreams.list({ includeArchived: true }) || []) {
+      if (!ws || !ws.pendingJoin) continue;
+      const live = typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(ws.id) && Channels.runIdOf && String(Channels.runIdOf(ws.id) || '') === ws.pendingJoin.runId;
+      if (live) continue;
+      const ids = ws.pendingJoin.ids; ws.pendingJoin = null;
+      notAdded(ws, ids, 'the reply was interrupted before it finished (the page reloaded or closed)');
     }
   }
 
@@ -1043,5 +1190,5 @@ const GroupChat = (() => {
   const goneOk = e => { if (!/not found/i.test(e.message || '')) throw e; };
   async function remove(id) { await api({ op: 'control', id, action: 'delete' }).catch(goneOk); states.delete(id); }
   async function pause(id) { await api({ op: 'control', id, action: 'pause' }).catch(goneOk); }
-  return { bind, sendText, discover, rename, remove, pause, isBusy, stop, mentionKey, mentionTargets, startWith, stateOf, attentionIds, membersOf: id => membersById.get(id) || null };
+  return { bind, sendText, discover, rename, remove, pause, isBusy, stop, mentionKey, mentionTargets, startWith, stateOf, attentionIds, membersOf: id => membersById.get(id) || null, addAgents, drainAfterRun };
 })();

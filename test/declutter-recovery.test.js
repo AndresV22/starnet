@@ -32,7 +32,7 @@ function fn(src,name){const m=new RegExp('^( {0,4})(?:async )?function '+name+'\
     const revoked=[],bad=Promise.reject(new Error('missing shared'));bad.catch(()=>{});
     const shared=new Map([['art-1',Promise.resolve('blob:one')],['art-2',bad]]);
     const els={},$=id=>els[id]||(els[id]={hidden:false,style:{},classList:{toggle(){}},replaceChildren(){},textContent:'',value:'',placeholder:''});
-    const bind=new Function('$','sharedBlobs','URL','composerDrafts',`let root={},basePlaceholder=null,active={id:'g1'},pickerFor=null,openedFileUrl=null,openedFile=null,group=null,replyTo=null,selected=[],lastPaint='',generation=0,timer=0,draftKey=null,notice='';const init=()=>{},closeMentions=()=>{},recipientLabel=()=>{},poll=()=>{};${fn(gc,'bind')}return bind;`)($,shared,{revokeObjectURL:u=>revoked.push(u)},new Map());
+    const bind=new Function('$','sharedBlobs','URL','composerDrafts',`let root={},basePlaceholder=null,active={id:'g1'},pickerFor=null,openedFileUrl=null,openedFile=null,group=null,replyTo=null,selected=[],lastPaint='',generation=0,timer=0,draftKey=null,notice='';const init=()=>{},settleStaleJoins=()=>{},setGroupPlaceholder=()=>{},closeMentions=()=>{},recipientLabel=()=>{},poll=()=>{};${fn(gc,'bind')}return bind;`)($,shared,{revokeObjectURL:u=>revoked.push(u)},new Map());
     bind({id:'g1',conversationMode:'group'});await new Promise(r=>setImmediate(r));A.eq(revoked,[],'re-binding the same group keeps its images');
     bind({id:'g2',conversationMode:'group'});await new Promise(r=>setImmediate(r));
     A.eq(revoked,['blob:one'],'switching groups revokes the previous group image blob URLs');A.eq(shared.size,0,'and forgets them');

@@ -50,6 +50,25 @@ async function provider() {
       send({ content: (lines.length > 1 ? 'The launch kit is ready.' : 'Here is what came back.') + '\n\n' + lines.join('\n')
         + (still.length ? '\n\n' + still.join(' and ') + (still.length > 1 ? ' are' : ' is') + ' still working; I will report when they finish.' : '') });
     }
+    else if (/joined this chat at your request/.test(user) && parsed.tools.some(t => t.function && t.function.name === 'group_handoff')) {
+      // THE KICKOFF (2026-10-13): the crew the lead brought in just joined; the lead hands each one its part, then says who does what
+      let people = [];
+      try { people = JSON.parse((/Other participants: (\[[\s\S]*?\])\. /.exec(system) || [])[1] || '[]'); } catch (_) { people = []; }
+      const named = ((/"([^"]+?) (?:have|has) joined this chat at your request/.exec(user) || [])[1] || '').split(/, | and /).map(x => x.trim()).filter(Boolean);
+      const targets = named.map(n => people.find(p => String(p.name || '').toUpperCase() === n.toUpperCase())).filter(Boolean);
+      const parts = ['Scan our 4 closest competitors and their entry pricing', 'Draft the new pricing page copy and layout'];
+      const done = used.filter(n => n === 'group_handoff').length;
+      if (done < Math.min(targets.length, parts.length)) call('group_handoff', { agentId: targets[done].id, request: parts[done] });
+      else send({ content: targets.map((p, i) => p.name + (i ? ' builds: ' : ' researches: ') + parts[i].toLowerCase()).join('. ') + '. I will pull it together when they report.' });
+    }
+    else if (/\badd (?:two|2) agents\b/i.test(user) && crew.length >= 2 && !/Shared conversation context/.test(user)) {
+      // the lead brings two crew into THIS chat (station.control group.add) and then says ONLY what the tool said
+      const toolText = String((messages.slice(lastUser + 1).filter(m => m.role === 'tool').pop() || {}).content || '');
+      if (!used.includes('brief_proceed')) call('brief_proceed', { objective: 'Bring two crew members into this chat', deliverable: 'A researcher and a builder seated in this chat' });
+      else if (!used.includes('tool_search')) call('tool_search', { query: 'add agents to this chat group.add' });
+      else if (!used.includes('station_control')) call('station_control', { action: 'group.add', args: { agents: crew.slice(0, 2) } });
+      else send({ content: /^QUEUED, NOT DONE YET: /.test(toolText) ? toolText.replace(/^QUEUED, NOT DONE YET: /, '').replace(/ Tell the Commander[\s\S]*$/, '') : 'I could not add them: ' + toolText.slice(0, 300) });
+    }
     else if (/\bask me a (choice|shaping) question\b/i.test(user)) {
       // the lead's OWN question cards (brief_ask): "choice" = the clarify card with one-tap answers, "shaping" = the
       // LET'S SHAPE THIS card (free text + starting points + a draft) — to see and drive both the way a Commander does

@@ -270,6 +270,7 @@ const StationCommands = (() => {
     opts = opts || {};
     const hit = resolveDelivery(a);
     const ws = hit.w;
+    if (ws.conversationMode === 'group') throw new Error('"' + (ws.title || 'that chat') + '" is a group chat: its transcript belongs to its members, so a worker\'s result cannot be filed into it. Nothing was delivered there');
     const text = String((a && a.text) || '').trim();
     if (!text) throw new Error('nothing to deliver — the worker returned no text');
     const runId = String((a && a.runId) || '');
@@ -889,6 +890,7 @@ const StationCommands = (() => {
           title: w.title != null ? w.title : (w.id === generalId ? 'General' : null),
           agentId: w.agentId || 'agent',
           lane: w.lane || null,
+          group: w.conversationMode === 'group',   // a group takes work through its members (group.add + group.handoff), never a dispatched worker
           active: w.id === activeId
         }))
       };
@@ -1086,6 +1088,7 @@ const StationCommands = (() => {
       const act = String((a && a.action) || '');
       if (/^agent\./.test(act)) return agentControl(act, a);
       if (/^session\./.test(act)) return sessionControl(act, a);
+      if (act === 'group.add') return groupAdd(a);
       if (act === 'look.set') {
         if (typeof StationUI === 'undefined' || !StationUI.setLook) throw new Error('the look settings are not loaded on this page');
         // an empty look changes nothing — never answer it as saved (it read back "done" while hints stayed on, 2026-10-08)
@@ -1229,6 +1232,18 @@ const StationCommands = (() => {
     if (!live) throw new Error('the Commander is not looking at this conversation right now, so their screen was left alone — tell them where it is instead');
   }
   // an agent by exact id or name (case-insensitive) — never a guess: unknown or ambiguous refuses with the real roster
+  /* group.add (station-control.js): bring crew into a chat through the SAME path the chat's + Add agents key takes
+     (group-chat.js addAgents). Names resolve strictly (two agents with one name are refused, never guessed). The caller
+     — the run that asked, host-stamped by the sidecar — lets a chat whose reply is still running take the join when
+     THAT reply ends; the result then says "joining", never "added". */
+  async function groupAdd(a) {
+    if (typeof GroupChat === 'undefined' || !GroupChat.addAgents) throw new Error('group chat is not loaded on this page; reload it, nothing changed');
+    const hit = resolveChat(a.session);
+    const ids = [];
+    for (const ref of (Array.isArray(a.agents) ? a.agents : [])) { const ag = resolveAgent(ref); if (!ids.includes(ag.id)) ids.push(ag.id); }
+    if (!ids.length) throw new Error('no crew member was named, so nothing changed');
+    return GroupChat.addAgents(hit.w, ids, a.caller && typeof a.caller === 'object' ? a.caller : null);
+  }
   function resolveAgent(ref) {
     const crew = (typeof App !== 'undefined' && App.agents && App.agents()) || [];
     const want = String(ref || '').trim().toLowerCase();
@@ -1249,6 +1264,11 @@ const StationCommands = (() => {
     } catch (error) {
       out = { id, ok: false, error: String((error && error.message) || error) };
     }
+    /* TWO STATION PAGES (the app and a browser tab): every open page gets the command and the FIRST answer wins. A page
+       that cannot even find the chat it names (a chat another page just made) must not out-race the page that owns it
+       with "there is no session called …" — the agent was told REFUSED for a change the other page made (2026-10-13).
+       It answers a beat later; the owner's answer lands first and the bridge drops the late one. Alone, it still answers. */
+    if (!out.ok && /^there is no session called /.test(out.error)) await new Promise(r => setTimeout(r, 1500));
     try {
       await fetch('/api/station/ack', {
         method: 'POST',

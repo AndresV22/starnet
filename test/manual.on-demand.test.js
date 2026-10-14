@@ -41,8 +41,10 @@ const inline = M.MANUAL_SECTIONS.filter(s => s.kind !== 'reference');
 // reference section (every StarNet thing, its place, its tool, its trap), NAVIGATION's generated EVERY PLACE list (frontend/app/
 // places.js), and the dossier's CAN DO replaces the gone SKILLS tab. All reference: the inline form got SHORTER.
 // Re-pinned 2026-10-11: CONCEPTS documents SEND TO and the implemented line operations.
-A.eq(full.length, 26433,'the whole manual keeps its length (+30: REFIT is named BUILD MODE; +2: SETTINGS › AI & MODELS; +308: the 0.13 dock, 2026-10-02; +494: station.show + approvals in COMMS, 2026-10-04; +13388: CONCEPTS + EVERY PLACE + the lane-3 actions + FIND, 2026-10-05; +1803: CONCEPTS learns the trunk since 10-04 (desk seats, SETTLE, held credits, browser reset, HINTS, ERASE EVERYTHING) + "conveyor" + the budget.set call shape, 2026-10-08; +287: NAVIGATION says changing is not opening, 2026-10-08; +143: never around the station tools via shell/files/web, 2026-10-08; +160: the SESSIONS rule (pin = a rail session, never a memory note) inline, 2026-10-08; -330: FIND (Ctrl+K) removed with its window and place, 2026-10-13)');
-A.eq(crypto.createHash('sha256').update(full, 'utf8').digest('hex'), '8abf002b64c6d6af2bd3525f7b7db1099629feed025cdd2620521e825fd4eae8',
+// Re-pinned 2026-10-13: CONCEPTS names group.add (an agent brings crew into this chat) and that group.configure's members
+// is the WHOLE list (+127), on top of trunk's FIND removal (-330).
+A.eq(full.length, 26560,'the whole manual keeps its length (+127: group.add in CONCEPTS, 2026-10-13; +30: REFIT is named BUILD MODE; +2: SETTINGS › AI & MODELS; +308: the 0.13 dock, 2026-10-02; +494: station.show + approvals in COMMS, 2026-10-04; +13388: CONCEPTS + EVERY PLACE + the lane-3 actions + FIND, 2026-10-05; +1803: CONCEPTS learns the trunk since 10-04 (desk seats, SETTLE, held credits, browser reset, HINTS, ERASE EVERYTHING) + "conveyor" + the budget.set call shape, 2026-10-08; +287: NAVIGATION says changing is not opening, 2026-10-08; +143: never around the station tools via shell/files/web, 2026-10-08; +160: the SESSIONS rule (pin = a rail session, never a memory note) inline, 2026-10-08; -330: FIND (Ctrl+K) removed with its window and place, 2026-10-13)');
+A.eq(crypto.createHash('sha256').update(full, 'utf8').digest('hex'), 'ab7121d1a1df5f75b85ec840f7bc9a1cfd6a47daf457357b56a08c47686282a1',
   'the whole manual is byte-identical to the literal that shipped before the split');
 
 // ---- B. the sections partition the manual ----

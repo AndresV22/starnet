@@ -7,7 +7,7 @@ function part(src, start, end) { const i=src.indexOf(start), j=src.indexOf(end,i
 function ctx(code, extra={}) { const c=vm.createContext(extra); vm.runInContext(code,c); return c; }
 
 test('explicit worker reveal wins a queued layout pin; ordinary loads still follow the latest message', () => {
-  const frames=[], target={ scrollIntoView(){ log.scrollTop=120; } }, log={scrollTop:0,scrollHeight:2000,contains:el=>el===target};
+  const frames=[], target={ scrollIntoView(){ log.scrollTop=120; } }, log={scrollTop:0,scrollHeight:2000,contains:el=>el===target,querySelectorAll:()=>[]};
   const c=ctx(part(chat,'  function cancelHistoryPin()', '  function positionNewPill('), {log,historyPinPending:1,stick:true,userScrollAt:0,requestAnimationFrame:fn=>frames.push(fn),nearBottom:()=>log.scrollTop===log.scrollHeight,hideNewPill(){},showNewPill(){}});
   c.pinLoadedHistoryAfterLayout(1); assert.equal(c.revealHistory(target),true);
   while(frames.length) frames.shift()();

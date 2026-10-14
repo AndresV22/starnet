@@ -209,7 +209,7 @@ body #chat-panel :is(#chat-log, #gc-log) > .cmsg.agent:not(.tool):not(.consent):
    It is a terminal key now: opaque panel backing (it floats over text), phosphor line, bright type. ---- */
 body #chat-panel .comms-newpill {
   background: color-mix(in srgb, var(--panel2) 94%, var(--ph)); border: 1px solid rgba(var(--ph-rgb), .35);
-  border-radius: 4px; color: var(--ph); text-shadow: var(--pg-glow-soft, none); box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
+  border-radius: 4px; color: var(--ph); text-shadow: none; box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
 }
 body #chat-panel .comms-newpill.hasnew {
   background: color-mix(in srgb, var(--panel2) 84%, var(--ph)); border-color: var(--ph);

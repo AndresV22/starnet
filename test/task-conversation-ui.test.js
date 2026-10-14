@@ -20,7 +20,13 @@ class Element {
   assert.equal(card.children[1].textContent,'Walk me through the last update.');
   const order=card.children.map(n=>n.className);
   assert.ok(order.indexOf('tc-actions')<order.indexOf('tc-why')&&order.indexOf('tc-actions')<order.indexOf('tc-understanding'),'the answer comes before the folds: '+order.join(' '));
-  assert.ok(all().some(n=>n.className==='tc-hint'&&n.textContent==='Tap one to add it to your answer, then edit or send.'),'one plain line on the starting points');
+  const hintAt=order.indexOf('tc-hint');assert.ok(hintAt===order.indexOf('tc-shortcuts')+1&&card.children[hintAt].textContent==='Tap one to add it to your answer below, then edit and send.','one plain line, UNDER the keys it explains');
+  assert.equal(order.filter(c=>c==='tc-hint').length,1,'one hint line (the keyboard tip lives in the placeholder)');assert.match(input.placeholder,/Enter sends · Shift \+ Enter adds a line/,'the placeholder names the keys the box has (Enter sends, like the COMMS composer)');
+  // Enter sends from the box (the same keys as the COMMS composer); Shift + Enter does not
+  {const probe=ctx.module.exports.TaskConversation.mount(new Element('root'),{question:'q'},async()=>true);let prevented=false;
+   probe.input.value='x';probe.input.events.keydown({key:'Enter',shiftKey:true,isComposing:false,preventDefault(){prevented=true;}});assert.equal(prevented,false,'Shift + Enter keeps the newline');
+   probe.input.events.keydown({key:'Enter',shiftKey:false,isComposing:false,preventDefault(){prevented=true;}});assert.equal(prevented,true,'Enter sends');}
+  assert.ok(all().some(n=>n.tag==='summary'&&n.textContent==='Why NOVA is asking'),'the reason fold names who asks, like every other card');
   assert.equal(button('Send answer').disabled,true);
   // a starting point toggles: in (✓), out again, never a duplicate; typed text is kept
   input.value='I read Slack.';input.events.input();shortcut('A Google Doc').onclick();
@@ -40,6 +46,13 @@ class Element {
   assert.equal(card.attrs['aria-label'],'Shared task context');
   assert.ok(all().some(n=>n.tag==='details'&&n.className==='tc-receipt'&&/^You answered: /.test(n.children[0].textContent)),'answered card folds into a readable receipt');
   assert.ok(all().some(n=>n.tag==='blockquote'&&n.textContent.includes('<script>')),'quoted evidence stays literal text');
+  // settled somewhere else (the phone, a timeout): the card says so and stops taking input
+  const other=ctx.module.exports.TaskConversation.mount(new Element('root'),{asker:'NOVA',question:'q',options:['A']},async()=>true);
+  assert.equal(other.settle('Answered from your phone'),true);assert.equal(other.isDone(),true);
+  const left=(n)=>{const out=[];const v=x=>{out.push(x);x.children.forEach(v);};v(n);return out;};
+  assert.ok(!left(other.card).some(n=>n.tag==='textarea'||n.className==='tc-actions'),'its box and keys are gone');
+  assert.ok(left(other.card).some(n=>n.className==='tc-feedback'&&n.textContent==='Answered from your phone'),'it says what happened');
+  assert.equal(other.settle('again'),false,'settles once');
   // with no asker the caption keeps its old words
   const plain=ctx.module.exports.TaskConversation.mount(new Element('root'),{question:'q'},async()=>true);
   assert.equal(plain.card.children[0].textContent,'LET’S SHAPE THIS');

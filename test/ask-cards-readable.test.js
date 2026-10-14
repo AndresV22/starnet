@@ -44,7 +44,7 @@ const byClass = (root, c) => all(root).filter(e => e._cls && e._cls.has(c));
 
 (async () => {
   /* ---- A. the group chat ---- */
-  const Q = { id: 'q1', state: 'pending', agentId: 'agent', mode: 'choice', multiSelect: false, turnId: '', question: 'What should the conveyor deliver first?', options: ['Validate', 'Prototype', 'Fulfill'], recommended: 'Prototype', reason: 'These need different gates.', sample: 'One GO / TEST / NO-GO brief per job.' };
+  const Q = { id: 'q1', state: 'pending', agentId: 'agent', mode: 'choice', multiSelect: false, turnId: '', question: 'What should the conveyor deliver first?', options: ['Validate', 'Prototype', 'Fulfill'], recommended: 'Prototype', ordinal: 1, total: 2, reason: 'These need different gates.', sample: 'One GO / TEST / NO-GO brief per job.' };
   const M = { id: 'q2', state: 'pending', agentId: 'agent', mode: 'choice', multiSelect: true, turnId: '', question: 'Which sources?', options: ['Reddit', 'Pricing pages', 'Reviews'], reason: '', sample: '' };
   let tick = 0, answerReply = null, posts = [], questions = [Q, M], approval = true, messages = [];
   const group = () => ({ id: 'g1', title: 'War room', members: ['agent', 'nova'], leadId: 'agent', revision: 3 + tick, paused: false, messages: messages.slice(), artifacts: [],
@@ -75,12 +75,12 @@ const byClass = (root, c) => all(root).filter(e => e._cls && e._cls.has(c));
   const cards = () => byClass(strip(), 'gc-question');
   A.eq(cards().length, 2, 'both pending questions show');
   const card = cards()[0];
-  A.eq(byClass(card, 'gc-q-who')[0].textContent, 'NOVA asks', 'who asks, on its own line');
+  A.eq(byClass(card, 'gc-q-who')[0].textContent, 'NOVA asks (1 of 2) · 2 more waiting below', 'who asks, its place in the batch, and what else waits below (a question + an approval), on its own line');
   A.eq(byClass(card, 'gc-q-text')[0].textContent, Q.question, 'the question, whole');
   A.eq(byClass(card, 'gc-q-choice').map(k => k.textContent + (k._cls.has('lit') ? '[lit]' : '')).join('|'), 'Validate|★ Prototype[lit]|Fulfill', 'the answers are keys; the agent\'s suggestion is the lit ★ key');
   A.eq(byClass(card, 'gc-q-hint')[0].textContent, 'Tap an answer, or type your own below. ★ is NOVA\'s suggestion.', 'one plain line on how to answer, and what ★ means');
   A.eq(card.children.map(c => c.className.split(' ')[0]).join(' '), 'gc-q-who gc-q-text gc-q-whole gc-question-choices gc-q-hint gc-q-folds', 'reading order: who · question · (whole question) · answers · hint · folds');
-  A.eq(byClass(card, 'gc-q-whole')[0].getAttribute('hidden'), '', 'a question that fits offers no "whole question" key');
+  A.eq(byClass(card, 'gc-q-whole')[0].getAttribute('hidden'), null, 'a question that cannot be measured yet (no layout) keeps its "whole question" key — never clamped without one');
   A.eq(ctx.document.getElementById('chat-input').placeholder, 'Answer NOVA · @name messages someone else', 'the message box says whom it answers while a question waits');
   const folds = byClass(card, 'gc-q-more');
   A.eq(folds.map(f => f.children[0].textContent).join('|'), 'Why NOVA is asking|See the draft NOVA suggests', 'the reason and the draft are folded under labelled lines (kept, never removed)');
@@ -93,7 +93,8 @@ const byClass = (root, c) => all(root).filter(e => e._cls && e._cls.has(c));
   const rowsBefore = byClass(ctx.document.getElementById('gc-states'), 'gc-state').find(r => /Approve once/.test(r.textContent));
   tick++; await pollFn(); await settle();
   A.ok(byClass(ctx.document.getElementById('gc-states'), 'gc-state').find(r => /Approve once/.test(r.textContent)) === rowsBefore, 'the approval row is kept too');
-  A.ok(/to change brief\.md/.test(rowsBefore.textContent), 'the approval says what, in the desk card\'s words');
+  A.ok(/^●NOVA|MIRAwants to change brief\.md/.test(rowsBefore.textContent) && byClass(rowsBefore, 'gc-asks')[0].textContent === 'wants to change brief.md', 'the approval reads like the desk card: "MIRA wants to change brief.md"');
+  A.ok(byClass(rowsBefore, 'gc-ok-row').length === 1 && !byClass(rowsBefore, 'gc-inspect').length, 'its keys sit on their own row under it; no INSPECT where the desk card has none');
   // one tap answers: every key waits and the hint says so; a refusal frees them and restores the hint
   let refuse; answerReply = new Promise(r => { refuse = r; });
   byClass(card, 'gc-q-choice')[0].fire('click'); await settle();
@@ -143,7 +144,7 @@ const byClass = (root, c) => all(root).filter(e => e._cls && e._cls.has(c));
       document: { createElement: t => new El(t), createTextNode: t => Object.assign(new El('#text'), { textContent: t }) },
       row: () => { const r = { d: new El('div'), body: new El('div') }; rows.push(r); return r; },
       Harness: { consentAnswer: () => (clarifyReply || Promise.resolve({ ok: true })) }, TaskConversation: null,
-      U: { bus: { emit() {}, on() {}, off() {} } }, isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, revealCard() {}, releaseCard() {}, announcedPrompt: () => true, StationUI: { notify() {} }, askAnswerers: new Map(), glance: (t) => String(t) });
+      U: { bus: { emit() {}, on() {}, off() {} } }, isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, revealCard() {}, releaseCard() {}, keepFocus() {}, fitWhole() {}, announcedPrompt: () => true, StationUI: { notify() {} }, askAnswerers: new Map(), glance: (t) => String(t) });
     vm.runInContext(part(chat, '  function settledWhere(resp)', '  async function answerConsent(') + part(chat, '  function clarifyRow(', '  // p = a consent payload'), c);
     c.clarifyRow({ promptId: 'p9', tool: 'brief.ask', argsSummary: JSON.stringify(q) }, { id: 'w1', agentId: 'agent' });
     return rows[0];
@@ -166,7 +167,7 @@ const byClass = (root, c) => all(root).filter(e => e._cls && e._cls.has(c));
   A.ok(!r1.body.children.includes(hint) && !r1.body.children.includes(btns) && /✓ Pro/.test(r1.body.textContent), 'answered: the keys and the hint go, the answer stays');
   A.eq(r1.body.children.map(k => k.className.split(' ')[0]).join(' '), 'cq-who cq-text cq-whole consent-result cq-why', 'the answer sits right under the question, the reason still folded under it');
   const r2 = clarify({ question: 'Which?', options: ['A', 'B'], reason: 'x', grounded: { options: ['B'], count: 3 } });
-  A.eq(r2.body.children.find(k => k._cls.has('cq-hint')).textContent, 'Tap an answer. ★ = what you picked 3 times before.', 'a grounded ★ states its real count in the one hint line');
+  A.eq(r2.body.children.find(k => k._cls.has('cq-hint')).textContent, 'Tap an answer. ★ is your usual pick (chosen 3 times before).', 'a grounded ★ states its real count in the one hint line, in the same sentence shape as the group card');
   A.ok(r2.body.children.some(k => k._cls.has('cq-why')), 'the reason stays one tap away when the ★ is grounded too');
   A.ok(!r2.body.children.some(k => k._cls.has('tq-reason')), 'no second suggestion line');
   // a card follows the bottom unless that cuts its top off; then it shows from its top until it is answered
@@ -174,12 +175,13 @@ const byClass = (root, c) => all(root).filter(e => e._cls && e._cls.has(c));
     const pills = [];
     // a 300px-tall log over 1000px of rows: like a browser, scrollTop clamps to 0..700
     let top = 0;
-    const log = { scrollHeight: 1000, clientHeight: 300, get scrollTop() { return top; }, set scrollTop(v) { top = Math.max(0, Math.min(700, v)); }, getBoundingClientRect: () => ({ top: 100 }) };
-    const card = (at, h = 100) => ({ offsetHeight: h, getBoundingClientRect: () => ({ top: 100 + at - log.scrollTop }) });
-    const rc = vm.createContext({ log, stick: true, autoscroll() { log.scrollTop = log.scrollHeight; }, showNewPill: v => pills.push('show'), hideNewPill: () => pills.push('hide') });
-    vm.runInContext(part(chat, '  let heldCard = null;', '  function jumpToBottom()').replace(/let heldCard/, 'var heldCard') + '\nthis.read = () => ({ stick, heldCard });', rc);
+    const inLog = new Set();
+    const log = { scrollHeight: 1000, clientHeight: 300, offsetHeight: 300, get scrollTop() { return top; }, set scrollTop(v) { top = Math.max(0, Math.min(700, v)); }, getBoundingClientRect: () => ({ top: 100, height: 300 }), contains: el => inLog.has(el) };
+    const card = (at, h = 100) => { const c = { offsetHeight: h, dataset: { liveAsk: '1' }, focused: 0, focus() { this.focused++; }, getBoundingClientRect: () => ({ top: 100 + at - log.scrollTop }) }; inLog.add(c); return c; };
+    const rc = vm.createContext({ log, stick: true, autoscroll() { if (rc.read().stick) log.scrollTop = log.scrollHeight; else pills.push('new'); }, showNewPill: v => pills.push('show'), hideNewPill: () => pills.push('hide'), document: {} });
+    vm.runInContext(part(chat, '  let heldCard = null, heldScrollTop = 0;', '  function jumpToBottom()').replace(/let heldCard/, 'var heldCard') + '\nthis.read = () => ({ stick, heldCard, heldQueue });', rc);
     const tall = card(600); rc.revealCard(tall);   // at the bottom (700) its top would sit 100px above the edge
-    A.ok(log.scrollTop === 592 && tall.getBoundingClientRect().top === 108 && rc.read().stick === false && pills.includes('show'), 'a card whose top the bottom-follow would cut shows from its top (8px under the edge), the follow waits');
+    A.ok(log.scrollTop === 592 && tall.getBoundingClientRect().top === 108 && rc.read().stick === false && !pills.includes('show'), 'a card whose top the bottom-follow would cut shows from its top (8px under the edge), the follow waits, no pill over it');
     rc.releaseCard(tall);
     A.ok(rc.read().stick === true && log.scrollTop === 700 && rc.read().heldCard === null, 'answered: the transcript follows the run again');
     const short = card(850); log.scrollTop = 0; rc.revealCard(short);
@@ -187,6 +189,34 @@ const byClass = (root, c) => all(root).filter(e => e._cls && e._cls.has(c));
     rc.releaseCard(short);
     const snug = card(760, 240); log.scrollTop = 0; rc.revealCard(snug);   // fits now, but not once the presence line lands under it
     A.ok(log.scrollTop === 700 && snug.getBoundingClientRect().top === 160 && rc.read().stick === false && rc.read().heldCard === snug, 'a card that would lose its top once the presence line lands is held (the follow waits), its top in view');
+    // a second card waits its turn: no jump, no focus — and is shown from its top once the first is answered
+    const second = card(300, 250); const r2nd = rc.revealCard(second);
+    A.ok(r2nd === 'queued' && rc.read().heldCard === snug && log.scrollTop === 700 && second.focused === 0, 'a second card behind a held one waits its turn (no jump, no focus)');
+    rc.releaseCard(snug);
+    A.ok(rc.read().heldCard === second && second.getBoundingClientRect().top === 108 && second.focused === 1 && !snug.dataset.liveAsk, 'the first answered: the second shows from its top and only now takes the keyboard');
+    // the reader scrolled away from the held card: answering it never yanks them
+    log.scrollTop = 200; rc.releaseCard(second);
+    A.ok(log.scrollTop === 200 && rc.read().heldCard === null, 'a reader who scrolled away is left where they are');
+    // a card from ANOTHER session (no longer in this log) settles without moving the transcript being read
+    const other = card(600); rc.read(); log.scrollTop = 0; rc.stick = true; vm.runInContext('stick = true', rc); rc.revealCard(other); inLog.delete(other); log.scrollTop = 300; rc.releaseCard(other);
+    A.ok(log.scrollTop === 300 && rc.read().heldCard === null, 'answering a card of another session never moves the one on screen');
+    // COMMS without layout (behind CREW / ACTIVITY): nothing is held
+    const flat = Object.assign({}, log); vm.runInContext('stick = true', rc); log.clientHeight = 0; const tiny = card(900, 40); rc.revealCard(tiny); log.clientHeight = 300;
+    A.ok(rc.read().heldCard === null && rc.read().stick === true, 'a log with no layout holds nothing (it just follows)');
+    // TEXT SIZE (body zoom 1.25): rect offsets are visual px, scrollTop is layout px
+    log.getBoundingClientRect = () => ({ top: 100, height: 375 }); vm.runInContext('stick = true', rc); log.scrollTop = 0;
+    const zoomed = { offsetHeight: 260, dataset: { liveAsk: '1' }, focus() {}, getBoundingClientRect: () => ({ top: 100 + (600 - log.scrollTop) * 1.25 }) }; inLog.add(zoomed);
+    rc.revealCard(zoomed);
+    A.ok(log.scrollTop === 592, 'under a 125% TEXT SIZE the card is still placed 8 layout px under the edge (no overshoot)');
+    void flat;
+  }
+  // group pick-several: an option containing ";" is one pick, free text in the box survives a toggle
+  {
+    const g = vm.createContext({}); vm.runInContext(part(read('frontend/app/group-chat.js'), '  function pickItems(', '  // a pick-several key shows'), g);
+    const O = ['Reddit', 'Reddit; HN', 'Reviews'];
+    A.eq([...g.pickedIn('Reddit; HN', O)].join('|'), 'Reddit; HN', 'an option with ";" is one pick and never lights a shorter one inside it');
+    A.eq(g.togglePick('Reddit; also check X', 'Reviews', O), 'Reddit; also check X; Reviews', 'a toggle keeps what the Commander typed');
+    A.eq(g.togglePick('Reddit; HN; Reddit', 'Reddit', O), 'Reddit; HN', 'un-picking removes exactly that pick');
   }
   const statusEl = new El('span'), sc = vm.createContext({ statusEl, String });
   vm.runInContext(part(chat, '  function status(s) {', '  // derive the DISPLAYED stream'), sc);
@@ -195,10 +225,13 @@ const byClass = (root, c) => all(root).filter(e => e._cls && e._cls.has(c));
   /* ---- C. the presence line + LET'S SHAPE THIS ---- */
   A.ok(/pend\.tool === 'brief\.ask' \? 'see the question above' : 'to ' \+ glance\(actionPhrase\(pend\), 70\)/.test(chat) && !/waiting for you to approve ' \+ shortName/.test(chat), 'the paused line names the request in the card\'s words, never a raw tool id');
   const tc = read('frontend/app/taskconversation.js');
-  A.ok(/fold\('tc-why','Why this matters'/.test(tc) && /fold\('tc-draft','See the draft starting point'/.test(tc), 'LET\'S SHAPE THIS folds its reason and its draft');
+  A.ok(/fold\('tc-why',q\.asker \? 'Why '\+q\.asker\+' is asking'/.test(tc) && /fold\('tc-draft',q\.asker \? 'See the draft '\+q\.asker\+' suggests'/.test(tc), 'LET\'S SHAPE THIS folds its reason and its draft, named like every other card');
+  A.ok(/:is\(\.cmsg\.nudge, \.cmsg\.consent\) \.task-conversation \{/.test(read('frontend/css/comms-layout.css')), 'the conversation card is ONE frame inside the decision card, never a card inside a card');
   const css = read('frontend/app/group-chat.js');
   A.ok(/\.gc-question \.gc-q-text\{[^}]*font-size:var\(--sn-type-prose,18px\)/.test(css) && /\.gc-question \.gc-q-choice\{min-height:36px/.test(css), 'group card: the question at reading size, the answers 36px keys');
-  A.ok(/\.gc-state \.gc-ok\{margin-left:auto;min-height:36px;[^}]*font-size:var\(--sn-type-control,16px\)/.test(css), 'group approval keys are 16px / 36px (were 11px / 20px)');
+  A.ok(/\.gc-state \.gc-ok\{min-width:8em;min-height:36px;[^}]*font-size:var\(--sn-type-control,16px\)/.test(css), 'group approval keys are 16px / 36px (were 11px / 20px) and keep their width while sending');
+  A.ok(/\.gc-badge\{[^}]*font:inherit;font-size:15px/.test(css) && !/\.gc-badge::before/.test(css), 'GROUP is a word of the header line, not a shrunken [chip] (the rail law, 10-13)');
+  A.ok(/\.gc-tray-scroll\.more-below\{[^}]*mask-image/.test(css), 'the strip fades at its edge instead of slicing a line');
   A.ok(/\.gc-question\{[^}]*border-radius:5px;background:var\(--cg-card/.test(css) && /\.gc-question \.gc-q-choice\{[^}]*border-radius:5px/.test(css), 'the group card is the 5px matte decision card (Andrew 10-02)');
   A.ok(/\.gc-question \.gc-q-text\{[^}]*-webkit-line-clamp:3/.test(css), 'a long question shows three lines (the whole of it one tap away)');
   A.ok(/#gc-tray\{flex:0 1 auto;min-height:0;max-height:45%;/.test(css) && /#gc-tray:has\(#gc-questions \.gc-question\)\{max-height:max\(45%,calc\(100% - 170px\)\)\}/.test(css) && !/max-height:80%/.test(css),

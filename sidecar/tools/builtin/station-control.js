@@ -256,8 +256,23 @@
     run: (a, env) => env.route('POST', '/api/browser/settings', { mode: String(a.mode || '').trim().toLowerCase() }) });
 
   // ---- group chats (COMMS) ----
-  def('group.configure', { takes: '{group (its id or title), members? [crew ids], leadId?, title?, instructions?, maxTurns? 1-100}',
-    card: a => 'change the group chat ' + q(a.group) + ': ' + clip(['members', 'leadId', 'title', 'instructions', 'maxTurns'].filter(k => a[k] != null).map(k => k + ' ' + (Array.isArray(a[k]) ? a[k].join(', ') : a[k])).join('; ') || 'nothing named', 200) + '.',
+  /* BRING CREW INTO A CHAT (Andrew 2026-10-13: "add 2 agents into this chat … it actually refused to do it, I have to
+     manually add it myself"). The same path as the chat's + Add agents key (group-chat.js addAgents → startGroup /
+     invite): a one-on-one chat becomes a group chat in place, its history kept; General opens a new group beside it; a
+     group gains members. Asked from INSIDE the lead's own reply in that chat, the join lands the moment the reply ends
+     (a chat cannot change shape under a live reply) — and the result says exactly that, never "added". */
+  const crewList = a => {
+    const raw = [a.agents, a.members, a.agentIds, a.ids, a.agent].find(v => v != null);
+    const list = Array.isArray(raw) ? raw : String(raw == null ? '' : raw).split(/\s*(?:,|;|&|\band\b)\s*/i);
+    return Array.from(new Set(list.map(x => String(x == null ? '' : x).trim()).filter(Boolean))).slice(0, 10);
+  };
+  def('group.add', { page: true, thisSession: true, caller: true, takes: '{agents: [crew names or ids], session? (default: this conversation)}',
+    shape: a => Object.assign({}, a, { agents: crewList(a) }),
+    needs: a => a.agents.length ? '' : 'group.add named no crew member (e.g. {"agents": ["NOVA", "ROOK"]})',
+    card: a => 'bring ' + (crewList(a).map(q).join(', ') || 'nobody named') + ' into ' + sess(a) + ': they see the whole conversation and its files. A one-on-one chat becomes a group chat (from General, a new group chat opens beside it with just this request in it); if I am still answering there, they join the moment my reply ends, and I then hand them their parts there.' });
+  def('group.configure', { takes: '{group (its id or title), members? [the group\'s WHOLE member list, crew ids], leadId?, title?, instructions?, maxTurns? 1-100}',
+    // members REPLACES the roster: the card says so, so "add NOVA" sent as {members:["nova"]} cannot quietly remove everyone else
+    card: a => 'change the group chat ' + q(a.group) + ': ' + clip(['members', 'leadId', 'title', 'instructions', 'maxTurns'].filter(k => a[k] != null).map(k => k === 'members' && Array.isArray(a[k]) ? 'its WHOLE member list becomes ' + a[k].join(', ') + ' (anyone not listed leaves)' : k + ' ' + (Array.isArray(a[k]) ? a[k].join(', ') : a[k])).join('; ') || 'nothing named', 200) + '.',
     run: async (a, env) => {
       const l = await env.route('GET', '/api/groups');
       const gs = l && l.status < 400 && l.json && l.json.result && Array.isArray(l.json.result.groups) ? l.json.result.groups : null;
@@ -265,7 +280,8 @@
       const want = String(a.group || '').trim().toLowerCase();
       const byId = gs.filter(g => String(g.id).toLowerCase() === want);
       const hits = byId.length ? byId : gs.filter(g => String(g.title || '').trim().toLowerCase() === want);
-      if (hits.length !== 1) return refusal((hits.length ? 'more than one group chat is called ' : 'there is no group chat ') + q(a.group) + ' (group chats: ' + (clip(gs.map(g => g.title || g.id).join(', '), 300) || 'none') + ')');
+      if (hits.length !== 1) return refusal((hits.length ? 'more than one group chat is called ' : 'there is no group chat ') + q(a.group) + ' (group chats: ' + (clip(gs.map(g => g.title || g.id).join(', '), 300) || 'none') + ')'
+        + (hits.length ? '' : '. To bring crew into a one-on-one chat (it becomes a group chat), use group.add {agents: [names]}'));
       // configure is revision-checked (a stale one is refused): read the group's current revision first, as the window does
       const g = await env.route('GET', '/api/groups?id=' + enc(hits[0].id));
       const rev = g && g.json && g.json.result ? g.json.result.revision : undefined;
@@ -308,6 +324,7 @@
   function normArgs(a) {
     const o = Object.assign({}, a);
     delete o.action;
+    delete o.caller;   // the asking run is stamped by the HOST (makeChange), never taken from the model's args
     // a session named the way a model names it (session_id / sessionId — the real-model pin run sent session_id)
     if (o.session == null) for (const k of ['session_id', 'sessionId']) if (typeof o[k] === 'string' && o[k].trim()) { o.session = o[k]; delete o[k]; break; }
     if ('on' in o) o.on = onOff(o.on);
@@ -475,7 +492,7 @@
         freshConsent: isPower,
         description: isPower
           ? 'ESCALATE a station setting for the Commander — only what widens access or spending: agent.approval full, agent.reach trusted-project/this-computer, agent.away_work on, fullpower.set on, budget.set, budget.resume, autonomy.set, scheduler.set on, permission.grant, key.unattended on, key.set on, ability.set on, skill.install, deliverable.decide keep, project.trust, plugin.approve|revoke|delete, hook.approve|revoke|delete, limits.set. Only when the Commander asked for it in this conversation; refused on runs nobody is watching. Same {action, args} as station.control.'
-          : 'CHANGE a station setting for the Commander when they ask — the same change their button makes, proven saved. {action, args}: agent.model|personality|rename|skin|approval|reach|away_work|delete, session.rename|pin|archive|delete, look.set, fallback.set, permission.revoke, fullpower.set off, nightshift.focus|avoid, memory.forget|pin|edit|reset|settings, learning.set|wipe, connector.remove|refresh, ability.set, skill.set|install|uninstall, key.set|remove, spotify.disconnect, channels.notify, app.delete|rename, project.untrust|forget, checkpoint.restore, deliverable.decide, deliverables.cleanup|restore, away.queue|remove, quest.dismiss|later, channel.disconnect, browser.mode, group.configure, notifications.read|clear, estop.engage (the Commander alone resumes). station.settings section "actions" lists what each takes; read the current value first. Widening access or spending goes through station.power instead.',
+          : 'CHANGE a station setting for the Commander when they ask — the same change their button makes, proven saved. {action, args}: agent.model|personality|rename|skin|approval|reach|away_work|delete, session.rename|pin|archive|delete, look.set, fallback.set, permission.revoke, fullpower.set off, nightshift.focus|avoid, memory.forget|pin|edit|reset|settings, learning.set|wipe, connector.remove|refresh, ability.set, skill.set|install|uninstall, key.set|remove, spotify.disconnect, channels.notify, app.delete|rename, project.untrust|forget, checkpoint.restore, deliverable.decide, deliverables.cleanup|restore, away.queue|remove, quest.dismiss|later, channel.disconnect, browser.mode, group.add (bring crew into this chat: a one-on-one chat becomes a group chat, when your reply there ends), group.configure (an existing group chat; members = its WHOLE list), notifications.read|clear, estop.engage (the Commander alone resumes). station.settings section "actions" lists what each takes; read the current value first. Make the call BEFORE you say anything changed, and say only what its result says. Widening access or spending goes through station.power instead.',
         schema: { type: 'object', properties: { action: { type: 'string', enum: Object.keys(A) }, args: { type: ['object', 'string'] } } },
         run: async (input, ctx) => {
           const call = readCall(input);
@@ -488,7 +505,7 @@
           // a call that names none of the action's own fields would save an empty patch and read back as "done"
           if (spec.keys && !spec.keys.some(k => k in a)) return refuse(spec.name + ' takes ' + spec.takes + ' — none of those was given'
             + (Object.keys(a).length ? ' (got ' + clip(Object.keys(a).join(', '), 80) + ')' : '') + ', so nothing was changed');
-          if (/^session\./.test(spec.name) && (a.session == null || THIS_SESSION.test(String(a.session)))) {
+          if ((/^session\./.test(spec.name) || spec.thisSession) && (a.session == null || THIS_SESSION.test(String(a.session)))) {
             if (!(ctx && ctx.streamId)) return refuse('this run has no conversation of its own: name the session (session.list lists them)');
             a.session = String(ctx.streamId);
           }
@@ -499,8 +516,13 @@
           if (spec.name === 'agent.model' && a.model && a.provider && providerReady && !providerReady(String(a.provider))) {
             return refuse('the provider "' + clip(a.provider, 30) + '" is not connected on this station (no key or sign-in): the Commander connects it in Settings › AI & MODELS first');
           }
-          const r = spec.page ? await page('station.control', Object.assign({}, a, { action: spec.name })) : await spec.run(a, env);
+          // the run that asked, host-stamped LAST (a model cannot name another run): the page lets a chat take a change
+          // that must wait for THIS run's reply to end only when the run asking is the one running there
+          const caller = spec.caller && ctx && ctx.streamId && ctx.runId ? { caller: { streamId: String(ctx.streamId), runId: String(ctx.runId) } } : {};
+          const r = spec.page ? await page('station.control', Object.assign({}, a, { action: spec.name }, caller)) : await spec.run(a, env);
           if (!r || r.status >= 400 || r.refused || (r.json && r.json.ok === false)) return refuse(errorOf(r));
+          // a change that lands only when this reply ends is NOT done yet — say exactly that (truthful telemetry)
+          if (r.json && r.json.joining) return { content: 'QUEUED, NOT DONE YET: ' + clip(r.json.note, 400) + ' Tell the Commander exactly that. They are not in the chat yet, so do not hand them work in this reply: once they join you get a turn in the group chat to hand them their parts (group.handoff).', summary: spec.name + ' (queued)' };
           return { content: shape({ done: spec.name, result: r.json }), summary: spec.name };
         }
       };

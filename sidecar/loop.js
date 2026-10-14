@@ -457,6 +457,21 @@
     /\bnext\s+time\b|\bin\s+(?:the\s+)?future\b|\bgoing\s+forward\b|\bfrom\s+now\s+on\b|\bmoving\s+forward\b/i      // a lesson/preference (the memory guard owns these)
   ];
   const CG_LIST_ITEM = /^(?:[-*•–]\s|\d+[.)]\s|[a-z][.)]\s)/i;
+  /* WAITING ON THE CREW (2026-10-13). "I'll pull it together when they report" after group.handoff / team.dispatch is a
+     WAIT on work this run really started, not an unkept promise — the guard failed the lead's turn for it, and a failed
+     turn cancelled the very hand-offs it had made. Counts only when the run has a successful hand-off receipt (the caller
+     checks) and the sentence waits on THEM: they / both / each / all / the crew / a named agent (an all-caps name). */
+  const CG_PEER_VERB = /\b(?:report|reports|finish|finishes|are\s+done|is\s+done|reply|replies|respond|responds|deliver|delivers|come\s+back|comes\s+back|return|returns|wrap\s+up|wraps\s+up|get\s+back|gets\s+back|send\s+(?:it|theirs|their\s+\w+)|hand\s+(?:it|theirs)\s+(?:in|back))\b/i;
+  function waitsOnPeers(text) {
+    const t = String(text == null ? '' : text);
+    for (const m of t.matchAll(/\b(?:once|when|after|as\s+soon\s+as|until)\s+((?:the\s+)?[\w'’]+(?:\s+and\s+[\w'’]+)?)([^.!?\n]{0,60})/gi)) {
+      const who = m[1], low = who.toLowerCase();
+      const peer = /^(?:they|they['’](?:re|ve)|both(?:\s+of\s+them)?|each|all|everyone|the\s+(?:crew|team|workers?|agents?|others|rest))$/.test(low)
+        || /^[A-Z][A-Z0-9_-]+(?:\s+and\s+[A-Z][A-Z0-9_-]+)?$/.test(who);
+      if (peer && CG_PEER_VERB.test(m[2])) return true;
+    }
+    return false;
+  }
   const CG_CODE = '[[code]]';   // a stripped fenced block stays one "sentence" so an intro before it can be recognised
   function cgSentences(text) {
     const noCode = String(text).replace(/```[\s\S]*?(?:```|$)/g, '\n' + CG_CODE + '\n').replace(/`[^`\n]*`/g, 'x');
@@ -954,7 +969,7 @@
     const _cg = limits.continueGuard;
     const CG_MAX = (_cg === false) ? 0 : (_cg && _cg.max != null ? _cg.max : 2);
     let cgUsed = 0;
-    let memorySaveNudges = 0, memoryWrites = 0, configurationWrites = 0;
+    let memorySaveNudges = 0, memoryWrites = 0, configurationWrites = 0, peerHandoffs = 0;
     let toolTurnsRun = 0;   // tool turns this run actually dispatched (a bare "Saved!" after one means a file, not memory)
     // Companion nudge budgets (same disable knob as the continuation guard — they are one family):
     //  · markup nudge — the turn's TEXT carried tool-call markup (scrubbed above; NEVER executed). Tell the
@@ -2221,7 +2236,7 @@
         // is a premature stop, not a delivery — nudge the model back to work instead of ending 'done' mid-task.
         // Never fires on a grace turn (that turn is CONTRACTED to be tool-free) and never past CG_MAX, so a
         // model that narrates forever still terminates through the normal end below.
-        if (!empty && CG_MAX > 0 && tools.length > 0 && announcesIntent(text)) {
+        if (!empty && CG_MAX > 0 && tools.length > 0 && announcesIntent(text) && !(peerHandoffs > 0 && waitsOnPeers(text))) {
           if (graceUsed || cgUsed >= CG_MAX) {
             const explanation = 'Work is incomplete: the model kept announcing another action without making the tool call. The automatic continuation attempts have ended; no background work was started by these promises.';
             assistant.content = text + '\n\n' + explanation;
@@ -2380,6 +2395,7 @@
       for (const call of calls) {
         const receipt = results.find(r => r.callId === call.id);
         if (wireKey(call.name) === 'notebook_write' && receipt && !receipt.isError && /^(?:Saved|Updated) note "/.test(String(receipt.content))) memoryWrites++;
+        if (/^(?:group_handoff|team_dispatch|team_spawn)$/.test(wireKey(call.name)) && receipt && !receipt.isError) peerHandoffs++;   // work really handed on
         if (wireKey(call.name) === 'team_configure' && receipt && !receipt.isError) {
           try {
             const saved = JSON.parse(receipt.content);
@@ -2573,5 +2589,5 @@
     }
   }
 
-  return { runAgentLoop, _internals: { parseCall, repairCalls, normalizeBatch, uniqueCallIds, dropDuplicateCalls, assistantTurn, toolResultMsg, assertPaired, executeCalls, announcesIntent, memorySaveClaim, terminalHumanDecision, scrubTextToolCallMarkup, vosIsCodePath, vosIsCheckCommand, vosKey, vosExternalRole, vosExternalArtifactMutation, vosExternalSourceRole, sourceGroundingRequested, explicitNonzeroExit, vosCheckPassed, failedCheckRepairNote, deterministicCheckSignature, parallelizable, applyTurnBudget, squeeze, turnAllowances, parkForTurnBudget, evictStaleScreenshots, isScreenCapture } };
+  return { runAgentLoop, _internals: { waitsOnPeers, parseCall, repairCalls, normalizeBatch, uniqueCallIds, dropDuplicateCalls, assistantTurn, toolResultMsg, assertPaired, executeCalls, announcesIntent, memorySaveClaim, terminalHumanDecision, scrubTextToolCallMarkup, vosIsCodePath, vosIsCheckCommand, vosKey, vosExternalRole, vosExternalArtifactMutation, vosExternalSourceRole, sourceGroundingRequested, explicitNonzeroExit, vosCheckPassed, failedCheckRepairNote, deterministicCheckSignature, parallelizable, applyTurnBudget, squeeze, turnAllowances, parkForTurnBudget, evictStaleScreenshots, isScreenCapture } };
 });

@@ -49,7 +49,7 @@ test('the desk card: a glance line in the phrase, the whole request in INSPECT',
   assert.match(phrase, /^run a command: python /);
   assert.ok(phrase.length < 120 && !/\n/.test(phrase), 'the phrase (and every toast built from it) stays one short line: ' + phrase);
   const ins = card.consentInspect(p);
-  assert.match(ins.label, /Inspect complete request/);
+  assert.match(ins.label, /Inspect the full request/);
   assert.equal(ins.text, 'cmd: ' + cmd, 'read as written: the command verbatim, a Windows path with single backslashes, the hidden tail included');
   assert.equal(ins.copy, cmd, 'COPY COMMAND hands over exactly the text that will run');
   assert.equal(ins.copyLabel, 'COPY COMMAND');
@@ -70,14 +70,15 @@ test('cards the sidecar words itself, and a short bare value, get no panel; file
   assert.equal(card.consentInspect({ tool: 'path.trust', argsSummary: 'C:\\proj' }), null);
   assert.equal(card.consentInspect({ tool: 'station.control', argsSummary: 'turn the music off' }), null);
   assert.equal(card.consentInspect({ tool: 'brief.ask', argsSummary: '{"question":"q"}' }), null);
-  assert.match(card.consentInspect({ tool: 'fs.write', argsSummary: '{\n  "path": "a"\n}' }).label, /Inspect proposed change/);
+  assert.match(card.consentInspect({ tool: 'fs.write', argsSummary: '{\n  "path": "a"\n}' }).label, /Inspect the change/);
   assert.equal(card.consentInspect({ tool: 'routine.create', argsSummary: '{"prompt":"check mail"}' }).text, 'check mail');
 });
 
 test('group chat clips its line and carries the whole request under it', () => {
-  assert.match(group, /one\.length > 160 \? one\.slice\(0, 159\) \+ '…'/);
+  assert.match(group, /'wants to ' \+ phrase/, 'the group row reads like the desk card ("MIRA wants to change …")');
   assert.match(group, /Chat\.consentInspect\(t\.approval\)/, 'the group reads a request exactly as the desk card does');
-  assert.match(group, /h\('summary', \{\}, ins\.label \|\| 'Inspect complete request \(secret patterns redacted\)'\), h\('pre', \{\}, ins\.text\)/);
+  assert.match(group, /h\('summary', \{\}, ins\.label \|\| 'Inspect the full request \(secrets redacted\)'\), h\('pre', \{\}, ins\.text\)/);
+  assert.match(group, /const ins = typeof Chat !== 'undefined' && Chat\.consentInspect \? Chat\.consentInspect\(t\.approval\) : null;\s*if \(ins\) \{/, 'INSPECT only where the desk card has one');
   // a file change reads as a file: the path, then the text exactly as written (real line breaks, never \n escapes)
   const file = card.consentInspect({ tool: 'fs.write', argsSummary: JSON.stringify({ path: 'notes/brief.md', content: '# Brief\nline two' }, null, 2) });
   assert.equal(file.text, 'File: notes/brief.md\n\n# Brief\nline two');
@@ -86,7 +87,22 @@ test('group chat clips its line and carries the whole request under it', () => {
   assert.equal(card.actionPhrase({ tool: 'web_request', argsSummary: JSON.stringify({ method: 'post', url: 'https://api.example.com/v1/x' }) }), 'send a POST request to https://api.example.com/v1/x');
   assert.equal(card.actionPhrase({ tool: 'image_generate', argsSummary: JSON.stringify({ prompt: 'a red fox' }) }), 'make an image: a red fox');
   assert.equal(card.actionPhrase({ tool: 'skill.write', argsSummary: JSON.stringify({ path: 'skills/x.md', content: 'y' }) }), 'write skills/x.md');
-  assert.equal(card.actionPhrase({ tool: 'channel.send', argsSummary: JSON.stringify({ to: 'ops', text: 'hi' }) }), 'use channel send: hi');
+  assert.equal(card.actionPhrase({ tool: 'channel.send', argsSummary: JSON.stringify({ target: 'ops', text: 'hi', files: ['a.png', 'b.pdf'] }) }), 'send a message to ops with 2 files: hi');
+  // the argument that says what a tool will do is never dropped (audit P1)
+  assert.equal(card.actionPhrase({ tool: 'verify.run', argsSummary: JSON.stringify({ cmd: 'npm test' }) }), 'run a check: npm test');
+  assert.equal(card.actionPhrase({ tool: 'code.run', argsSummary: JSON.stringify({ code: 'print(1)' }) }), 'run code: print(1)');
+  assert.equal(card.actionPhrase({ tool: 'browser.eval', argsSummary: JSON.stringify({ expression: 'document.title' }) }), 'run a script in the browser page: document.title');
+  assert.equal(card.actionPhrase({ tool: 'browser.upload', argsSummary: JSON.stringify({ ref: 'e3', paths: ['cv.pdf'] }) }), 'upload cv.pdf to the page');
+  assert.equal(card.actionPhrase({ tool: 'task.manage', argsSummary: JSON.stringify({ task: 'Buy milk', action: 'remove' }) }), 'remove task Buy milk');
+  // a connector's write is never "a file"; the tool name is matched by segment ("credit" is not "edit")
+  assert.equal(card.actionPhrase({ tool: 'mcp__google_sheets__write_values', argsSummary: JSON.stringify({ spreadsheetId: 'x1', range: 'Sheet1!A1:C3' }) }), 'use google sheets write values: Sheet1!A1:C3');
+  assert.ok(!/write/.test(card.actionPhrase({ tool: 'credit_check', argsSummary: '{}' })), 'credit is not edit');
+  // a bare value the sidecar sends whole (a read's path) is what is approved: the card names it; a capped JSON gives nothing
+  assert.equal(card.actionPhrase({ tool: 'fs.read', argsSummary: sidecar.consentSummary({ name: 'fs.read', args: { path: 'notes/brief.md' } }) }), 'use fs read: notes/brief.md');
+  assert.equal(card.actionPhrase({ tool: 'kb.lookup', argsSummary: '{"path":"notes/brief.md","depth' }), 'use kb lookup');
+  // plugin, summon and an argument-less shell write never show raw JSON
+  for (const ev of [{ tool: 'plugin__acme__sync', argsSummary: JSON.stringify({ query: 'q1' }, null, 2) }, { tool: 'team.summon', argsSummary: JSON.stringify({ name: 'SCOUT', spec: 'researcher' }, null, 2) }, { tool: 'shell.bg.write', argsSummary: JSON.stringify({ id: 'bg1', eof: true }, null, 2) }])
+    assert.ok(!/[{}"]/.test(card.actionPhrase(ev)), 'no JSON in: ' + card.actionPhrase(ev));
   assert.ok(!/[{}"]/.test(card.actionPhrase({ tool: 'loop.create', argsSummary: JSON.stringify({ every: 5, spec: { a: 1 } }) })), 'no JSON punctuation reaches the phrase');
   assert.match(group, /detail\.open = inspectOpen\.has\(pid\)/, 'a re-render keeps the panel the Commander opened');
 });
@@ -135,7 +151,7 @@ function clarificationFixture(mode) {
     Harness: { consentAnswer: () => Promise.resolve({ ok: true }) },
     TaskConversation: { mount: (el, question, cb) => { conversationAnswer = cb; } },
     U: { bus: { emit() {}, on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } } },
-    isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, revealCard() {}, releaseCard() {}, announcedPrompt: () => true,
+    isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, revealCard() {}, releaseCard() {}, keepFocus() {}, fitWhole() {}, announcedPrompt: () => true,
     askAnswerers: new Map(), glance: (t) => String(t) };
   vm.createContext(ctx); vm.runInContext(extract(chat, '  function settledWhere(resp)', '  async function answerConsent('), ctx); vm.runInContext(extract(chat, '  function clarifyRow(', '  // p = a consent payload'), ctx);
   ctx.clarifyRow(q, ws);
@@ -193,7 +209,7 @@ function permissionFixture(tool) {
     Harness: { consent: async (_run, _prompt, decision) => ({ ok: true, decision }) },
     U: { bus: { on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); },
       emit: (name, value) => { const fn = listeners.get(name); if (fn) fn(value); } } },
-    isActiveWs: () => false, renderPresence() {}, syncStatus() { synced++; }, status() {}, autoscroll() {}, revealCard() {}, releaseCard() {}, announcedPrompt: () => true, askAnswerers: new Map() };
+    isActiveWs: () => false, renderPresence() {}, syncStatus() { synced++; }, status() {}, autoscroll() {}, revealCard() {}, releaseCard() {}, keepFocus() {}, announcedPrompt: () => true, askAnswerers: new Map() };
   vm.createContext(ctx);
   // the card and the shared answer path live side by side in chat.js: an answer from any surface reaches the card on the bus
   vm.runInContext(extract(chat, '  const settledPromptNotices = new Set();', '  // the channel\'s record'), ctx);
