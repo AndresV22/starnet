@@ -687,6 +687,9 @@
       else return;
       if (ok) {
         try { sfx('ok'); } catch (_) {}
+        // an approve / turn-off / add / remove changes what waits on approval: NEEDS YOU (rail, NOTIFICATIONS, the bell)
+        // re-reads the station now, never up to a minute later (org P01)
+        if (typeof NeedsYou !== 'undefined' && NeedsYou.refreshFeeds) NeedsYou.refreshFeeds(true);
         // plugin windows follow approval immediately: a turned-off plugin's open window says so, a new one can open
         if (/^plugin-/.test(kind) && typeof PluginHost !== 'undefined') {
           try {

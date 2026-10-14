@@ -9539,7 +9539,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       store.notifs.forEach(n => { if (!isWaiting(n)) n.read = true; }); save(); rerender('notifs'); badges(); sfx('click');
     });
     body.querySelectorAll('.nf.nf-live').forEach(el => {
-      const go = () => { sfx('click'); if (NY && NY.openKey(el.dataset.nyKey) && open.notifs) workConversation('notifs'); };
+      // a session door steps NOTIFICATIONS aside with a way back (as a stored entry's go.ws does); a window door (STEP-IN,
+      // EXTENSIONS, DELIVERABLES, QUESTS, GOAL LOOPS) only opens its window and keeps the focus there (as go.term does)
+      const go = () => { sfx('click'); const did = NY && NY.openKey(el.dataset.nyKey); if (did && did.conversation && open.notifs) workConversation('notifs'); };
       el.addEventListener('click', go);
       el.addEventListener('keydown', ev => { if (ev.target === el && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); go(); } });
     });

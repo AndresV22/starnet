@@ -30,7 +30,7 @@ const NeedsYou = (() => {
   // (org P01) the waits whose source is a sidecar read, not page state: re-read at most once a minute (and at once after a
   // decision here), so each row is the station's last answer. null = never answered yet: say nothing rather than guess.
   const FEED_MS = 60000;
-  let feeds = { builds: null, extensions: null }, feedsAt = 0, feedsLoading = null;
+  let feeds = { builds: null, extensions: null }, feedsAt = 0, feedsLoading = null, feedsAgain = null;
   const answering = new Set();          // promptIds whose answer is on its way: their keys stay disabled through re-renders
   let parked = null;                    // { act, cls, key } of a focused key that went disabled: focus returns when it can
   const has = (o, k) => typeof o !== 'undefined' && o && typeof o[k] === 'function';
@@ -94,9 +94,16 @@ const NeedsYou = (() => {
     }
   }
   // re-read the sidecar-backed waits (builds, extensions) when a minute has passed, or now (force). A failed read keeps the
-  // last answer: an unreachable station is not "nothing waiting".
+  // last answer: an unreachable station is not "nothing waiting". A forced re-read asked for while a read is already on its
+  // way (a keep/discard made while opening the build row started one) is never dropped: that read may have left before the
+  // decision, so one more read follows it and its answer is the one the row shows.
   function refreshFeeds(force, now) {
-    if (typeof fetch !== 'function' || feedsLoading) return feedsLoading;
+    if (typeof fetch !== 'function') return null;
+    if (feedsLoading) {
+      if (!force) return feedsLoading;
+      if (!feedsAgain) feedsAgain = feedsLoading.then(() => { feedsAgain = null; return refreshFeeds(true); });
+      return feedsAgain;
+    }
     now = Number(now) || Date.now();
     if (!force && feedsAt && now - feedsAt < FEED_MS) return null;
     if (typeof document !== 'undefined' && document && document.hidden && !force) return null;
@@ -260,12 +267,13 @@ const NeedsYou = (() => {
   }
   function open(i) {
     if (i && !i.wsId) return openDoor(i);
-    if (!i || !has(App, 'openWorkstream')) return;
+    if (!i || !has(App, 'openWorkstream')) return false;
     if (i.kind === 'failed') dismiss(i.key);   // you went to look at it: it has done its job here
     App.openWorkstream(i.wsId);
     // a question lands on its question card in one hop (not on the worker's row, which only points there)
-    if (i.kind === 'question' && i.p && typeof Chat !== 'undefined' && Chat.revealAsk && Chat.revealAsk(i.p.promptId)) return;
+    if (i.kind === 'question' && i.p && typeof Chat !== 'undefined' && Chat.revealAsk && Chat.revealAsk(i.p.promptId)) return true;
     if (i.workerWsId && typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(i.workerWsId);
+    return true;
   }
   async function act(kind, key, btn) {
     const i = items().find(x => x.key === key);
@@ -330,7 +338,9 @@ const NeedsYou = (() => {
   /* (org P01) for NOTIFICATIONS › NEEDS YOU, which renders this same list: the line it reads, Open / Dismiss by key, and a
      shape that moves only when the list does (the bell repaints on it) */
   const lineOf = i => (KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what;
-  function openKey(key) { const i = items().find(x => x.key === key); if (!i) return false; open(i); return true; }
+  // what it opened: { conversation: true } when the door was a session (NOTIFICATIONS then steps aside with a way back),
+  // { conversation: false } when it was a window (STEP-IN, EXTENSIONS, DELIVERABLES, QUESTS, GOAL LOOPS keep the focus)
+  function openKey(key) { const i = items().find(x => x.key === key); if (!i || !open(i)) return false; return { conversation: !!i.wsId }; }
   function dismissKey(key) { const i = items().find(x => x.key === key); if (!i || i.kind !== 'failed') return false; dismiss(key); lastShape = ''; render(); return true; }
   const canDismiss = i => !!i && i.kind === 'failed';
   const listShape = list => (list || items()).map(i => i.key + '\u0001' + i.what + '\u0001' + i.where).join('\u0002');

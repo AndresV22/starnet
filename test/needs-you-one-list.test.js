@@ -83,6 +83,14 @@ const NY = require('../frontend/app/needsyou.js');
   NY.openKey('build:b1'); A.eq(ui.terms.pop(), ['deliverables', null], 'a build opens DELIVERABLES…');
   A.eq(shownStatus, 'pending', '…filtered to NEEDS A DECISION');
   global.document = undefined;
+  // what a door opened: NOTIFICATIONS steps aside (workConversation) only for a session, never over a window it just opened
+  A.eq(NY.openKey('loop:L1'), { conversation: false }, 'a window door reports it opened a window, not a conversation'); ui.terms.pop();
+  A.eq(NY.openKey('approval:nope'), false, 'an unknown key opens nothing');
+  {
+    const su0 = read('frontend/app/stationui.js');
+    A.ok(/const did = NY && NY\.openKey\(el\.dataset\.nyKey\); if \(did && did\.conversation && open\.notifs\) workConversation\('notifs'\);/.test(su0),
+      'NOTIFICATIONS › NEEDS YOU steps aside only when the row opened a conversation (a STEP-IN / EXTENSIONS / DELIVERABLES / QUESTS / GOAL LOOPS window keeps the focus)');
+  }
   A.ok(!NY.dismissKey('stepin:h1') && !NY.dismissKey(att.key), 'a wait is never dismissed away — only failed work has Dismiss (as on the rail)');
   A.ok(NY.canDismiss({ kind: 'failed' }) && !NY.canDismiss(step), 'canDismiss follows the rail');
 
@@ -92,6 +100,29 @@ const NY = require('../frontend/app/needsyou.js');
   {
     const src = read('frontend/app/needsyou.js');
     A.ok(/QuestLedgerStore\.confirm\(i\.questId, kind === 'attest-yes'\)/.test(src), 'Confirm / Not yet answer through QuestLedgerStore.confirm (the QUESTS card\'s own path)');
+  }
+
+  // a forced re-read asked for while a read is on its way is never dropped: the earlier read may predate the decision
+  {
+    // settle the reads the doors above started (opening the build row forces one)
+    for (let n = 0; n < 5; n++) { await NY.refreshFeeds(false); await new Promise(r => setTimeout(r, 0)); }
+    const realFetch = global.fetch;
+    let gate = null, pendingNow = 1;
+    const answer = n => url => ({ ok: true, json: async () => url === '/api/hooks' ? { hooks: [], pending: Array.from({ length: n }, () => ({})) } : { plugins: [] } });
+    global.fetch = url => { const n = pendingNow; return gate ? gate.then(() => answer(n)(url)) : Promise.resolve(answer(n)(url)); };
+    let release; gate = new Promise(r => { release = r; });
+    const first = NY.refreshFeeds(true);          // e.g. opening the row: leaves while 1 extension still waits
+    pendingNow = 0;                               // …the Commander approves it while that read is still out
+    const second = NY.refreshFeeds(true);
+    A.ok(second && second !== first, 'a forced re-read during an in-flight read is queued, not handed the stale promise');
+    A.eq(NY.refreshFeeds(true), second, 'several forced asks during one read share the one follow-up read');
+    gate = null; release();
+    await second;
+    A.eq(NY._internals.feeds().extensions, 0, 'the row follows the decision at once (the follow-up read), not a minute later');
+    global.fetch = realFetch;
+    await NY.refreshFeeds(true);                  // back to the fixture's station (2 extensions waiting) for the rest
+    const conn = read('frontend/app/windows/connectors.js');
+    A.ok(/NeedsYou\.refreshFeeds\(true\)/.test(conn), 'approving / changing an extension in ABILITIES › EXTENSIONS re-reads NEEDS YOU at once');
   }
 
   // ---- NOTIFICATIONS › NEEDS YOU renders the SAME list; the bell adds the live count ----
