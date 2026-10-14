@@ -523,8 +523,9 @@
         planMemo.delete(planId);
         const r = out.result || {};
         const what = (r.line && r.line.name) || (r.rooms || []).map(x => x.name).join(', ') || ((r.hallways || []).length ? 'a hallway' : r.where || 'the plan');
-        /* DONE, said as DONE (rc walk 10-14): a model handed a bare receipt kept planning and checking after the build had landed.
-           The receipt's own readiness decides the words: ready, or exactly what is still to do — never more than it proves. */
+        /* DONE, said as DONE (rc walk 10-14, A3): the receipt tells the model the job is finished, so it reports and stops instead of
+           reaching for more tools (the walk's lead, out of plans, made a loop nobody asked for). The receipt's own readiness decides
+           the words: ready, or exactly what is still to do — never more than it proves. */
         const left = (r.blocking || []).filter(Boolean).map(String);
         // a ready-made line is finished when it lands; a design laid by hand keeps its one look (the planner's LOOK at your work)
         if (r.built) r.next = 'DONE: it is built' + (left.length ? '. Still to do before it runs: ' + left.join('; ').replace(/\.$/, '') + '. Tell the Commander exactly that, and stop: build nothing else for this unless they ask.'
