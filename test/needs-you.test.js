@@ -122,15 +122,21 @@ const NY = require('../frontend/app/needsyou.js');
   A.eq(global.Chat.consentInspect(longPath.p), null, '(a bare path under the glance limit has no INSPECT panel on its card)');
   A.ok(/>Review</.test(k(longPath)) && !/data-ny-act="once"/.test(k(longPath)), 'a path longer than the rail shows is reviewed on its card');
   A.ok(/data-ny-act="once"[^>]*>Approve once</.test(k(ask({ promptId: 'p29', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a short request is still one-tap Approve');
-  // org P02: a direct-chat ask always offers Review beside Approve once · Deny (the COMMS card holds the whole request
-  // and its Always / Full power keys); a worker's ask (a background one too) reviews on its Delegated row's INSPECT instead
+  // org P02 (g3 D1, final round): a direct-chat ask is reviewed through its own row — the row, its "in <where>" door and its
+  // ask line open the COMMS card (the whole request, its Always / Full power keys) — so its keys are Approve once · Deny on ONE
+  // row (three keys stacked into three full-width keys on the rail); a worker's ask reviews on its Delegated row's INSPECT
   const direct = k(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }));
-  A.eq((direct.match(/data-ny-act="[a-z]+"[^>]*>[^<]+</g) || []).map(x => x.replace(/^data-ny-act="([a-z]+)"[^>]*>([^<]+)<$/, '$1:$2')).join(' | '), 'once:Approve once | deny:Deny | open:Review', 'a direct-chat row: Approve once · Deny · Review');
-  A.ok(/class="ny-key quiet ny-review" data-ny-act="open"/.test(direct), 'Review is the quiet key on its own line');
+  A.eq((direct.match(/data-ny-act="[a-z]+"[^>]*>[^<]+</g) || []).map(x => x.replace(/^data-ny-act="([a-z]+)"[^>]*>([^<]+)<$/, '$1:$2')).join(' | '), 'once:Approve once | deny:Deny', 'a direct-chat row\'s keys: Approve once · Deny');
+  const rowHtml = NY._internals.html([Object.assign(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }), { who: 'NOVA', where: 'General', what: 'fs read: notes.md', since: Date.now() })], Date.now());
+  A.ok(/<li class="ny-item approval ny-review" data-ny-key="ask:p30">/.test(rowHtml), 'its row is the Review door (the row click opens its card)');
+  A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p30" data-tip="Review it on its card: the whole request, and its Always and Full power keys">in General<\/button>/.test(rowHtml), '…and its "in <where>" door says so: ' + rowHtml.slice(0, 400));
   for (const w of [{ workerStreamId: 'thread_vex' }, { workerRunId: 'wr9' }, { background: true }]) {
-    const wk = k(ask(Object.assign({ promptId: 'p31', tool: 'fs.read', argsSummary: 'notes.md' }, w)));
+    const wa = ask(Object.assign({ promptId: 'p31', tool: 'fs.read', argsSummary: 'notes.md' }, w)), wk = k(wa);
     A.ok(/>Approve once</.test(wk) && />Deny</.test(wk) && !/>Review</.test(wk), 'a worker ask keeps Approve once · Deny (its review is the Delegated INSPECT): ' + Object.keys(w)[0]);
+    A.ok(!/ny-review/.test(NY._internals.html([Object.assign(wa, { who: 'VEX', where: 'General', what: 'fs read: notes.md', since: Date.now() })], Date.now())), '…and its row is not offered as the Review door: ' + Object.keys(w)[0]);
   }
+  const glassCss = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'pipglass.css'), 'utf8');
+  A.ok(/\.ny-keys \{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; \}/.test(glassCss) && /\.ny-key \{\s*flex: 1 1 auto; min-width: 0; min-height: 34px; padding: 5px 8px; font: 15px\/1\.1 'VT323'/.test(glassCss) && !/\.ny-key\.ny-review \{ flex: 1 1 100%; \}/.test(glassCss), 'the two keys share one row down to the 200px rail at 15px, never three stacked full-width keys');
   A.eq((k(longPath).match(/>Review</g) || []).length, 1, 'a hidden-detail ask still shows exactly one Review, never a blind Approve');
   global.Chat.consentPhrase = phrase;
 }
@@ -212,9 +218,10 @@ function fakeRail() {
   global.Chat.answerConsent = () => new Promise((_, no) => { fail = no; });
   doc.activeElement = key('once', 'ask:p30');
   click(key('once', 'ask:p30'));
-  // org P02: a direct-chat row has a live Review key, so focus waits on that key of the same row (not the page)
-  const review30 = host.buttons.find(b => b.dataset.nyAct === 'open' && b.dataset.nyKey === 'ask:p30' && b.className.split(' ').includes('ny-review'));
-  A.ok(key('once', 'ask:p30').disabled && review30 && doc.activeElement === review30, 'a second ask in flight: its keys lock, focus waits on its row (its Review key)');
+  // org P02 (g3 D1, final round): a direct-chat row's Review is its row's own door, so focus waits on that row's "in <where>"
+  // door (live while the keys are locked), never dropped to the page
+  const review30 = host.buttons.find(b => b.dataset.nyAct === 'open' && b.dataset.nyKey === 'ask:p30' && b.className.split(' ').includes('ny-where'));
+  A.ok(key('once', 'ask:p30').disabled && review30 && doc.activeElement === review30, 'a second ask in flight: its keys lock, focus waits on its row (its review door)');
   fail(new Error('the station is offline')); await new Promise(r => setTimeout(r, 0));
   A.ok(!key('once', 'ask:p30').disabled && doc.activeElement === key('once', 'ask:p30'), 'the answer failed: Approve is back and so is the focus');
   global.Chat.answerConsent = answerConsent; Date.now = realNow; global.document = realDoc;
