@@ -49,15 +49,21 @@ const key9 = (build.match(/id: 'line', key: '9', label: '([^']+)'/) || [])[1];
 A.eq(key9, 'CONVEYOR LINES', 'build.js names key 9 CONVEYOR LINES');
 A.ok(/\['9', 'Conveyor lines'\]/.test(tutorial) && !/\['9', 'Layouts'\]/.test(tutorial), 'CONTROLS names key 9 the way BUILD does');
 A.ok(/<div><b>APPS<\/b>/.test(tutorial), 'CONTROLS lists the APPS dock');
+// P30 polish: a key chip holds only keys — never context words ("Esc in COMMS") and never a '+' doing double duty as
+// joiner and key ("Ctrl + / Ctrl -"); the focus keys' sentences get their own one-column list; an odd dock card spans
+A.ok(!/\['Esc in COMMS'/.test(tutorial) && !/'Ctrl \+ \/ Ctrl -'/.test(tutorial), 'no context words or ambiguous joiners inside a key chip');
+A.ok(/class="fm-keys fm-keys-wide">' \+ keyRows\(onFocus\)/.test(tutorial), 'the focus keys read as their own one-column list');
+A.ok(/class="fm-map fm-dock"/.test(tutorial) && /\.fm-dock > div:last-child:nth-child\(odd\) \{ grid-column: 1 \/ -1; \}/.test(read('frontend/css/tutorial.css')),
+  'the dock map never leaves its last card beside an empty cell');
 for (const [k, proof, where] of [
   ['F11', /ev\.key === 'F11'/, 'frontend/app/fullscreen.js'],
   ['Ctrl + Shift + H', /e\.ctrlKey && e\.shiftKey[\s\S]{0,80}KeyH/, 'frontend/app/hudmode.js'],
-  ['Ctrl + / Ctrl -', /ev\.key === '=' \|\| ev\.key === '\+'/, 'frontend/app/stationui.js'],
+  ['Ctrl + = / Ctrl + -', /\(ev\.key === '=' \|\| ev\.key === '\+'\) \? 1 : \(ev\.key === '-'/, 'frontend/app/stationui.js'],
   ['Ctrl + 0', /ev\.key === '0' \? 0/, 'frontend/app/stationui.js'],
   ['Esc', /ev\.key === 'Escape'[\s\S]{0,600}requestCloseTerm\(key\)/, 'frontend/app/stationui.js'],
   // P30 review fix: Esc in COMMS is NOT a window close — the composer stops a live turn, a focused approval card denies,
   // a focused question card answers "use your judgment". CONTROLS says so, each against its real handler.
-  ['Esc in COMMS', /e\.key === 'Escape' && isBusy\(\)\)[\s\S]{0,200}stopActive\('esc'\)/, 'frontend/app/chat.js'],
+  ['Esc', /e\.key === 'Escape' && isBusy\(\)\)[\s\S]{0,200}stopActive\('esc'\)/, 'frontend/app/chat.js'],
   // P30 review fix: Shift+F10 on a SESSION row opens its actions menu (app.js openWsMenu); on a crew row it opens the
   // dossier (stationui.js openAgent) — the label names both.
   ['Shift + F10', /\(e\.shiftKey && e\.key === 'F10'\)\) \{\s*e\.preventDefault\(\);\s*const r = li\.getBoundingClientRect\(\);\s*openWsMenu\(/, 'frontend/app/app.js'],
@@ -69,13 +75,13 @@ A.ok(!/\['Alt \+ H'/.test(tutorial), 'CONTROLS never lists Alt+H: no handler for
 {
   const chatSrc = read('frontend/app/chat.js');
   A.ok(/addEventListener\('keydown', e => \{ if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); decide\('deny'/.test(chatSrc)
-    && /\['Esc in COMMS', '[^']*approval card: Deny/.test(tutorial), 'Esc on a focused approval card denies, and CONTROLS says so');
+    && /\['Esc', 'In COMMS: [^']*approval card: Deny/.test(tutorial), 'Esc on a focused approval card denies, and CONTROLS says so');
   A.ok(/addEventListener\('keydown', e => \{ if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); answer\('use your judgment'/.test(chatSrc)
-    && /\['Esc in COMMS', '[^']*question card: answers “use your judgment”/.test(tutorial), 'Esc on a focused question card answers "use your judgment", and CONTROLS says so');
+    && /\['Esc', 'In COMMS: [^']*question card: answers “use your judgment”/.test(tutorial), 'Esc on a focused question card answers "use your judgment", and CONTROLS says so');
   A.ok(/\['Esc', 'In a window: close it/.test(tutorial) && !/\['Esc', 'Close the window you are in'\]/.test(tutorial), 'the window Esc row is scoped to windows');
   A.ok(!/These keys work from any screen\. <kbd>Esc<\/kbd>/.test(tutorial) && /The first four keys work from any screen/.test(tutorial), 'only the four global keys are claimed to work from any screen');
   A.ok(/ev\.shiftKey && ev\.key === 'F10'\)\) \{ ev\.preventDefault\(\); sfx\('click'\); openAgent\(/.test(station)
-    && /\['Shift \+ F10', 'On a focused row: a session or project row opens its actions; a crew row opens the agent’s dossier'\]/.test(tutorial),
+    && /\['Shift \+ F10', 'On a focused row: a session or project row opens its actions; a crew row opens the agent’s dossier\.'\]/.test(tutorial),
     'Shift+F10 on a crew row opens the dossier, and CONTROLS says so');
   A.ok(/e\.shiftKey && e\.key === 'F10'\)\) \{ e\.preventDefault\(\); const b = li\.getBoundingClientRect\(\); openProjectMenu\(/.test(read('frontend/app/app.js')), 'a project row\'s Shift+F10 opens its actions');
 }
