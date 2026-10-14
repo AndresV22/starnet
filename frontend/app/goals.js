@@ -48,7 +48,13 @@
   const TRANSIENT = /^(the user (said|asked|wanted)|we (discussed|talked|covered)|in this (run|task|session)|this (run|task|session)|today (i|we))\b/i;
   // lines the model sometimes emits as framing, not steps — dropped (a header is not a milestone).
   const FRAMING = /^(here('| i)s|the (path|plan|breakdown|milestones?|steps?)( i see)?|milestones?|steps?|plan)\s*[:\-—]?\s*$/i;
-  const HEADING = /^\s{0,3}#{1,6}\s/;   // "## The roadmap" — a markdown header line, never a step
+  // "## The roadmap" — a markdown header line, never a step. A NUMBERED heading ("### 1. Ship the CLI MVP", "## Step 2: …") is a
+  // step written as a heading: its #'s drop and it parses like any other line (review 10-14 — it was dropped, and a path of
+  // heading-styled steps fell under MIN_MILESTONES).
+  const HEADING = /^\s{0,3}#{1,6}\s+(.*)$/;
+  const HEADED_STEP = /^(?:\d{1,2}[.)\]:-]?\s+|(?:step|milestone|phase)\s*\d{1,2}\b)/i;
+  // a milestone that opens on a comparison ("> 100 paying users") keeps it — the plain line would read it as a quote mark
+  const COMPARE = /^(?:>=?|≥)\s*(?=[\d$€£])/;
 
   // a self-contained secret scrubber (the default redact) — the decomposition model text is authored client-side
   // (unlike study proposals, which the sidecar redacts before they reach the browser), so a milestone line must be
@@ -120,11 +126,14 @@
     const plain = typeof opts.plain === 'function' ? opts.plain : (x => x);
     const out = [];
     const seen = new Set();
-    for (const ln of String(modelText == null ? '' : modelText).split('\n')) {
-      if (HEADING.test(ln)) continue;   // a markdown heading is a header, not a milestone
+    for (const raw of String(modelText == null ? '' : modelText).split('\n')) {
+      const h = HEADING.exec(raw);
+      if (h && !HEADED_STEP.test(h[1])) continue;   // a markdown heading is a header, not a milestone
+      const ln = h ? h[1] : raw;
       const m = LINE.exec(ln);
       if (!m) continue;
-      let text = redact(String(plain(m[1]))).trim();
+      const cmp = COMPARE.exec(m[1]);
+      let text = redact((cmp ? cmp[0] : '') + String(plain(cmp ? m[1].slice(cmp[0].length) : m[1]))).trim();
       if (!text) continue;
       if (lowValue(text)) continue;
       text = clip(text, TEXT_CHARS);

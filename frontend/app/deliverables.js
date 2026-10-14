@@ -16,8 +16,16 @@
   // markdown -> one plain line (a card's glance): links keep their words, heading/list/quote marks and **, __, `, * drop.
   // THE ONE GLANCE (walk 10-14): TO REVIEW's preview, the COMMS INBOX card's quote and a goal's milestones read through this
   // same line — a fenced block, a table's rule row and pipes, a --- rule drop too, and a stripped `code` leaves no stray space.
+  // …and a reply that is ONLY code reads as that code's own words (fences and language tag dropped) — never an empty glance,
+  // or a card whose quote "below" says nothing (review 10-14).
   function plainLine(raw) {
-    return String(raw || '').replace(/\x60\x60\x60[\s\S]*?(\x60\x60\x60|$)/g, ' ')
+    const src = String(raw || '');
+    const words = flatLine(src.replace(/\x60\x60\x60[\s\S]*?(\x60\x60\x60|$)/g, ' '));
+    if (words || src.indexOf('\x60\x60\x60') === -1) return words;
+    return src.replace(/\x60\x60\x60[^\n]*(\n|$)/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function flatLine(raw) {
+    return raw
       .replace(/(^|\n)[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)*\|?[ \t]*(?=\n|$)/g, '$1')   // a table's rule row
       .replace(/(^|\n)[ \t]*([-*_])([ \t]*\2){2,}[ \t]*(?=\n|$)/g, '$1')                             // a --- / *** rule
       .replace(/[ \t]*\|[ \t]*/g, ' ')
@@ -577,7 +585,10 @@
       if (!said || said.__prose || !text || typeof Chat === 'undefined' || !Chat.renderProse) return;
       said.__prose = true;
       said.classList.add('wf-md');
-      Chat.renderProse(said, text);
+      // its file links and images open where THIS run put them — the row's agent, at the root its run record ran with (r.run) —
+      // never the agent open in COMMS (renderProse's default with no refs), so they agree with the FILES section beside them
+      const files = Chat.workspaceFileRefs ? Chat.workspaceFileRefs(String(r.agentId || 'agent'), null, (r.run && r.run.projectRoot) || undefined) : undefined;
+      Chat.renderProse(said, text, files ? { files } : undefined);
     }
 
     list.addEventListener('click', async ev => {

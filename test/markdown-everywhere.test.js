@@ -7,7 +7,10 @@
           WHAT CAME BACK below it, once its drawer opens; a fenced block's ⧉ key works outside COMMS
      #3   the COMMS INBOX "prove the line" card quotes the reply as plain words (Deliverables.plainLine), never markdown
      #11  the goal-arc confirm panel's milestones are plain words (no '**', no '`', no '## ' header as a step)
-     #17  TO REVIEW's collapsed glance leaves no stray space where `code` was (the rest of #17: walk-consistency-1014.test.js) */
+     #17  TO REVIEW's collapsed glance leaves no stray space where `code` was (the rest of #17: walk-consistency-1014.test.js)
+   Review round (10-14): a plain multi-line reply keeps its line breaks in every renderProse container outside COMMS (a cascade
+   over the real stylesheets); an answer's file links resolve in the RUN's agent + root, never the agent open in COMMS; a cut
+   reply's note sits below the answer; a code-only reply is quoted as its code; numbered heading steps stay milestones. */
 'use strict';
 const A = require('./_assert.js');
 let pending = 1;   // async checks still out (each calls finish())
@@ -41,10 +44,65 @@ const el = () => { const cls = new Set(); return { textContent: '', innerHTML: '
 const rendered = n => /<span class="md-h"[^>]*>Findings<\/span>/.test(n.innerHTML) && (n.innerHTML.match(/<li>/g) || []).length === 2
   && /<code class="md-code">code<\/code>/.test(n.innerHTML) && !/\*\*|## |`/.test(n.innerHTML);
 
+/* ---------- a small cascade over the stylesheets index.html loads, in its order: which white-space rule wins on a <div> with
+   these classes? Conservative on purpose — any ancestor context, @media block or non-state pseudo-class counts as "could apply",
+   so a rule anywhere that could flip a reply container back to `normal` is seen. ---------- */
+function cssRules(file, text, out) {
+  const s = text.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  let i = 0;
+  const block = from => { let d = 0; for (let k = from; k < s.length; k++) { if (s[k] === '{') d++; else if (s[k] === '}' && --d === 0) return k; } return s.length; };
+  (function parse(end) {
+    while (i < end) {
+      const open = s.indexOf('{', i), close = s.indexOf('}', i);
+      if (open === -1 || open >= end || (close !== -1 && close < open)) { i = close === -1 ? end : close + 1; return; }
+      const prelude = s.slice(i, open).trim(), stop = block(open);
+      if (/^@(media|supports|layer|container)\b/.test(prelude)) { i = open + 1; parse(stop); i = stop + 1; continue; }
+      if (!prelude.startsWith('@')) out.push({ file, sel: prelude, decl: s.slice(open + 1, stop), order: out.length });
+      i = stop + 1;
+    }
+  })(s.length);
+}
+const splitTop = (str, sepRe) => { const parts = []; let d = 0, cur = ''; for (const c of str) { if (c === '(') d++; if (c === ')') d--; if (!d && sepRe.test(c)) { parts.push(cur); cur = ''; } else cur += c; } parts.push(cur); return parts.map(x => x.trim()).filter(Boolean); };
+function compoundMatches(comp, cls) {
+  if (/::/.test(comp)) return false;   // a pseudo-element is another box
+  const isArgs = [];
+  const bare = comp.replace(/:(is|where|not)\(((?:[^()]|\([^()]*\))*)\)/g, (m, kind, args) => { if (kind !== 'not') isArgs.push(splitTop(args, /,/)); return ''; });
+  if (/:(hover|focus|focus-visible|focus-within|active|checked|disabled)\b/.test(bare)) return false;   // a state, not the resting look
+  const el = /^[a-z][\w-]*/i.exec(bare);
+  if (el && el[0] !== 'div') return false;
+  if (/#[\w-]+|\[/.test(bare)) return false;   // these containers carry no id/attribute the stylesheets key on
+  const need = (bare.match(/\.[\w-]+/g) || []).map(x => x.slice(1));
+  if (!need.every(c => cls.includes(c))) return false;
+  return isArgs.every(alts => alts.some(a => compoundMatches(a, cls)));
+}
+function specificity(sel) {
+  const t = sel.replace(/:where\((?:[^()]|\([^()]*\))*\)/g, '').replace(/:(is|not)\(/g, '(');
+  return [(t.match(/#[\w-]+/g) || []).length, (t.match(/\.[\w-]+|\[|:(?!:)[\w-]+/g) || []).length, (t.replace(/\.[\w-]+|#[\w-]+|:[\w-]+|\[[^\]]*\]/g, ' ').match(/(^|[\s>+~(,])[a-z][\w-]*/gi) || []).length];
+}
+const CSS_ORDER = (rd('frontend/index.html').match(/href="css\/[^"?]+/g) || []).map(h => 'frontend/' + h.slice(6));
+const ALL_RULES = []; for (const f of CSS_ORDER) cssRules(f, rd(f), ALL_RULES);
+function cascadeWhiteSpace(cls) {
+  let best = null;
+  for (const r of ALL_RULES) {
+    const m = /(?:^|;)\s*white-space\s*:\s*([^;!]+?)\s*(!important)?\s*(?:;|$)/.exec(r.decl);
+    if (!m) continue;
+    for (const sel of splitTop(r.sel, /,/)) {
+      const comps = splitTop(sel.replace(/\s*[>+~]\s*/g, ' '), /\s/);
+      if (!compoundMatches(comps[comps.length - 1], cls)) continue;
+      const cand = { value: m[1], imp: !!m[2], spec: specificity(sel), order: r.order, file: r.file, sel };
+      const beats = (a, b) => !b || (a.imp !== b.imp ? a.imp : (a.spec.join() !== b.spec.join() ? a.spec.map((x, k) => x - b.spec[k]).find(x => x) > 0 : a.order > b.order));
+      if (beats(cand, best)) best = cand;
+    }
+  }
+  return best;
+}
+A.ok(CSS_ORDER.length > 20 && ALL_RULES.length > 1000, 'the cascade reads every stylesheet index.html loads (' + CSS_ORDER.length + ' files, ' + ALL_RULES.length + ' rules)');
+A.eq(cascadeWhiteSpace(['cmsg', 'body']).value, 'pre-wrap', 'cascade sanity: COMMS’ reply body is pre-wrap');
+
 /* ---------- #2 TO REVIEW › WHAT CAME BACK ---------- */
 {
   const ob = rd('frontend/app/windows/outbox.js');
-  const answerInto = A.fnBody(ob, '  function answerInto(out, text)');
+  const answerInto = A.fnBody(ob, '  function answerInto(out, text, files)');
   A.ok(answerInto.length > 20 && answerInto.length < 2000, 'outbox.js has answerInto (one reading of an answer)');
   const run = globals => vm.runInContext(answerInto + '\nanswerInto;', vm.createContext(Object.assign({}, globals)));
   const out = el();
@@ -59,7 +117,67 @@ const rendered = n => /<span class="md-h"[^>]*>Findings<\/span>/.test(n.innerHTM
   A.eq([bare.textContent, bare.innerHTML], [REPLY, ''], 'where COMMS’ renderer is not loaded the answer is plain text, never innerHTML');
   const build = A.fnBody(ob, '  function buildOutbox(body)');
   A.ok(/answerInto\(out, /.test(build) && !/out\.textContent = lastReply/.test(build), 'readResult draws the reply through answerInto');
-  A.ok(/\.ob-out\.wf-md \{ white-space: normal; \}/.test(rd('frontend/css/app.css')), 'the rendered answer drops the plain-text pre-wrap (its blocks wrap themselves)');
+
+  /* WHERE ITS FILES LIVE (review 10-14): with no refs, renderProse resolves a reply's relative file link / image against the agent
+     open in COMMS — a NOVA run's '[report](out/report.md)' would open CYPHER's file. The run's own refs ride in instead. */
+  const seen = [];
+  run({ Chat: { renderProse: (n, t, o) => seen.push(o) } })(el(), 'see [report](out/report.md)', 'REFS');
+  A.eq(seen, [{ files: 'REFS' }], 'answerInto hands renderProse the run’s file refs');
+  const refsArgs = [];
+  const runFileRefs = vm.runInContext(A.fnBody(ob, '  function runFileRefs(agentId, projectRoot)') + '\nrunFileRefs;',
+    vm.createContext({ String, Chat: { workspaceFileRefs: (...a) => { refsArgs.push(a); return 'R'; } } }));
+  A.eq([runFileRefs('nova', 'C:/proj'), runFileRefs('nova', ''), runFileRefs('', null)], ['R', 'R', 'R'], 'runFileRefs builds COMMS’ own refs');
+  A.eq(refsArgs, [['nova', null, 'C:/proj'], ['nova', null, undefined], ['agent', null, undefined]], 'for the RUN’s agent at the run’s root (none = its own workspace) — never left to the COMMS agent');
+  // …through the REAL workspaceFileRefs: the link is wired to the run's agent, not attachAgentId() (the agent open in COMMS)
+  const wired = [];
+  const wfr = vm.runInContext('let fileRefScope = 0;\n' + extract('workspaceFileRefs') + '\nworkspaceFileRefs;', vm.createContext({ String,
+    attachAgentId: () => 'cypher', wireFileOpen: (a, p, aid, root) => wired.push([p, aid, root]), cachedBlob: (k, load) => k, imageBlobUrl: () => '', fileUrl: () => '' }));
+  const novaRefs = wfr('nova', null, 'C:/proj');
+  novaRefs.wire({}, 'out/report.md');
+  A.eq(wired, [['out/report.md', 'nova', 'C:/proj']], 'a .md file link in a NOVA run opens NOVA’s file at that run’s root (COMMS showed CYPHER)');
+  A.ok(/\|nova\|C:\/proj\|out\/c\.png$/.test(novaRefs.image('out/c.png')), 'an image thumbnail reads from the same agent + root');
+  const rp = el();
+  renderProse(rp, 'see [report](out/report.md)', { files: novaRefs });
+  A.ok(rp.__fileRefs === novaRefs && /class="md-file"/.test(rp.innerHTML), 'renderProse keeps the refs on the body it hydrates (bodyEl.__fileRefs)');
+  A.ok(/const refs = bodyEl\.__fileRefs \|\| /.test(extract('hydrateFileRefs')), 'hydrateFileRefs resolves through the refs the body carries');
+  // the run's root comes off its own run row (/api/runs — the record ReturnStore.openWork reads), read beside the transcript
+  const gets = [];
+  const runRecord = vm.runInContext(A.fnBody(ob, '  function runRecord(rw)') + '\nrunRecord;', vm.createContext({ Promise, encodeURIComponent,
+    Harness: { api: { get: async u => { gets.push(u); if (/runId=boom/.test(u)) throw new Error('down'); return { runs: [{ runId: 'other' }, { runId: 'r1', projectRoot: 'C:/proj' }] }; } } } }));
+  pending++;
+  Promise.all([runRecord({ runId: 'r1', agentId: 'nova' }), runRecord({ runId: 'boom', agentId: 'nova' }), runRecord({ agentId: 'nova' })]).then(([hit, down, none]) => {
+    A.eq([hit && hit.projectRoot, down, none], ['C:/proj', null, null], 'runRecord: the run’s own row; unreachable or no run id = null (its agent’s workspace)');
+    A.eq(gets[0], '/api/runs?agent=nova&runId=r1', 'runRecord reads exactly this run of this agent');
+    finish();
+  });
+  A.ok(/const runRec = runRecord\(rw\);/.test(build) && /const rec = await runRec;\s*answerInto\(out, lastReply\.slice\(0, ANSWER_MAX\), runFileRefs\(rw\.agentId, rec && rec\.projectRoot\)\);\s*answerCut\(out, lastReply\);/.test(build),
+    'readResult draws the answer with the run’s refs (agent + its run row’s root), its cut note below it');
+
+  /* a cut reply says so BELOW the answer (review 10-14): appended inside the text, a cut landing in a fenced block drew the note
+     as code and its ⧉ key copied it */
+  const appended = [];
+  const answerCut = vm.runInContext('const ANSWER_MAX = 4000;\n' + A.fnBody(ob, '  function answerCut(out, text)') + '\nanswerCut;', vm.createContext({ String,
+    document: { createElement: t => ({ tag: t, className: '', textContent: '' }) } }));
+  const host = { appendChild: n => appended.push(n) };
+  answerCut(host, 'x'.repeat(4000));
+  answerCut(host, '```\n' + 'x'.repeat(4100));
+  A.eq(appended.map(n => [n.tag, n.className, n.textContent]), [['div', 'ob-cut', '… output truncated — ↗ OPEN SESSION opens the conversation.']], 'only a cut reply gets the note, as its own element after the answer');
+  A.ok(!/output truncated/.test(answerInto), 'the note never rides inside the rendered text');
+  A.ok(/\.ob-cut \{[^}]*color: var\(--ph-dim\)/.test(rd('frontend/css/app.css')) && !/\.ob-cut \{[^}]*font-size/.test(rd('frontend/css/app.css')), 'the note reads dim at the answer’s own size (never shrunk)');
+  /* a PLAIN reply with single line breaks takes renderProse's textContent fast path (no marker, no link) — its lines survive only
+     while the container stays pre-wrap, as COMMS' .cmsg .body is (review 10-14: TO REVIEW + the library ran it into one line) */
+  const LETTER = 'Dear team,\nThe build passed.\nShip it tonight.';
+  const letter = el();
+  run({ Chat })(letter, LETTER);
+  A.eq([letter.textContent, letter.innerHTML], [LETTER, ''], 'a plain multi-line reply is drawn as its own text (the fast path)');
+  for (const [cls, where] of [[['ob-out', 'wf-md'], 'TO REVIEW'], [['dlv-said', 'md', 'wf-md'], 'the library drawer'],
+    [['wf-io', 'wf-md'], 'a Workflow panel / WORKFLOWS step reply'], [['wf-io', 'out', 'wfw-out', 'wf-md'], 'the WORKFLOWS result']]) {
+    const won = cascadeWhiteSpace(cls);
+    A.eq(won && won.value, 'pre-wrap', where + ' keeps a plain reply’s line breaks (winning white-space rule: ' + (won ? won.file + ' ' + won.sel : 'none') + ')');
+  }
+  // ...and pre-wrap is safe for rendered markdown: renderMarkdown joins its blocks with no whitespace between the tags
+  const blocks = renderMarkdown('## H\n\n- a\n- b\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\n```\ncode\n```\n\n> q\n\npara');
+  A.ok(!/>\s+</.test(blocks), 'no whitespace text between rendered blocks (nothing for pre-wrap to show): ' + blocks.slice(0, 160));
 
   /* the collapsed glance (#17): the library's one plain line — no '## ', no list dashes, no stray space where `code` was */
   const plain = A.fnBody(ob, '  function plain(s)');
@@ -81,6 +199,21 @@ const rendered = n => /<span class="md-h"[^>]*>Findings<\/span>/.test(n.innerHTM
   A.ok(rendered(said) && said.cls.has('wf-md'), 'the library drawer’s WHAT CAME BACK is drawn by the same renderer as TO REVIEW');
   said.innerHTML = 'kept'; fn(more, { run: { deliveryText: REPLY } });
   A.eq(said.innerHTML, 'kept', 'drawn once per drawer');
+  // its file links resolve where THIS run put them: the row's agent, at its run record's root (review 10-14)
+  const dArgs = [], dOpts = [];
+  const fn2 = vm.runInContext(proseSaid + '\nproseSaid;', vm.createContext({ String,
+    Chat: { renderProse: (n, t, o) => dOpts.push(o), workspaceFileRefs: (...a) => { dArgs.push(a); return 'REFS' + dArgs.length; } } }));
+  const s1 = el(), s2 = el();
+  fn2({ querySelector: () => s1 }, { agentId: 'nova', run: { deliveryText: 'see [r](out/r.md)', projectRoot: 'C:/proj' } });
+  fn2({ querySelector: () => s2 }, { agentId: '', run: { deliveryText: 'see [r](out/r.md)', projectRoot: '' } });
+  A.eq([dArgs, dOpts], [[['nova', null, 'C:/proj'], ['agent', null, undefined]], [{ files: 'REFS1' }, { files: 'REFS2' }]],
+    'the library drawer’s answer links open in the run’s own agent + root, never the agent open in COMMS');
+  // the root is the RUN's own (sidecar factsOf), not the project it is filed under — a delegated worker wrote in its own workspace
+  const { makeProvenanceIndex } = require('../sidecar/deliverable-provenance.js');
+  const prov = makeProvenanceIndex([{ runId: 'lead', agentId: 'nova', projectRoot: 'C:/proj', deliveryText: 'x', streamId: 's' },
+    { runId: 'w1', agentId: 'cypher', parentRunId: 'lead', projectRoot: '' }], { isInternal: () => false });
+  A.eq([prov.factsOf('lead').projectRoot, prov.factsOf('w1').projectRoot, prov.projectOf('w1')], ['C:/proj', '', 'C:/proj'],
+    'factsOf carries the run’s own root (a worker filed under its lead’s project still resolves in its own workspace)');
   const toggle = A.fnBody(dl, '    function toggleCard(headBtn)');
   A.ok(/proseSaid\(more, rows\[Number\(card\.dataset\.i\)\]\)/.test(toggle), 'opening a library drawer draws its answer');
   // the ⧉ key of a fenced block drawn outside COMMS copies that block (one document-level handler in chat.js) — executed
@@ -113,6 +246,7 @@ const rendered = n => /<span class="md-h"[^>]*>Findings<\/span>/.test(n.innerHTM
   A.eq(plainQuote(REPLY, 220), '“' + PLAIN + '”', 'the delivered card quotes the reply as plain words');
   A.eq(plainQuote('**' + 'x'.repeat(300) + '**', 220), '“' + 'x'.repeat(220) + '…”', 'a long reply is cut with an ellipsis');
   A.eq(plainQuote('', 220), '', 'no reply, no quote');
+  A.eq(plainQuote('```js\nconst a = 1;\nnpm run dev\n```', 220), '“const a = 1; npm run dev”', 'a reply that is only code is quoted as that code (the not-clean card says “the reply below says why”)');
   const card = A.fnBody(chatSrc, '  function sampleCard(opts)');
   A.ok(/plainQuote\(j\.replies\[j\.replies\.length - 1\], 220\)/.test(card), 'the INBOX card quotes through plainQuote');
 }
@@ -131,6 +265,13 @@ const rendered = n => /<span class="md-h"[^>]*>Findings<\/span>/.test(n.innerHTM
   A.eq(G.parseDecomposition(reply, { plain: D.plainLine }), ['Ship the cli MVP to ten users', 'Write the launch post for HN', 'Collect feedback from beta testers'],
     'milestones are plain words, and a markdown header is not a step');
   A.eq(G.parseDecomposition('1. Set up the runtime\n2. Wire the event bus\n3. Build the first agent loop'), ['Set up the runtime', 'Wire the event bus', 'Build the first agent loop'], 'a plain numbered reply parses as before');
+  // review 10-14: steps written AS headings stay steps (only a bare header drops), and a leading comparison is kept
+  A.eq(G.parseDecomposition('## The roadmap\n### 1. Ship the **CLI** MVP\n### 2. Write the launch post for HN\n### 3. Collect feedback from beta testers', { plain: D.plainLine }),
+    ['Ship the CLI MVP', 'Write the launch post for HN', 'Collect feedback from beta testers'], 'numbered headings are the steps; the bare “## The roadmap” header is not');
+  A.eq(G.parseDecomposition('## Step 1: Ship the CLI MVP to users\n## Step 2: Write the launch post\n## Step 3: Collect beta feedback', { plain: D.plainLine }),
+    ['Step 1: Ship the CLI MVP to users', 'Step 2: Write the launch post', 'Step 3: Collect beta feedback'], '“## Step N:” headings are steps too');
+  A.eq(G.parseDecomposition('1. > 100 paying users on the plan\n2. >= $5k monthly revenue from it\n3. Collect feedback from beta testers', { plain: D.plainLine }),
+    ['> 100 paying users on the plan', '>= $5k monthly revenue from it', 'Collect feedback from beta testers'], 'a milestone opening on a comparison keeps its “>” (it is not a quote mark)');
   // the live wiring: GoalStore hands the parser the library's plain line
   const mem = {};
   global.localStorage = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };

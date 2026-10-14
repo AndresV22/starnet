@@ -41,9 +41,29 @@
      (Chat.renderProse — escape-first, so a reply's markup never runs) on the panel scale (wf-md); plain text where it is not loaded.
      The collapsed glance is the library's own markdown → one plain line (Deliverables.plainLine): no '## ', no list dashes, and a
      stripped `code` leaves no stray space ('with code .'). */
-  function answerInto(out, text) {
-    if (typeof Chat !== 'undefined' && Chat.renderProse) { out.classList.add('wf-md'); Chat.renderProse(out, text); }
+  function answerInto(out, text, files) {
+    if (typeof Chat !== 'undefined' && Chat.renderProse) { out.classList.add('wf-md'); Chat.renderProse(out, text, files ? { files } : undefined); }
     else out.textContent = text;
+  }
+  /* WHERE THIS RUN'S FILES LIVE (review 10-14): a reply's relative file link or image opens where the run that wrote it put it —
+     the RUN's agent, at the root its run record says it ran with (none = that agent's own workspace) — never the agent open in
+     COMMS, which is renderProse's default when no refs ride along. COMMS' own rule for a reply (turnFileRefs), read off the run row. */
+  function runFileRefs(agentId, projectRoot) {
+    return (typeof Chat !== 'undefined' && Chat.workspaceFileRefs) ? Chat.workspaceFileRefs(String(agentId || 'agent'), null, projectRoot || undefined) : undefined;
+  }
+  // the run's own row (runs.jsonl via /api/runs — the record ReturnStore.openWork reads too); null when it is unreachable or aged out
+  function runRecord(rw) {
+    if (!rw || !rw.runId || typeof Harness === 'undefined' || !Harness.api) return Promise.resolve(null);
+    return Promise.resolve().then(() => Harness.api.get('/api/runs?agent=' + encodeURIComponent(rw.agentId || 'agent') + '&runId=' + encodeURIComponent(rw.runId)))
+      .then(j => ((j && j.runs) || []).find(x => x && x.runId === rw.runId) || null, () => null);
+  }
+  // a cut reply says so BELOW the answer, never inside it: a cut that lands in a fenced block would draw the note as code (and ⧉ would copy it)
+  const ANSWER_MAX = 4000;
+  function answerCut(out, text) {
+    if (String(text).length <= ANSWER_MAX) return;
+    const n = document.createElement('div'); n.className = 'ob-cut';
+    n.textContent = '… output truncated — ↗ OPEN SESSION opens the conversation.';
+    out.appendChild(n);
   }
   function plain(s) {
     return (typeof Deliverables !== 'undefined' && Deliverables.plainLine) ? Deliverables.plainLine(s) : String(s || '').replace(/\s+/g, ' ').trim();
@@ -175,6 +195,7 @@
         if (reading || loaded) return;
         reading = true;
         const desc = row.querySelector('.ob-desc'), ask = row.querySelector('.ob-ask'), out = row.querySelector('.ob-out');
+        const runRec = runRecord(rw);   // read beside the transcript: where the answer's file links resolve
         await fillStreams;
         let turns = null;
         if (rw.streamId) {
@@ -217,8 +238,11 @@
           : hand ? String(hand.original) + '\n\n— the result of a work line: this reply is from step ' + hand.stage + ', after ' + String(agentName(hand.from)).toUpperCase() + '.'
           : users.length ? String(users[0].content) : '';
         ask.textContent = askFull ? (askFull.length > 1500 ? askFull.slice(0, 1500) + ' …' : askFull) : (rw.title || '—');
-        if (lastReply) answerInto(out, lastReply.length > 4000 ? lastReply.slice(0, 4000) + '\n\n… output truncated — ↗ OPEN SESSION opens the conversation.' : lastReply);
-        else out.textContent = turns === null ? '⚠ couldn’t load the output — the run’s transcript wasn’t reachable.'
+        if (lastReply) {
+          const rec = await runRec;
+          answerInto(out, lastReply.slice(0, ANSWER_MAX), runFileRefs(rw.agentId, rec && rec.projectRoot));
+          answerCut(out, lastReply);
+        } else out.textContent = turns === null ? '⚠ couldn’t load the output — the run’s transcript wasn’t reachable.'
           : 'this run recorded no readable output.';
         // FILES — the library's rows for this run, in the library's own markup (dlv-files), sized off
         // disk by the backend. Only rendered when the index proves the run produced something; a plain
