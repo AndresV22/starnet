@@ -80,6 +80,16 @@ A.eq(B.excerptOf('Here is what I found:\n\n- Two competitors undercut us.'), 'Tw
 A.eq(B.excerptOf('Done. Tagline saved to tagline.md.'), 'Done. Tagline saved to tagline.md.', 'a whole short answer is its own outcome');
 A.eq(B.excerptOf('Two competitors undercut us.\n\nBoth cut prices in May.\n\n## Sources\n- a.com'), 'Two competitors undercut us.', 'an answer paragraph followed by more prose keeps its place (a late heading is not a hand-over)');
 A.eq(B.excerptOf('Let me check.\n\n---'), 'Let me check.', 'a lead-in with nothing after it is all the text there is');
+// …but a colon lead-in is skipped ONLY when prose follows it (review 10-14: the colon rule quoted "python", "| a | b |",
+// "> …" and a bare file name). A fence, a table or a lone token after the colon keeps the lead-in, as before.
+A.eq(B.excerptOf('Here is the script:\n\n```python\nprint(1)\n```'), 'Here is the script:', 'a code fence after a colon lead-in is not prose: the lead-in stays');
+A.eq(B.excerptOf("Here's the tagline:\n\n```markdown\nYour AI agent. Local-first.\n```"), "Here's the tagline:", 'a fenced answer keeps its lead-in (never "markdown")');
+A.eq(B.excerptOf('Results:\n\n| a | b |\n|---|---|\n| 1 | 2 |'), 'Results:', 'a table after a colon lead-in keeps the lead-in (never "| a | b |")');
+A.eq(B.excerptOf('I updated three files:\n\n- a.js\n- b.js'), 'I updated three files:', 'a list of bare names is not an outcome sentence: the lead-in stays');
+A.eq(B.excerptOf('From the page:\n\n> Ship it before the weekend rush.'), 'Ship it before the weekend rush.', 'a quoted sentence is prose, and its > mark is stripped');
+A.eq(B.excerptOf('> A quoted outcome, on its own.'), 'A quoted outcome, on its own.', 'a quote mark never reaches the briefing');
+A.eq(B.excerptOf('```python\nprint(1)\n```'), '', 'a reply that is only code has no sentence to quote (never "python")');
+A.eq(B.excerptOf('| name | size |\n|---|---|\n| a | 1 |\n\nTwo files are ready.'), 'Two files are ready.', 'table rows are skipped on the way to the first sentence');
 {
   const threads = [{ id: 'home', title: 'Write Launch Post' }, { id: 'k9', parentStreamId: 'home', title: 'Evaluate' }];
   const d = B.compose({ since: SINCE, now: NOW, threads, runs: [run({ streamId: 'k9', parentRunId: 'lead', delegatedBy: 'agent', dispatchDelivery: { state: 'final', reason: 'done', text: STRAT } })] });
@@ -101,6 +111,12 @@ A.eq(B.excerptOf('Let me check.\n\n---'), 'Let me check.', 'a lead-in with nothi
   A.ok(a.brief && a.since === NOW - 10 * H, 'a first-ever delivery looks back the first window');
   a = B.absence({ through: NOW - 5 * H, now: NOW });
   A.ok(a.brief && a.since === NOW - 5 * H, 'no threshold named → the old contract (brief whatever ended since the stamp)');
+  // THE FIRST SESSION (review 10-14): the awakening page has the briefing off but still stamps presence, so a brand-new
+  // station's first reload is a reload — never a 24-hour "While you were away" over the session the Commander just watched
+  const seen = B.absence({ through: 0, now: NOW - 2 * 60000, seen: true });
+  A.ok(!seen.brief && seen.through === NOW - 2 * 60000, 'a first-ever presence stamp sets the stamp and briefs nothing');
+  a = B.absence({ through: seen.through, now: NOW, minAwayMs: AWAY, firstWindowMs: 24 * 60 * H });
+  A.ok(!a.brief, 'the reload right after it is not an absence');
 }
 
 const ctx = B.contextBlock(b);

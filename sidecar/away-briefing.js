@@ -32,30 +32,48 @@ function clip(s, max) {
 
 const RULE_LINE = /^[-*_]{3,}$/;
 const HEADING_LINE = /^#{1,6}\s/;
+const FENCE_LINE = /^(`{3,}|~{3,})/;
+// a pipe-table row or its |---|:--| separator — cells, never a sentence
+const TABLE_LINE = /^\||^:?-{3,}:?\s*\|/;
 /* A LEAD-IN IS NOT AN OUTCOME (live walk 10-14: "Latest: COPY's draft is in the context at the top. Let me analyze it
    now." — a worker's opening line, quoted as what the job produced). Decided by the text's STRUCTURE, never by its
    words: the opening paragraph is a lead-in when the next block is a rule or a heading (the answer starts there), or
-   when it ends in a colon (it introduces what follows). Only the FIRST paragraph, and only when something follows. */
+   when it ends in a colon AND the block after it opens with a sentence (review 10-14: a colon before a code fence, a
+   table or a list of bare names introduces material, not an outcome — quoting "python" or "| a | b |" is worse than
+   the lead-in). Only the FIRST paragraph, and only when something follows. */
 function afterLeadIn(lines) {
   let i = 0;
   while (i < lines.length && !lines[i].trim()) i++;
   const first = lines[i] == null ? '' : lines[i].trim();
-  if (!first || HEADING_LINE.test(first) || RULE_LINE.test(first) || /^✦\s/.test(first)) return lines;
+  if (!first || HEADING_LINE.test(first) || RULE_LINE.test(first) || FENCE_LINE.test(first) || /^✦\s/.test(first)) return lines;
   let end = i;
   while (end < lines.length && lines[end].trim()) end++;   // end = the first blank line after the opening paragraph
   let next = end;
   while (next < lines.length && !lines[next].trim()) next++;
   if (next >= lines.length || next === end) return lines;   // nothing follows it: the paragraph is all there is
   const after = lines[next].trim();
-  const handsOver = RULE_LINE.test(after) || HEADING_LINE.test(after) || /:$/.test(lines[end - 1].trim());
+  const handsOver = RULE_LINE.test(after) || HEADING_LINE.test(after)
+    || (/:$/.test(lines[end - 1].trim()) && isSentence(readableLine(after)));
   return handsOver ? lines.slice(next) : lines;
 }
+// one line's readable words: heading/banner/list/quote marks and **, __, ` dropped; '' for a rule, fence or table row
+function readableLine(raw) {
+  let l = String(raw || '').trim();
+  if (!l || RULE_LINE.test(l) || FENCE_LINE.test(l) || TABLE_LINE.test(l)) return '';
+  l = l.replace(/^(>\s?)+/, '').trim();
+  l = l.replace(/^#{1,6}\s+/, '').replace(/^✦\s+/, '');
+  if (!l || RULE_LINE.test(l)) return '';
+  return l.replace(/^[-*•]\s+/, '').replace(/\*\*|__|`/g, '').trim();
+}
+// a sentence, structurally: at least two words with a letter among them (a bare file name or one token is a label)
+function isSentence(l) { return /\S\s+\S/.test(l) && /\p{L}/u.test(l); }
 function firstReadable(lines) {
+  let fenced = false;
   for (const raw of lines) {
-    let l = raw.trim();
-    if (!l) continue;
-    if (/^(#{1,6}\s|[-*_]{3,}$|✦\s)/.test(l)) { l = l.replace(/^#{1,6}\s+/, '').replace(/^✦\s+/, ''); if (!l || /^[-*_]{3,}$/.test(l)) continue; }
-    l = l.replace(/^[-*•]\s+/, '').replace(/\*\*|__|`/g, '').trim();
+    const t = String(raw || '').trim();
+    if (FENCE_LINE.test(t)) { fenced = !fenced; continue; }   // code is material, never the outcome sentence
+    if (fenced) continue;
+    const l = readableLine(t);
     if (l) return clip(l, EXCERPT_MAX);
   }
   return '';
