@@ -331,6 +331,20 @@ try {
 ${p.incl}`); }
     out0.close = c;
     if (shots) console.log('closed shot', (await capture(cdp, shots, '99-closed')).path);
+    if (flag('--reopen')) {   // BUILD MODE again on the floor it handed back: entry, then a room past the east edge
+      await sleep(1500);
+      const t0 = Date.now(); const re = await evalJS(cdp, `(() => { const t0 = performance.now(); Build.open(); return { sync: Math.round(performance.now() - t0), open: Build.isOpen() }; })()`);
+      console.log(`REOPEN                 sync ${re.sync} ms · open ${re.open}`);
+      await sleep(3000);
+      const east = await evalJS(cdp, `(() => { const st = Build.__test__.station(); let maxX = -1e9, minY = 1e9, maxY = -1e9; for (const r of st.rooms()) for (const q of r.rects) { maxX = Math.max(maxX, q.x2); minY = Math.min(minY, q.y1); maxY = Math.max(maxY, q.y2); } for (let y = minY; y <= maxY; y++) { const r = { x1: maxX + 1, y1: y, x2: maxX + 6, y2: y + 4 }; if (st.canPlaceRoom([r], 'hab').ok) return [[r.x1, r.y1], [r.x2, r.y2]]; } return null; })()`);
+      if (east) await edit('stamp room east (reopened)', `${T}.placeDrag('room', ${JSON.stringify(east[0])}, ${JSON.stringify(east[1])}).ok`);
+      await edit('undo east room', `(${T}.key('z', { ctrlKey: true }), ${T}.station().rooms().length)`);
+      await evalJS(cdp, `(window.__lt.length = 0, 1)`);
+      const c2 = await evalJS(cdp, `(() => { const t0 = performance.now(); Build.close(); return Math.round(performance.now() - t0); })()`);
+      await sleep(2000);
+      console.log(`CLOSE again            sync ${c2} ms · later long tasks [${(await evalJS(cdp, 'window.__lt.slice()')).join(', ')}]`);
+      if (shots) console.log('closed again shot', (await capture(cdp, shots, '99-closed-again')).path);
+    }
   }
   for (let s = 1; s <= Number(arg('--settle', '0')); s++) { await sleep(4000); out0.idle.push(await idle('+' + (s * 6) + ' s later')); }
   if (flag('--esc')) {   // diagnosis only: does putting the armed tool down change the idle cost?

@@ -403,6 +403,8 @@ const Build = (() => {
       catch (e) { console.warn('[refit] could not hand the floor back to the world; it re-bakes the station instead', e); }
       if (whole) opts.world.adoptBuildBake(station, whole);
     }
+    // the chunks (and their dense plates) are not drawn again until the next open() takes the world's bake: free them now
+    cache = null; cacheGeo = null; bakeDirty = true;
     const saved = opts.persist ? opts.persist() : false;
     if (saved && typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Station layout saved locally', 'good', undefined, { transient: true });
     if (opts.world && opts.world.refit) opts.world.refit();     // recenter the live world on the new build
