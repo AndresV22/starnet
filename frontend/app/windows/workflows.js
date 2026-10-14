@@ -649,7 +649,7 @@ const WorkflowsWindow = (() => {
     return '<section class="wfw-sec wfw-send"><h3>Send a job</h3>'
       + '<textarea id="wfw-job" class="wfw-field" rows="3" maxlength="2000" aria-label="The job for this workflow" placeholder="' + esc(exampleJob(l)) + '">' + esc(S.draft['job:' + l.key] || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="send"' + (busy ? ' disabled' : '') + '>▶ SEND A JOB</button>'
-      + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, and to the OUTBOX.' + ((l.sendNames || []).length ? ' Then it ' + (l.sendsAll ? 'rides on' : 'can ride on') + ' to ' + esc(l.sendNames.join(' / ')) + ' — its crew, at its cost.' : '')) + '</span></div>'
+      + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, on the OUTBOX and in DELIVERABLES.' + ((l.sendNames || []).length ? ' Then it ' + (l.sendsAll ? 'rides on' : 'can ride on') + ' to ' + esc(l.sendNames.join(' / ')) + ' — its crew, at its cost.' : '')) + '</span></div>'
       + (S.msg ? '<p class="' + (S.msg.bad ? 'wfw-bad' : 'wfw-okline') + '">' + (S.msg.bad ? '✕ ' : '') + esc(S.msg.text) + '</p>' : '')
       + '</section>' + startsHTML(l) + '<section class="wfw-sec"><h3>Last jobs</h3>' + jobRows(l) + '</section>';
   }
