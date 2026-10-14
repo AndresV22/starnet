@@ -5886,7 +5886,9 @@ const App = (() => {
   // currentAgent/agents/applyConfig (slash-plan): the slash-command suite reads/writes the live roster
   // and per-agent config (/agents, /model, /personality, …).
   return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, waitingSessionOf, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
-    agentName: id => { const a = agents.get(id); return a ? (a.name || a.id) : null; },
+    // a team.spawn clone ('sub-<id>', never on the roster) is a HELPER: its raw id was the name on its approval card and NEEDS
+    // YOU once its ask could outlive the lead's turn (live walk 2026-10-14); the sidecar says "a helper" for it too
+    agentName: id => { const a = agents.get(id); return a ? (a.name || a.id) : (/^sub-/.test(String(id || '')) ? 'HELPER' : null); },
     // WORK LINES: a downstream stage runs as ANOTHER agent, so the chat host needs THAT agent's composed
     // prompt — never the focused one's. Read-only; null for an id that is not on the live roster.
     systemFor: id => { const a = agents.get(id); return a ? (a.systemPrompt || '') : null; },

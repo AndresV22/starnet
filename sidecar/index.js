@@ -3905,6 +3905,25 @@ const projectInstructions = makeProjectInstructions({ fsp, pathMod: path, redact
 const grantsSession = new Map();           // runId -> Set(dangerKey); cleared when the run ends
 const pendingByRun = new Map();            // runId -> Map(promptId -> resolve(decision)); the live consent prompts
 const pendingSummonByRun = new Map();      // runId -> Map(requestId -> resolve(newAgentId|null)); live team.summon requests awaiting the browser
+/* THE PAGE WENT AWAY MID-ASK (rc-walk #60, 2026-10-13). A desk run's watcher leaving cancels the run (the disconnect law
+   in handleRun), which also denies the approval it was waiting on — and the reloaded conversation used to show nothing
+   at all: the run just vanished. handleRun notes here, at the moment its stream closes, which of the run's OWN approvals
+   were still open; the run record keeps it (runStore `pageClosed`) and the conversation projection turns it into one
+   station line (transcriptstore projectConversation). Read once at the run's record, dropped in handleRun's finally. */
+const pageClosedRuns = new Map();          // runId -> { at, waitingOn: [what each open approval asked, in plain words] }
+function notePageClosed(runId, pending) {
+  const waitingOn = [];
+  for (const f of pending.values()) {
+    const row = f && f.askRow;
+    // a background worker's ask outlives this run (askHuman detached); a question has its own durable restore path
+    if (!row || f.detached || row.tool === 'brief.ask') continue;
+    // a foreground worker's ask names that worker: the conversation is the lead's, so "your approval to change x" alone
+    // read as the lead's own step
+    const forWho = row.workerAgentId ? 'for ' + remoteAgentName(row.workerAgentId) + ' ' : '';
+    waitingOn.push(/^browser\.login/.test(String(row.tool)) ? 'your OK ' + forWho + 'to open a login window' : 'your approval ' + forWho + 'to ' + remoteAskWords(row).replace(/^wants to /, ''));
+  }
+  pageClosedRuns.set(runId, { at: Date.now(), waitingOn: waitingOn.slice(0, 4) });
+}
 
 /* ---- CHANNEL CONSENT (C6): the pause/resolve behind a messaging approve/deny keyboard ---------------------
    A chat that opted into `/approvals` runs surface:'interactive', so the broker await-pauses on a prompt just
@@ -15457,7 +15476,16 @@ function handleStateSnapshot(req, res) {
     for (const [runId, pending] of pendingByRun) {
       const meta = runsMeta.get(runId);
       const agentId = (meta && meta.agentId) || null;
-      for (const promptId of pending.keys()) out.prompts.push({ runId: runId, agentId: agentId, promptId: promptId });
+      for (const [promptId, f] of pending) {
+        const ask = (f && f.askRow) || null;
+        // a delegated worker's ask names the WORKER that asked (the floor poses that body, never the lead's). A background
+        // worker's ask also outlives its lead's turn: it carries what a reloaded page needs to file and answer it
+        // (the conversation, what it asks for) — the same fields its permission.prompt carried (askHuman)
+        const row = { runId: runId, agentId: (ask && ask.workerAgentId) || agentId, promptId: promptId };
+        if (ask && f.detached) Object.assign(row, { background: true, tool: ask.tool, scope: ask.scope, argsSummary: ask.argsSummary,
+          workerAgentId: ask.workerAgentId, workerRunId: ask.workerRunId, workerStreamId: ask.workerStreamId, streamId: ask.streamId, askedAt: ask.askedAt, leadAgentId: ask.agentId });
+        out.prompts.push(row);
+      }
     }
   } catch (_) {}
   try {
@@ -19039,6 +19067,11 @@ async function handleRun(req, res) {
   // claimed "something went wrong" about a run the harness was still driving (2026-07-14 adversarial sweep F1).
   // res 'close' fires when the response stream ends — premature on a dead client — and on normal end it's inert
   // here (runOnce's finally has already settled + deleted; the abort hits a spent controller).
+  // #60: when the close is what stops a LIVE run (STOP / E-STOP / a superseding message abort the signal first), note
+  // the approvals it was still waiting on — the abort below denies them, and the conversation must say so after a reload.
+  // Registered FIRST: listeners run in order, so it reads the signal before the disconnect law aborts it.
+  let leadOver = false;   // this run's own finally ran: a close after it is just the stream's normal end
+  res.on('close', () => { if (!leadOver && !ac.signal.aborted && !internal) { try { notePageClosed(runId, pending); } catch (e) { failNote('run.pageClosed.note', e); } } });
   res.on('close', () => { ac.abort(); runs.delete(runId); runsMeta.delete(runId); });
 
   // the "bus" writes one validated, REDACTED NDJSON line per event (key-shaped secrets are scrubbed even
@@ -19064,23 +19097,45 @@ async function handleRun(req, res) {
     let untrack = null;
     // a delegated worker's ask (attributeAsks): stamped with who asked, and withdrawn the moment THAT worker stops
     const by = askedBy.getStore() || null;
+    /* A BACKGROUND WORKER'S ASK OUTLIVES THIS TURN (2026-10-13). team.dispatch/team.spawn background:true workers run on
+       after the lead's turn ends, but they ask through this run's broker — and the turn's end (its stream closing, then
+       the finally below) used to deny every one of their open prompts within a second, before anyone could see them.
+       Such an ask now rides the WORKER's own signal (its interrupt, E-STOP, or a cancelled lead's cascade still deny it
+       at once), keeps this run's answer slot (pendingByRun[runId]) open until it settles, and is announced on the
+       station bus — where the worker's other events already ride — stamped with this run's id and conversation, so
+       any page files it under that conversation and answers it with POST /api/consent { runId }. The fail-closed
+       consent timeout is unchanged: unanswered, it still expires to a denial (expired:true). A worker STOPPED while its
+       ask waits settles it as stopped:true instead — "no answer in time" would blame the Commander for a stop.
+       Session grants end with this run (the finally below): a "session" answer that lands after the turn is over has
+       no session left to live in, so it approves that one call (`sessionOver`) and no grant is written under the
+       ended run — it would outlive every run that could ever clear it. */
+    const detached = !!(by && by.detached && by.signal);
+    const say = detached ? chanEmit : emit;
+    let askId = '', announced = false;
+    if (detached && pendingByRun.get(runId) !== pending) pendingByRun.set(runId, pending);   // the turn already ended: reopen its answer slot
+    const sessionOver = (d) => (detached && leadOver && d === 'session') ? 'once' : d;
     return makeConsentWait({
       timeoutDecision: opts && opts.timeoutDecision,
       // Node 18 / 20.0-20.2 have no AbortSignal.any: the ask then rides the run's own signal and the timeout (still
       // fail-closed; only the instant withdrawal when that one worker stops is lost)
-      pending, signal: (by && by.signal && typeof AbortSignal.any === 'function') ? AbortSignal.any([ac.signal, by.signal]) : ac.signal, timeoutMs: CONSENT_TIMEOUT_MS, extendMs: CONSENT_ACK_EXTEND_MS,
+      pending, signal: detached ? by.signal : (by && by.signal && typeof AbortSignal.any === 'function') ? AbortSignal.any([ac.signal, by.signal]) : ac.signal, timeoutMs: CONSENT_TIMEOUT_MS, extendMs: CONSENT_ACK_EXTEND_MS,
       uuid: () => crypto.randomUUID(),
       // nobody answered in time (or the run dropped): the prompt fail-closed to deny — say so on the run's stream
       // (expired:true, additive) so the desk card and the CREW frame stop asking
-      onAutoDeny: (promptId) => { try { emit('permission.response', { promptId, decision: 'deny', expired: true }); } catch (e) { failNote('consent.autoDenyResponse', e); } },
+      onAutoDeny: (promptId, expired) => { announced = true; try { say('permission.response', (detached && !expired) ? { promptId, decision: 'deny', stopped: true } : { promptId, decision: 'deny', expired: true }); } catch (e) { failNote('consent.autoDenyResponse', e); } },
       emitPrompt: (promptId) => {
+        askId = promptId;
         const row = { promptId, agentId, tool: (fields && fields.tool) || 'tool', scope: (fields && fields.scope) || 'write', argsSummary: (fields && fields.argsSummary) || '' };
         if (by) Object.assign(row, { workerAgentId: by.agentId, workerRunId: by.runId, workerStreamId: by.streamId, askedAt: Date.now() });
-        emit('permission.prompt', row);
+        // additive: the run that holds the answer slot + the conversation that handed the work off (a page that never
+        // saw this lead's stream, or reloaded since, files the ask under that conversation and answers with this runId)
+        if (detached) Object.assign(row, { background: true, runId, streamId: streamId || '' });
+        say('permission.prompt', row);
         // STARNET REMOTE: index the prompt so a paired phone can answer it too. A phone answer resolves the same
         // finisher and then tells this run's page (permission.response on its own stream), so the floor stops
         // waiting on a question somebody already answered elsewhere.
         const orig = pending.get(promptId);
+        if (orig) { orig.askRow = row; if (detached) orig.detached = true; }   // the snapshot + the page-closed note read these
         if (orig && fields && fields.fresh) orig.freshConsent = true;   // handleConsent: a "full" here approves this call only
         // the card's INSPECT FULL REQUEST (GET /api/consent/args): the whole redacted request, kept on the pending entry in
         // server memory only — never in the event or the run record — and gone the moment the prompt settles
@@ -19088,12 +19143,25 @@ async function handleRun(req, res) {
         if (orig) {
           // a phone's answer to a QUESTION (brief.ask) is { __clarify, text }: it answers the prompt too, so the desk's card is
           // told (decision 'once' = answered), not left live on a question the run already moved past (sweep 2026-10-01)
-          const viaRemote = (d) => { orig(d); const decision = typeof d === 'string' ? (d === 'once' || d === 'session' ? d : 'deny') : (d && d.__clarify ? 'once' : null); if (decision) { try { emit('permission.response', { promptId, decision }); } catch (e) { failNote('remote.index.deskPermissionResponse', e); } } };
+          const viaRemote = (d) => { orig(d); const decision = typeof d === 'string' ? (d === 'once' || d === 'session' ? sessionOver(d) : 'deny') : (d && d.__clarify ? 'once' : null); if (decision) { announced = true; try { say('permission.response', { promptId, decision }); } catch (e) { failNote('remote.index.deskPermissionResponse', e); } } };
           viaRemote.extend = orig.extend;
           try { untrack = remoteApprovals.add(Object.assign({ runId, surface: 'desk', finish: viaRemote }, row)); } catch (e) { failNote('remote.index.trackDeskPrompt', e); }
         }
       }
-    }).ask().then((v) => { if (untrack) untrack(); return v; });
+    }).ask().then((v) => {
+      if (untrack) untrack();
+      v = sessionOver(v);   // a "session" answer after this run ended: its session is over, so this call only
+      if (detached) {
+        // a desk answer (POST /api/consent) settles it on one page: tell every other page and surface on the station bus
+        if (!announced && askId) {
+          const decision = typeof v === 'string' ? (/^(once|session|always|full)$/.test(v) ? v : 'deny') : (v && v.__clarify ? 'once' : 'deny');
+          try { chanEmit('permission.response', { promptId: askId, decision }); } catch (e) { failNote('consent.detachedResponse', e); }
+        }
+        // the turn is over and this was its last open ask: close the answer slot it kept open
+        if (leadOver && !pending.size && pendingByRun.get(runId) === pending) pendingByRun.delete(runId);
+      }
+      return v;
+    });
   }
   function promptConsent(call, tool) {
     // an unanswered COMMS card is not a refusal: the broker's 'timeout' result says so (the card still gets expired:true)
@@ -19267,8 +19335,14 @@ async function handleRun(req, res) {
     if (!internal) noteUserActivity(Date.now());   // the away clock starts when the user's run ENDS, not when it started (a long run must not read as absence); self-talk never stamps it
     dropSteer(runId, 'handleRun');      // drop any un-drained steering notes so they can't leak to a later run; logs a count if non-empty
     grantsSession.delete(runId);     // drop this run's session-scoped grants
+    leadOver = true;
+    pageClosedRuns.delete(runId);    // read by this run's record (runOnce) already; never outlives the run
     const p = pendingByRun.get(runId);   // deny any prompt still open (belt-and-suspenders; the loop normally awaits)
-    if (p) { for (const f of p.values()) { try { f('deny'); } catch (_) {} } pendingByRun.delete(runId); }
+    if (p) {
+      // ...except a background worker's ask: it outlives this turn (askHuman) and closes the slot when it settles
+      for (const f of p.values()) { if (f && f.detached) continue; try { f('deny'); } catch (e) { failNote('run.finally.denyOpenAsk', e); } }
+      if (!p.size) pendingByRun.delete(runId);
+    }
     const ps = pendingSummonByRun.get(runId);   // settle any summon request still open → null (no agent created)
     if (ps) { for (const f of ps.values()) { try { f(null); } catch (_) {} } pendingSummonByRun.delete(runId); }
     kaOff();
@@ -20826,8 +20900,9 @@ async function runOnceCore(o) {
   // lead's COMMS) and its session grants. A top-level run builds its own. Safe across surfaces: a headless cron
   // lead's broker is autonomous (default-deny + exec-lockout), so its workers inherit "no self-approved shell"
   // — only a watched, interactive lead can let a worker write/run shell, and only with a human's click.
-  // a delegated worker shares its lead's broker; its asks carry who asked (attributeAsks — the page answers them on its row)
-  const consent = (o.consent && o.delegatedBy ? attributeAsks(o.consent, { agentId, runId, streamId: streamId || '', signal }) : o.consent) || makeConsentBroker({
+  // a delegated worker shares its lead's broker; its asks carry who asked (attributeAsks — the page answers them on its row).
+  // detachedConsent: a BACKGROUND worker (orchestration background:true) — its asks outlive the lead's turn (askHuman)
+  const consent = (o.consent && o.delegatedBy ? attributeAsks(o.consent, { agentId, runId, streamId: streamId || '', signal, detached: o.detachedConsent === true }) : o.consent) || makeConsentBroker({
     // An owner DM with approvals OFF is the Commander acting directly, so it never waits on a second approval
     // channel. If that chat explicitly enables approvals, preserve the chosen in-chat prompt behavior instead.
     // a FUNCTION, re-read every call: the master FULL BYPASS switch must take effect — and revoke — on the
@@ -22725,7 +22800,7 @@ async function runOnceCore(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
+      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new
@@ -23038,7 +23113,9 @@ async function handleConsent(req, res) {
   const pend = pendingByRun.get(body.runId);
   const finish = pend && pend.get(body.promptId);
   const meta = finish ? runsMeta.get(body.runId) : null;
-  const agentId = meta && meta.agentId;
+  // a background worker's ask outlives its lead's turn (askHuman): once that run's meta is gone, the ask row still names
+  // the lead whose broker it rides — the same agent a "full" answer would have granted while the lead was live
+  const agentId = (meta && meta.agentId) || (finish && finish.detached && finish.askRow && finish.askRow.agentId) || undefined;
   let persisted = true;
   // a fresh-consent card (station.power, plugin.submit) answers THIS call only: the broker grants any yes once, so a
   // standing answer (full, always, session) is applied and echoed as 'once', and no surface confirms a grant never made

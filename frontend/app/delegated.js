@@ -261,7 +261,8 @@ const Delegated = (() => {
       const url = typeof a.url === 'string' ? a.url : '';
       if (url && /web_fetch|web_request|browser_navigate|browser_open/.test(n) && !seenUrl.has(url)) { seenUrl.add(url); sites.push({ url, host: hostOf(url), ok: !s.isError }); }
       const raw = url ? pageOf(url) : argOf(a), arg = /^\.[\\/]?$/.test(raw) ? 'the workspace' : raw;   // a bare "." reads as nothing
-      stepsOut.push({ verb: verbOf(s.name, true), arg, ok: !s.isError, done: s.done !== false });
+      // a step with no result yet (it may be waiting on your approval) reads in the present tense: "Writing x.md …", never "Wrote"
+      stepsOut.push({ verb: verbOf(s.name, s.done !== false), arg, ok: !s.isError, done: s.done !== false });
     }
     const delivery = row && row.dispatchDelivery;
     let answer = String(delivery ? (delivery.state === 'final' ? delivery.text || '' : '') : (row && row.deliveryText) || '');

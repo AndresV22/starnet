@@ -29,7 +29,8 @@ function makeConsentWait(deps) {
   const clearT = deps.clearTimeoutFn || clearTimeout;
   const emitPrompt = deps.emitPrompt;           // (promptId) => emit the permission.prompt event
   // (promptId) => tell the run's surfaces nobody answered: a timeout or a dropped run fail-closes to deny, and the page's
-  // card / CREW frame must not keep asking a question the run already stopped waiting on (sweep 2026-10-02)
+  // card / CREW frame must not keep asking a question the run already stopped waiting on (sweep 2026-10-02). Its second
+  // argument says which: true = the timer expired (nobody answered), false = the asker's signal aborted (it was stopped)
   const onAutoDeny = typeof deps.onAutoDeny === 'function' ? deps.onAutoDeny : null;
   /* TIMEOUT IS NOT A NO (2026-10-11). An unanswered prompt still fail-closes, but a caller may ask for the timer's
      expiry to resolve with its OWN decision word (channels pass 'timeout'; the broker maps it to a distinct denial the
@@ -48,7 +49,7 @@ function makeConsentWait(deps) {
       function autoDeny(expired) {
         if (settled) return;
         finish(expired ? timeoutDecision : 'deny');
-        if (onAutoDeny) { try { onAutoDeny(promptId); } catch (e) { note('consent.autoDeny', e); } }
+        if (onAutoDeny) { try { onAutoDeny(promptId, expired === true); } catch (e) { note('consent.autoDeny', e); } }
         if (expired && onTimeout) { try { onTimeout(promptId); } catch (e) { note('consent.onTimeout', e); } }
       }
       function finish(decision) {

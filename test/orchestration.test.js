@@ -56,6 +56,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   // SAME ACCESS AS THE ORCHESTRATOR: a worker shares the lead's consent broker (its APPROVAL posture + grants)
   // and is handed the WORKBENCH, so shell/writes are available and gated by the lead's approvals — not auto-denied.
   A.ok(ro.calls[0].consent === leadBroker, "worker shares the lead's consent broker (same access as the orchestrator)");
+  A.ok(ro.calls[0].detachedConsent !== true, "a FOREGROUND worker's asks end with the lead's run (the lead is waiting on it)");
   A.ok(Array.isArray(ro.calls[0].extraObjects) && ro.calls[0].extraObjects.some(o => o.objectType === 'workbench'), 'worker is equipped with the workbench (terminal) on top of the office');
   A.eq(ro.calls[0].isTask, true, 'worker run is a task (tool-capable)');
   A.ok(ro.calls[0].runId && ro.calls[0].runId !== ro.calls[1].runId, 'each child gets a distinct runId');
@@ -245,6 +246,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     A.ok(handle.id && handle.status === 'running', 'background dispatch returns a running durable handle immediately');
     await tick();
     A.eq(ro.calls[0].maxIters, 0, 'background workers also have no default iteration ceiling');
+    // its asks outlive the lead's turn (index.js askHuman): the lead ends right after the hand-off, the worker runs on
+    A.eq(ro.calls[0].detachedConsent, true, "a BACKGROUND worker's asks are detached from the lead's turn");
     await tick(); await tick();
     const rec = subagents.get(handle.id);
     A.eq(rec.status, 'done', 'background worker completes into the durable record');
@@ -303,6 +306,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     A.eq(out.summary, 'resumed', 'team.resume restarts the interrupted worker');
     await tick(); await tick();
     A.eq(ro.calls[0].maxIters, 7, 'resumed worker receives the configured iteration cap');
+    // a resumed worker runs on in the background past the resuming lead's turn, so its asks must outlive that turn too
+    A.eq(ro.calls[0].detachedConsent, true, "a RESUMED background worker's asks are detached from the lead's turn");
     A.eq(ro.calls[0].dispatchDelivery.state, 'pending', 'resumed execution is provisional until validated');
     A.eq(finalized.length, 1, 'resumed worker finalizes once');
     A.eq(finalized[0].id, ro.calls[0].runId, 'resumed finalization belongs to the current generation run');
@@ -568,6 +573,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     A.ok(handle.id && handle.status === 'running', 'background spawn returns a running durable handle immediately');
     A.eq(handle.label, 'subagent 1', 'the handle carries the label');
     await tick(); await tick();
+    A.eq(ro.calls[0].detachedConsent, true, "a BACKGROUND clone's asks are detached from the lead's turn");
     A.eq(subagents.get(handle.id).status, 'done', 'the background clone completes into the durable record');
   } finally { try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {} }
 }
