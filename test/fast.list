@@ -1141,6 +1141,7 @@ test/linedraft.test.js
 test/workflows-window.test.js
 test/build-mode-easy.test.js
 test/build-hand.test.js
+test/refit-firstride-stale.test.js
 test/build-select-target.test.js
 test/build-hand-circle.test.js
 test/build-new-line-hand.test.js
