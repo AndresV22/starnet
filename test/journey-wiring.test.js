@@ -20,7 +20,7 @@ A.ok(ui.indexOf('STATION XP') >= 0 && ui.indexOf('COMMANDER JOURNEY') >= 0 && ui
 // org pass 10-14 (P28): one number, one name — the station-XP meter mislabelled AGENT GROWTH is gone, approvals read as thumbs-up
 A.ok(!/gx-title">AGENT GROWTH</.test(ui) && !/data-open-growth/.test(ui), 'QUESTS › Progress no longer repeats STATION XP as a second AGENT GROWTH meter');
 A.ok(/<span class="ttl">STATION XP<\/span>/.test(ui) && /' THUMBS-UP &middot;/.test(ui) && !/' APPROVALS &middot;/.test(ui), 'STATION XP counts thumbs-up by that name');
-A.ok(/<summary><span>MILESTONES<\/span><span class="q-section-count">[\s\S]{0,120}data-open-trophies>OPEN THE TROPHY CASE ▸<\/button><\/summary>/.test(ui), 'the TROPHY CASE door sits on the folded MILESTONES summary row');
+A.ok(/<summary><span>Station milestones<\/span><span class="q-section-count">[\s\S]{0,120}data-open-trophies>OPEN THE TROPHY CASE<\/button><\/summary>/.test(ui), 'the TROPHY CASE door sits on the folded Station milestones summary row (one arrow: the fold chevron)');
 A.ok(/if \(b\.closest\('summary'\)\) ev\.preventDefault\(\);/.test(ui), 'clicking that door does not also fold the milestones');
 // org pass 10-14 (P29): the QUESTS tab strip reads in caps like every family strip
 A.ok(/\['available', 'NOW', /.test(ui) && /\['goals', 'GOALS', /.test(ui) && /\['progress', 'PROGRESS', /.test(ui) && /\['completed', 'HISTORY', /.test(ui), 'QUESTS tabs read NOW · GOALS · PROGRESS · HISTORY');

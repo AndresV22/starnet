@@ -4890,7 +4890,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const parts = [];
     if (running) parts.push(running + ' RUNNING');
     if (failed) parts.push(failed + ' FAILED');
-    if (ready) parts.push(ready + ' READY');
+    if (ready) parts.push(ready + ' READY TO OPEN');
     return parts.length ? '<small class="kb-col-state">' + parts.join(' · ') + '</small>' : '';
   }
   // the card's bound-agent chip: the workstream's OWN agent (s.agentId) resolved to a name + color from the live
@@ -4964,7 +4964,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const streams = boardStreams();
     const openMenus = live ? Array.from(body.querySelectorAll('.kb-more[open]')).map(d => d.closest('.kb-card').dataset.id) : [];
     body.innerHTML =
-      '<div class="kb-heading"><header class="kb-header"><h2>TASKS</h2><p>Plan, start, and review your work.</p></header></div>' +   // OUTBOX / DELIVERABLES are this window's MY WORK tabs now (FAMILIES) — no second pair of doors here
+      '<div class="kb-heading"><header class="kb-header"><p>Plan a task, start it, and open what comes back.</p></header></div>' +   // OUTBOX / DELIVERABLES are this window's MY WORK tabs now (FAMILIES) — no second pair of doors here
       '<div class="kb-add"><input id="kb-in" data-draft aria-label="New task" maxlength="80" placeholder="What would you like to get done?" autocomplete="off">' +
       '<button class="bb sm" id="kb-add">ADD TASK</button></div><p class="kb-add-note">Adding saves your plan. Start sends the task to its agent.</p>' +
       '<div class="kb-cols">' +
@@ -11099,8 +11099,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const milestoneDone = milestones.filter(q => q.status === 'done').length;
     const milestonesHtml = milestones.length
       // folded, with the TROPHY CASE door on the summary row itself so it is reachable without unfolding (org pass 10-14, P28)
-      ? '<details class="q-milestones q-progress-section"><summary><span>MILESTONES</span><span class="q-section-count">' + milestoneDone + ' / ' + milestones.length + '</span>'
-        + '<button type="button" class="bb xs q-trophy-door" data-open-trophies>OPEN THE TROPHY CASE ▸</button></summary>'
+      ? '<details class="q-milestones q-progress-section"><summary><span>Station milestones</span><span class="q-section-count">' + milestoneDone + ' / ' + milestones.length + '</span>'
+        + '<button type="button" class="bb xs q-trophy-door" data-open-trophies>OPEN THE TROPHY CASE</button></summary>'
         + '<div class="q-section-body"><div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div></div></details>'
       : '';
     // Selection is presentation state only. Keep it on the stable window body across background data pokes;
