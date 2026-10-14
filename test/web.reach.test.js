@@ -44,7 +44,7 @@ function stubFetch(routes) {
     for (const [needle, resp] of routes) {
       if (u.indexOf(needle) >= 0) {
         if (resp.reject) throw resp.reject;
-        return { status: resp.status, text: async () => resp.body || '', headers: { get: (h) => (resp.headers && resp.headers[h]) || '' } };
+        return { status: resp.status, text: async () => resp.body || '', json: async () => (resp.json !== undefined ? resp.json : JSON.parse(resp.body || 'null')), headers: { get: (h) => (resp.headers && resp.headers[h]) || '' } };
       }
     }
     return { status: 404, text: async () => '', headers: { get: () => '' } };
@@ -195,6 +195,58 @@ function stubFetch(routes) {
     const mo = seen.find(u => u.indexOf('mojeek') >= 0);
     A.ok(mo && mo.indexOf('multi+word+query') >= 0, 'mojeek gets + for spaces');
     A.ok(mo.indexOf('%20') < 0, 'and never %20 — that encoding gets the empty interstitial');
+  }
+
+  /* ---- M-P. A STATION BROWSER THAT CANNOT START (live walk 10-14): a worker's web_search sat on "Searching …" for
+     80 s and then 185 s while Chromium failed to launch (browser.launch-retry ×5) — each engine relaunched the dead
+     browser (3 tries × ~20 s), and nobody was told. Now a launch failure ends the reader's engine loop and holds the
+     reader down for a cooldown, the search rung is time-boxed when a later rung can still answer, and the result
+     SAYS the station browser could not start. ---- */
+  const deadDriver = () => ({ navigate: async () => { throw new Error('browser unavailable: could not attach to Chromium'); },
+    lastResponse: () => null, evalPublic: async () => ({ value: [] }), getText: async () => '', close: async () => {} });
+  const THROTTLED = [['mojeek.com', { status: 403, body: 'forbidden' }], ['duckduckgo.com', { status: 202, body: 'anomaly' }]];
+  const OR_HIT = ['openrouter.ai', { status: 200, json: { choices: [{ message: { content: '', annotations: [{ type: 'url_citation', url_citation: { title: 'OR Hit', url: 'https://or.example/x', content: 'via openrouter' } }] } }] } }];
+  {
+    let made = 0, now = 1.8e12;
+    const r = makeWebReader({ makeDriver: () => { made++; return deadDriver(); }, idleMs: 3600000, now: () => now });
+    const out = await r.search('q');
+    A.ok(out.results.length === 0 && out.launchFailed === true && /could not start/.test(out.reason), 'M: a launch failure is reported as the browser not starting: ' + JSON.stringify(out));
+    A.eq(made, 1, 'M: the next engine does not relaunch a browser that cannot start');
+    const av = r.available();
+    A.ok(!av.ok && av.launchFailed === true && /could not start/.test(av.reason), 'M: the reader reports itself down while it cools off');
+    const f = await r.fetchText('https://ok.example/');
+    A.ok(!f.ok && made === 1, 'M: a fetch during the cooldown does not relaunch it either');
+    now += 11 * 60000;
+    A.ok(r.available().ok, 'M: after the cooldown it may try again');
+  }
+  {
+    const r = makeWebReader({ makeDriver: () => deadDriver(), idleMs: 3600000 });
+    await r.search('warm');   // the browser failed to start a moment ago
+    const w = makeWebTools({ fetchImpl: stubFetch(THROTTLED.concat([OR_HIT])), lookup: null, reader: r, openrouter: { apiKey: 'k', model: 'm' } });
+    const res = await w.searchTool.run({ query: 'q' }, {});
+    A.ok(/via openrouter/.test(res.summary), 'N: the search still answers through the next rung: ' + res.summary);
+    A.ok(/station browser could not start/.test(res.summary) && /station browser could not start/.test(res.content), 'N: and says the station browser could not start: ' + res.summary);
+  }
+  {
+    // a browser stuck starting: the rung gives up within its budget when OpenRouter can still answer
+    let made = 0;
+    const r = makeWebReader({ makeDriver: () => { made++; return { navigate: () => new Promise(() => {}), close: async () => {}, evalPublic: async () => ({ value: [] }), getText: async () => '' }; }, idleMs: 3600000 });
+    const w = makeWebTools({ fetchImpl: stubFetch(THROTTLED.concat([OR_HIT])), lookup: null, reader: r, openrouter: { apiKey: 'k', model: 'm' }, readerBudgetMs: 60 });
+    const t0 = Date.now();
+    const res = await w.searchTool.run({ query: 'q' }, {});
+    A.ok(Date.now() - t0 < 3000 && /via openrouter/.test(res.summary), 'O: a browser that does not answer in time is passed over: ' + res.summary);
+    A.ok(/station browser did not answer/.test(res.summary), 'O: and the answer says so: ' + res.summary);
+    const t1 = Date.now();
+    const again = await w.searchTool.run({ query: 'q2' }, {});
+    A.ok(Date.now() - t1 < 6000 && made === 1 && /station browser is still starting/.test(again.summary), 'O: the next search does not queue behind the stuck browser (the engines keep their polite spacing): ' + again.summary + ' ms=' + (Date.now() - t1) + ' made=' + made);
+  }
+  {
+    // with no later rung the reader keeps its full time: a slow-but-healthy browser still answers
+    const { r } = reader((url) => /bing/.test(url) ? { status: 200, results: [{ title: 'Slow Hit', url: 'https://s.example/', snippet: '' }] } : { status: 200, results: [] });
+    const slow = { search: (q, o) => new Promise(res => setTimeout(() => res(r.search(q, o)), 120)), available: () => r.available() };
+    const w = makeWebTools({ fetchImpl: stubFetch(THROTTLED), lookup: null, reader: slow, readerBudgetMs: 30 });
+    const res = await w.webSearch('q', {});
+    A.eq(res.source, 'browser', 'P: no OpenRouter key → the browser rung is not time-boxed (it is the last resort)');
   }
 
   A.report('web.reach.test');

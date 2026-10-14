@@ -103,9 +103,23 @@
     const env = deps.env || (typeof process !== 'undefined' ? process.env : {});
 
     let driver = null, idleTimer = null, chain = Promise.resolve(), closed = false;
+    /* A BROWSER THAT CANNOT START (live walk 10-14): Chromium failed to launch, and every engine of every search
+       relaunched it — 3 tries × ~20 s each — while the worker's web_search sat on "Searching …" for 80 s, then 185 s.
+       A launch failure now ends that search's engine loop and holds the reader down for a cooldown: availability()
+       says why, so web_search skips the rung at once (and tells the Commander) instead of relaunching a dead browser. */
+    const clock = typeof deps.now === 'function' ? deps.now : () => Date.now();
+    const LAUNCH_COOLDOWN_MS = deps.launchCooldownMs == null ? 10 * 60000 : Number(deps.launchCooldownMs);
+    let launchDown = null;   // { at, reason }
+    const launchFailureOf = e => {
+      const m = String((e && e.message) || e || '');
+      return /could not attach to Chromium|exited before CDP ownership|Chromium not found|browser could not start|WebSocket\/fetch is not available/i.test(m)
+        ? m.replace(/^browser unavailable:\s*/i, '').replace(/^the station browser could not start:\s*/i, '') : '';
+    };
+    const downNote = () => 'the station browser could not start (' + launchDown.reason.slice(0, 160) + ')';
 
     function availability() {
       if (String(env.SKYNET_WEB_READER || env.STARNET_WEB_READER || '') === '0') return { ok: false, reason: 'disabled' };
+      if (launchDown && clock() - launchDown.at < LAUNCH_COOLDOWN_MS) return { ok: false, launchFailed: true, reason: downNote() };
       if (!makeDriver) return { ok: false, reason: 'browser module unavailable' };
       if (deps.makeDriver) return { ok: true };   // an injected factory needs no Chrome on disk
       try {
@@ -147,7 +161,7 @@
                        | { ok:false, reason, status?, title? }        — never throws for page-level outcomes */
     function fetchText(url, opts) {
       const avail = availability();
-      if (!avail.ok) return Promise.resolve({ ok: false, reason: avail.reason });
+      if (!avail.ok) return Promise.resolve({ ok: false, reason: avail.reason, launchFailed: avail.launchFailed === true });
       if (closed) return Promise.resolve({ ok: false, reason: 'reader closed' });
       const signal = opts && opts.signal;
       return enqueue(async () => {
@@ -175,6 +189,8 @@
           // recovery and promises the session is usable for the very next call — keep the warm Chrome.
           // Anything else (CDP/socket-level) rebuilds on the next use.
           if (!/did not finish loading/.test(String((e && e.message) || ''))) teardown();
+          const lf = launchFailureOf(e);
+          if (lf) { launchDown = { at: clock(), reason: lf }; return { ok: false, reason: downNote(), launchFailed: true }; }
           return { ok: false, reason: String((e && e.message) || e) };
         } finally { armIdle(); }
       });
@@ -184,7 +200,7 @@
        Engines are tried in order inside ONE queue slot; first non-empty wins. */
     function search(query, opts) {
       const avail = availability();
-      if (!avail.ok) return Promise.resolve({ engine: '', results: [], reason: avail.reason });
+      if (!avail.ok) return Promise.resolve({ engine: '', results: [], reason: avail.reason, launchFailed: avail.launchFailed === true });
       if (closed) return Promise.resolve({ engine: '', results: [], reason: 'reader closed' });
       const signal = opts && opts.signal;
       const q = encodeURIComponent(String(query || '')).replace(/%20/g, '+');
@@ -214,6 +230,13 @@
             }
             if (rows.length) { armIdle(); return { engine: eng.id, results: rows.slice(0, RESULTS_MAX) }; }
           } catch (e) {
+            // the browser itself could not start: the next engine would only relaunch it — stop, and say so
+            const lf = launchFailureOf(e);
+            if (lf) {
+              launchDown = { at: clock(), reason: lf };
+              teardown(); armIdle();
+              return { engine: '', results: [], reason: downNote(), launchFailed: true };
+            }
             // a slow engine page is survivable (navigate's stopLoading recovery) — only a
             // driver-level failure warrants a rebuild before the next engine
             if (!/did not finish loading/.test(String((e && e.message) || ''))) {
