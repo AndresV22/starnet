@@ -235,7 +235,7 @@ function stubFetch(routes) {
     const t0 = Date.now();
     const res = await w.searchTool.run({ query: 'q' }, {});
     A.ok(Date.now() - t0 < 3000 && /via openrouter/.test(res.summary), 'O: a browser that does not answer in time is passed over: ' + res.summary);
-    A.ok(/station browser did not answer/.test(res.summary), 'O: and the answer says so: ' + res.summary);
+    A.ok(/station browser was not ready within/.test(res.summary), 'O: and the answer says so: ' + res.summary);
     const t1 = Date.now();
     const again = await w.searchTool.run({ query: 'q2' }, {});
     A.ok(Date.now() - t1 < 6000 && made === 1 && /station browser is still starting/.test(again.summary), 'O: the next search does not queue behind the stuck browser (the engines keep their polite spacing): ' + again.summary + ' ms=' + (Date.now() - t1) + ' made=' + made);
@@ -247,6 +247,33 @@ function stubFetch(routes) {
     const w = makeWebTools({ fetchImpl: stubFetch(THROTTLED), lookup: null, reader: slow, readerBudgetMs: 30 });
     const res = await w.webSearch('q', {});
     A.eq(res.source, 'browser', 'P: no OpenRouter key → the browser rung is not time-boxed (it is the last resort)');
+  }
+  {
+    /* Q (review 10-14): the budget bounds the browser's START, never a healthy browser's work. A browser that is up
+       but slow to read an engine page must not be passed over to the PAID OpenRouter search. */
+    let orCalls = 0;
+    const slowDriver = { navigate: async () => {}, lastResponse: () => ({ status: 200 }), getText: async () => '', close: async () => {},
+      evalPublic: (expr) => /document\.title/.test(expr) ? Promise.resolve({ value: '' })
+        : new Promise(res => setTimeout(() => res({ value: [{ title: 'Slow Hit', url: 'https://s.example/', snippet: '' }] }), 150)) };
+    const r = makeWebReader({ makeDriver: () => slowDriver, idleMs: 3600000 });
+    const fetchOr = stubFetch(THROTTLED.concat([OR_HIT]));
+    const counting = async (u, o) => { if (String(u).indexOf('openrouter.ai') >= 0) orCalls++; return fetchOr(u, o); };
+    const w = makeWebTools({ fetchImpl: counting, lookup: null, reader: r, openrouter: { apiKey: 'k', model: 'm' }, readerBudgetMs: 40 });
+    const res = await w.webSearch('q', {});
+    A.ok(res.source === 'browser' && orCalls === 0 && !res.browserNote, 'Q: a started browser that reads slowly keeps the search (no paid fallback): ' + res.source + ' or=' + orCalls);
+    const again = await w.webSearch('q2', {});
+    A.ok(again.source === 'browser' && orCalls === 0, 'Q: a warm browser is never time-boxed either');
+  }
+  {
+    /* R (review 10-14): with no OpenRouter key and every rung dry, a browser that could not start is NAMED — never
+       "engines throttled", never "not a malfunction". */
+    const r = makeWebReader({ makeDriver: () => deadDriver(), idleMs: 3600000 });
+    const w = makeWebTools({ fetchImpl: stubFetch(THROTTLED), lookup: null, reader: r });
+    const res = await w.searchTool.run({ query: 'q' }, {});
+    A.ok(/station browser could not start/.test(res.summary) && !/throttled/.test(res.summary), 'R: the summary names the dead browser: ' + res.summary);
+    A.ok(/station browser could not start/.test(res.content) && !/not a malfunction/.test(res.content), 'R: the content says so too, and does not call it a non-fault: ' + res.content);
+    const again = await w.searchTool.run({ query: 'q2' }, {});
+    A.ok(/station browser could not start/.test(again.summary), 'R: a later search during the cooldown says so at once: ' + again.summary);
   }
 
   A.report('web.reach.test');
