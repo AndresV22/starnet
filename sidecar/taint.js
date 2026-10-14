@@ -190,7 +190,9 @@
     if (!scope && opts.wasTainted) return { broad: true };          // tainted by something we did not scope
     if (scope && ownPark(tool, call, opts.runId)) return scope;
     const origin = isWebRequest(tool, call) ? requestOrigin(call) : '';
-    if (!origin) return { broad: true };
+    // The host proves which HTTPS origin authored the response. The requested URL alone cannot prove it:
+    // web_request may have followed a cross-origin redirect, and failed/replayed results may have no proof.
+    if (!origin || opts.responseOrigin !== origin) return { broad: true };
     const keys = requestKeys(call);
     if (!scope) return { origin, keys };
     if (scope.origin !== origin || !keys.every(k => scope.keys.indexOf(k) >= 0)) return { broad: true };

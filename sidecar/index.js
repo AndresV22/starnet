@@ -3975,6 +3975,7 @@ function channelResolveConsent(runId, promptId, decision) {
 // that file's header for the threat model and the deliberate v1 boundaries. ONE definition, shared by the
 // dispatch gate and the consent-broker predicates so the two can never disagree about what a taint revokes.
 const taintPolicy = require('./taint.js');
+const responseProvenance = require('./tools/response-provenance.js');
 const revokedByTaint = { ok: taintPolicy.allowedWhenTainted, isSource: taintPolicy.isUntrustedSource, boundary: taintPolicy.postTaintBoundary };
 
 function hardlineFloor(call) {
@@ -21690,7 +21691,7 @@ async function runOnceCore(o) {
     // ...EXCEPT a refusal the HOST itself wrote (hostAuthored: a URL guard refusing file:// or a private address) — no
     // outside byte reached the context. MCP connector failures never carry the flag, so they still latch.
     if (r && typeof r.content === 'string' && r.content.length && !(r.isError && r.hostAuthored === true) && revokedByTaint.isSource(liveTool, c)) {
-      taintScope = taintPolicy.scopeAfterSource(taintScope, liveTool, c, { wasTainted: !!execution.taintedBy(), runId });
+      taintScope = taintPolicy.scopeAfterSource(taintScope, liveTool, c, { wasTainted: !!execution.taintedBy(), runId, responseOrigin: responseProvenance.originOf(r) });
       if (!execution.taintedBy()) latchRunTaint(c.name);
     }
     /* RELAYED TAINT (sec-taint 09-25). team.dispatch / team.spawn / team.subagents / team.resume hand this run the
@@ -21698,7 +21699,8 @@ async function runOnceCore(o) {
        attacker's lever — without this latch a worker could launder a web page into an untainted lead and steer it
        into the terminal/connector powers the worker itself had already lost. The relaying tool reports the worker's
        host-proven latch (never model-supplied); the lead inherits it, errors included. */
-    if (!execution.taintedBy() && r) {
+    // A prior API latch is not enough: new relayed bytes revoke its narrow continuation scope too.
+    if (r) {
       const relayed = taintPolicy.relayedTaint(r);
       if (relayed) { latchRunTaint(relayed); taintScope = { broad: true }; }
     }
