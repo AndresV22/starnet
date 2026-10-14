@@ -22,7 +22,8 @@ A.ok(uc.includes("'Stop every agent in this chat (Esc)'") && uc.includes("'Stop 
 A.ok(uc.includes("'Stop the running turn (Esc)'") && uc.includes("'Stop the running turn'"), 'a direct chat stop key keeps its wording');
 A.ok(/GroupChat\.stop\(\)/.test(chat.slice(chat.indexOf('function stopActive('), chat.indexOf('function stopActive(') + 600)), 'the group wording matches what stopActive does (GroupChat.stop = stop-all)');
 
-const rq = chat.slice(chat.indexOf('function renderQueued()'), chat.indexOf('function renderQueued()') + 1200);
+// the whole function body (a fixed-length slice broke when the live-walk queue comment grew the function's head)
+const rq = chat.slice(chat.indexOf('function renderQueued()'), chat.indexOf('function flushQueued('));
 A.ok(!/pill\.title\s*=/.test(rq), 'the queued pill no longer uses a native title');
 A.ok(rq.includes("const QHINT = 'sends after this run · /steer changes the running task'"), 'the queued pill tip says it sends after the run and points at /steer');
 {
