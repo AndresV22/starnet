@@ -347,6 +347,26 @@
   ];
   // the one role a step's name means, or null (no role word, or more than one)
   const roleWordOf = label => { const hits = ROLE_WORDS.filter(([, re]) => re.test(String(label))).map(([r]) => r); return hits.length === 1 ? hits[0] : null; };
+  // the role a text names FIRST ("Review the draft" is a Reviewer's work, though it says draft), or null
+  const roleWordFirst = text => { let best = null, at = Infinity; for (const [r, re] of ROLE_WORDS) { const m = re.exec(String(text)); if (m && m.index < at) { at = m.index; best = r; } } return best; };
+  /* A SHAPE AS THE MODEL MEANT IT (rc walk 10-14: { shape: ["COPY", "STRATEGY"] }, then [{ "role": "copywriter" }, …]): a stage
+     { "role": X } is the role X; a CREW MEMBER named as a stage is refused with the shape the request's own steps describe
+     (each step's instructions read for the role they name first), written out ready to send. Anything else is shapeGraph's. */
+  function shapeOf(env, shape, steps) {
+    if (!Array.isArray(shape)) return { ok: true, shape };
+    const WM = env.WorldModel, roles = Object.keys(WM.BAY_ROLES || {});
+    const out = shape.map(x => x && typeof x === 'object' && !Array.isArray(x) && typeof x.role === 'string' && Object.keys(x).length === 1 ? x.role : x);
+    const isRole = x => roles.indexOf(String(x).toUpperCase().replace(/[^A-Z]/g, '')) >= 0;
+    const crewOf = x => typeof x === 'string' && !isRole(x) ? (env.crew || []).find(a => a && (norm(a.name) === norm(x) || norm(a.id) === norm(x))) || null : null;
+    const hit = out.findIndex(crewOf);
+    if (hit < 0) return { ok: true, shape: out };
+    const list = Array.isArray(steps) && steps.length === out.length ? steps : null;
+    const guess = list ? list.map(x => x && typeof x === 'object' ? roleWordFirst([x.role, typeof x.step === 'string' ? x.step : '', x.instructions].filter(Boolean).join(' ')) : null) : [];
+    const who = i => { const a = list && list[i] && typeof list[i].agent === 'string' ? list[i].agent : null, c = crewOf(out[i]); return a || (c ? c.name || c.id : 'lead'); };
+    const ready = guess.length && guess.every(Boolean) ? ' For this request: { "shape": [' + guess.map(r => '"' + r + '"').join(', ') + '], "steps": [' + out.map((x, i) => '{ "step": ' + (i + 1) + ', "agent": "' + who(i) + '" }').join(', ') + '] }.' : '';
+    const c = crewOf(out[hit]);
+    return refuse('"' + String(out[hit]).slice(0, 30) + '" is not a step: ' + (c.name || c.id) + ' is a crew member. A shape lists ROLES in run order (' + roles.join(', ') + '), and who works each step goes in steps, by number: [ { "step": 1, "agent": "' + (c.name || c.id) + '" } ].' + ready);
+  }
   const stepNum = v => typeof v === 'number' ? (Number.isInteger(v) ? v : NaN) : (typeof v === 'string' && /^\s*(?:step\s*)?\d+\s*$/i.test(v) ? Number(v.replace(/\D+/g, '')) : NaN);
   const stepsWord = stepsOut => stepsOut.map(x => x.step + ' ' + titleCase(x.role)).join(', ');
   // the accepted shape, as a tiny example on this line's own step numbers and the crew the request named (else a real one)
@@ -437,7 +457,11 @@
        of a room of its own, or of an existing room around what stands there, laid out by the layout engine through the
        same planner as a designed room's line zone */
     if (req.shape != null) {
-      if (req.line != null) return refuse('Give a line from the menu or a shape of its own, not both.');
+      /* (rc walk 10-14) a real model sent { line: "review_loop", shape: [...] }: a line name that is no line beside a shape is
+         the shape (the card's notes say the name was not used); a REAL line beside a shape is refused with both forms written out */
+      const named = req.line != null ? resolveLine(WM, req.line) : null, shelf = named ? catalog(WM).find(l => l.id === named.id) : null;
+      if (named) return refuse('Give a line from the menu or a shape of its own, not both: { "line": "' + named.id + '", "steps": […] } builds that ready-made line (' + shelf.roles.map(titleCase).join(' → ') + '); { "shape": ["WRITER", "REVIEWER"], "steps": […] } lays your own.');
+      const unused = req.line != null ? 'there is no line called "' + String(req.line).slice(0, 40) + '", so the shape was laid' : '';
       const into = req.where != null && !/^(a )?new( room)?$/i.test(String(req.where).trim());
       const zone = { area: 'whole', shape: req.shape, staff: req.steps == null ? [] : req.steps };
       for (const k of ['name', 'purpose', 'dailyCap', 'tries']) if (req[k] !== undefined) zone[k] = req[k];
@@ -447,7 +471,8 @@
       const r = planDesign(doc, d, env);
       if (!r.ok) return r;
       const l = r.plan.lines[0] || {};
-      return { ok: true, plan: Object.assign(r.plan, { line: { id: null, name: l.plain || 'a custom line', label: l.label || null }, ready: !!l.ready, blocking: l.blocking || [] }) };
+      return { ok: true, plan: Object.assign(r.plan, { line: { id: null, name: l.plain || 'a custom line', label: l.label || null }, ready: !!l.ready, blocking: l.blocking || [] },
+        unused ? { notes: (r.plan.notes || []).concat(unused) } : {}) };
     }
     // purpose: the Commander's own words. With no line named, StarNet picks one with the reader behind FOR YOUR GOAL
     // (WorkflowLine.suggestLineFor: the SHAPE of the work), and every step's standard instructions carry those words
@@ -1424,7 +1449,11 @@
     const roomRef = ref => { if (ref == null) return refuse('it needs a room'); if (names[ref] && st.rooms().some(r => r.id === names[ref])) return { ok: true, room: st.rooms().find(r => r.id === names[ref]) };
       const byId = st.rooms().find(r => r.id === ref); if (byId) return { ok: true, room: byId }; return roomNamed(st, ref); };
     const propRef = ref => { const id = names[ref] || ref; const p = typeof id === 'string' ? st.propById(id) : null; if (p) return { ok: true, p };
-      const t = tileOf(ref); if (t) { const pid = st.propAt(t.x, t.y), q = pid ? st.propById(pid) : null; if (q) return { ok: true, p: q }; }
+      const t = tileOf(ref);
+      // a tile the refit asked for a piece it then MOVED to a free spot still means that piece (never what stood there)
+      const mv = t && ctx && (ctx.moved || []).find(m => t.x >= m.rect.x1 && t.x <= m.rect.x2 && t.y >= m.rect.y1 && t.y <= m.rect.y2), mq = mv ? st.propById(mv.id) : null;
+      if (mq) return { ok: true, p: mq };
+      if (t) { const pid = st.propAt(t.x, t.y), q = pid ? st.propById(pid) : null; if (q) return { ok: true, p: q }; }
       return refuse('there is no piece "' + String(typeof ref === 'object' ? JSON.stringify(ref) : ref).slice(0, 40) + '" (use an id from station.map with { room } detail, a name given with as, or a tile [x, y])'); };
     const nm = t => pieceName(env, t), inRoom = (x, y) => { const id = st.roomAt(x, y), r = id && st.rooms().find(q => q.id === id); return r ? ' in ' + r.name : ''; };
     const did = (r, text) => r && r.ok ? { ok: true, text, res: r } : refuse(wmMsg(r));
@@ -2035,6 +2064,8 @@
       if (z.line != null) return refuse('A zone takes a line from the menu or a shape of its own, not both.');
       if (z.tries != null) notes.push('tries belongs to a shape\'s { "review": true, "tries": n } stage, so it was ignored');
       const cap = capOf(z.dailyCap, true, notes); if (!cap.ok) return cap;
+      const sh = shapeOf(env, z.shape, z.staff); if (!sh.ok) return sh;
+      z = Object.assign({}, z, { shape: sh.shape });
       const sg = shapeGraph(env, z.shape, named || 'A NEW LINE', cap.limits); if (!sg.ok) return sg;
       // no name given: the line is named for its steps ("RESEARCHER + WRITER + REVIEWER")
       const roles = [...new Set([].concat(...z.shape.map(st => typeof st === 'string' ? [roleOf(WM, st)] : st && (st.together || st.turns) ? (st.together || st.turns).map(r => roleOf(WM, r)) : st && st.sort ? (Array.isArray(st.sort) ? st.sort.map(r => roleOf(WM, r && r.role)) : Object.keys(st.sort).map(k => roleOf(WM, st.sort[k]))) : st && st.review != null ? [typeof st.review === 'string' ? roleOf(WM, st.review) : 'REVIEWER'] : [])).filter(Boolean))];

@@ -91,6 +91,21 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   // the suggested shape really plans
   const shaped = plan({ shape: ['WRITER', 'REVIEWER'], steps: [{ step: 1, agent: 'COPY' }, { step: 2, agent: 'STRATEGY' }] });
   A.ok(shaped.ok, 'the shape a refusal suggests plans: ' + (shaped.error || ''));
+  /* the live re-run's (after the step fix) two refusals: a line name that is no line beside a shape, and crew in the shape */
+  const DRAFT = 'Draft the launch post based on the refined version agreed in chat. Keep it exactly 2 sentences.', REVIEW = 'Review the draft post for clarity, impact and positioning.';
+  const crewShape = plan({ line: 'review_loop', shape: [{ role: 'copywriter' }, { role: 'strategist' }], steps: [{ step: 1, agent: 'COPY', instructions: DRAFT }, { step: 2, agent: 'STRATEGY', instructions: REVIEW }] });
+  A.ok(!crewShape.ok && /^"copywriter" is not a step: COPY is a crew member\. A shape lists ROLES in run order/.test(crewShape.error), 'crew named in a shape is refused as crew: ' + (crewShape.error || 'PLANNED'));
+  A.ok(/For this request: \{ "shape": \["WRITER", "REVIEWER"\], "steps": \[\{ "step": 1, "agent": "COPY" \}, \{ "step": 2, "agent": "STRATEGY" \}\] \}/.test(crewShape.error), '…with the shape its own steps describe, ready to send ("Review the draft" reads as Reviewer): ' + crewShape.error);
+  const names = plan({ shape: ['COPY', 'STRATEGY'], steps: [{ step: 1, agent: 'COPY', instructions: DRAFT }, { step: 2, agent: 'STRATEGY', instructions: REVIEW }] });
+  A.ok(!names.ok && /^"COPY" is not a step: COPY is a crew member/.test(names.error) && /"shape": \["WRITER", "REVIEWER"\]/.test(names.error), 'crew names as stages, the same: ' + (names.error || 'PLANNED'));
+  const noLine = plan({ line: 'review_loop', shape: ['WRITER', 'REVIEWER'], steps: [{ step: 1, agent: 'COPY', instructions: DRAFT }, { step: 2, agent: 'STRATEGY', instructions: REVIEW }] });
+  A.ok(noLine.ok && noLine.plan.notes.some(n => /there is no line called "review_loop", so the shape was laid/.test(n)), 'a line name that is no line beside a shape: the shape is laid, and the notes say so: ' + (noLine.error || JSON.stringify(noLine.plan.notes)));
+  if (noLine.ok) A.ok(/Writer \(COPY\) → Reviewer \(STRATEGY\) → Outbox/.test(noLine.plan.summary), 'COPY writes, STRATEGY reviews: ' + noLine.plan.summary);
+  const roleObj = plan({ shape: [{ role: 'WRITER' }, { role: 'REVIEWER' }] });
+  A.ok(roleObj.ok, 'a stage { "role": "WRITER" } is the role: ' + (roleObj.error || ''));
+  const both = plan({ line: 'revision_loop', shape: ['WRITER'] });
+  A.ok(!both.ok && /not both: \{ "line": "revision_loop", "steps": \[…\] \} builds that ready-made line \(Writer → Reviewer\); \{ "shape": \["WRITER", "REVIEWER"\], "steps": \[…\] \} lays your own/.test(both.error), 'a real line beside a shape writes both forms out: ' + (both.error || 'PLANNED'));
+  A.eq(snap(st), before, 'planning changed nothing');
 }
 
 /* ---- 3. the walker's hand-laid refits: belts drawn machine onto machine connect, a taken tile moves to a free one ---- */
@@ -124,6 +139,9 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   // a machine that would overlap a piece moves to the nearest free tile, and the card names what stood there
   const moved = SB.planEdit(st.serialize(), { refit: [{ op: 'place', t: 'bay', x: 14, y: 8, as: 'b' }] }, env);
   A.ok(moved.ok && /a bay at \(\d+, \d+\) in HOME \(moved from \(14, 8\): the studio at \(14, 8\) stands there\)/.test(moved.plan.summary), 'a bay on the studio moves next to it: ' + (moved.error || moved.plan.summary));
+  // a later edit naming the tile the moved piece was ASKED for still means that piece, never what stood there
+  const byTile = SB.planEdit(st.serialize(), { refit: [{ op: 'place', t: 'bay', x: 14, y: 8 }, { op: 'role', prop: [14, 8], role: 'REVIEWER' }, { op: 'agent', prop: [15, 9], agent: 'STRATEGY' }] }, env);
+  A.ok(byTile.ok && /3\. the bay at \(\d+, \d+\) is STRATEGY's/.test(byTile.plan.summary) && /2\. the bay at \(\d+, \d+\) is Reviewer/.test(byTile.plan.summary), 'the asked tile still names the moved bay: ' + (byTile.error || byTile.plan.summary));
   // a belt run across a piece that is no machine is refused by name, with the way to join two machines
   const across = SB.planEdit(st.serialize(), { refit: [{ op: 'belt', from: [13, 9], to: [16, 9] }] }, env);
   A.ok(!across.ok && /Edit 1 \(belt\): the tile \(14, 9\) is under the studio at \(14, 8\)/.test(across.error) && /\{ op: "connect", from, to \}/.test(across.error), 'a belt across the studio names it and says how to connect machines: ' + (across.error || 'PLANNED'));
