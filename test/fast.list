@@ -909,6 +909,7 @@ test/hint-input-mode.test.js
 test/hints-setting.test.js
 test/toast-live-region.test.js
 test/toast-seat.test.js
+test/dock-focus-seams.test.js
 test/channels.discord-wire.test.js
 test/queryspine.test.js
 test/queryspine-wiring.test.js

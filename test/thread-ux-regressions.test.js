@@ -384,7 +384,9 @@ test('a worker question is ONE hop away: revealAsk lands on its question card, r
   assert.equal(c.revealAsk('q1'), true, 'a missing card is drawn again from the open ask'); assert.deepEqual(drawn, ['q1']); assert.deepEqual(revealed, ['q1']);
   assert.equal(c.revealAsk('q1'), true); assert.deepEqual(drawn, ['q1'], 'a card already showing is revealed, never drawn twice');
   assert.deepEqual(focused, ['q1', 'q1'], 'focus lands on that exact card'); assert.ok(!revealed.includes('q-other'), 'never on the card of another question');
-  assert.equal(c.revealAsk('p2'), false, 'an approval is not a question card'); assert.equal(c.revealAsk('gone'), false, 'an answered ask reveals nothing');
+  // (live walk 10-14) NEEDS YOU › Review on an APPROVAL lands on its approval card the same way, drawn from the open ask when missing
+  assert.equal(c.revealAsk('p2'), true, 'an approval lands on its approval card'); assert.deepEqual(drawn, ['q1', 'p2']);
+  assert.equal(c.revealAsk('gone'), false, 'an answered ask reveals nothing');
   assert.ok(/if \(typeof Chat !== 'undefined' && Chat\.revealAsk\) Chat\.revealAsk\(q\.dataset\.dgQuestion\);/.test(delegated), 'the row\'s Answer key uses it');
-  assert.ok(/i\.kind === 'question' && i\.p && typeof Chat !== 'undefined' && Chat\.revealAsk && Chat\.revealAsk\(i\.p\.promptId\)\) return;/.test(fs.readFileSync('frontend/app/needsyou.js', 'utf8')), 'NEEDS YOU Answer lands on the card, not the row');
+  assert.ok(/\(i\.kind === 'question' \|\| i\.kind === 'approval'\) && i\.p && typeof Chat !== 'undefined' && Chat\.revealAsk && Chat\.revealAsk\(i\.p\.promptId\)\) return;/.test(fs.readFileSync('frontend/app/needsyou.js', 'utf8')), 'NEEDS YOU Answer / Review lands on the card, not the row');
 });

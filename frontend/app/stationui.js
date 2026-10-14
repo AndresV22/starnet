@@ -8905,8 +8905,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
              under the whole-station override every row reads FULL POWER, and the stored answer stays visible. */
           const AP = agentPostureOf(a);
           const badge = effFull ? 'FULL POWER' : (AP ? AP.label : 'CUSTOM');
+          // under the override the clause leads with what the agent returns to: the collapsed row ellipses it at ~40 characters,
+          // and "whole-station override is ON · returns to FU…" cut off the one fact it is there for (the badge says FULL POWER)
           const stateLine = overridden
-            ? 'whole-station override is ON · ' + (AP ? 'returns to ' + AP.label : 'returns to its custom mix') + ' when it is off'
+            ? (AP ? 'returns to ' + AP.label : 'returns to its custom mix') + ' when the whole-station override is off'
             : (AP ? AP.agentBlurb : (full ? 'never asks · ' : 'asks first · ') + p.short);
           const postureChips = STATION_POSTURES.map(P =>
             '<button class="ov-vchip pc-posture' + (AP && AP.id === P.id ? ' sel' : '') + (P.id === 'open' ? ' danger' : '') + '" data-agent-posture="' + P.id + '" data-agent="' + esc(String(a.id)) + '"' +
@@ -9384,10 +9386,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let stack = document.getElementById('toast-stack');
     if (!stack) { stack = mkEl('div'); stack.id = 'toast-stack'; document.body.appendChild(stack); }
     const toastKey = String((opts && opts.key) || '').slice(0, 120);
+    // ONE CARD PER KEY, UPDATED IN PLACE (live walk 10-14: four quick effort presses stacked four MODEL cards over the CREW
+    // column). The replacement takes the prior card's seat without the slide-in, so a keyed readout reads as one card
+    // whose value changed; its text still decodes and its dwell starts over.
+    let swapSeat = null, swapped = false;
     if (toastKey) {
       // Avoid selector escaping entirely: keys may contain channel instance punctuation.
       const prior = Array.prototype.find.call(stack.children, n => n.dataset && n.dataset.toastKey === toastKey);
-      if (prior) { prior._killed = true; prior.remove(); }
+      if (prior) { swapped = !prior._killed; swapSeat = prior.nextSibling; prior._killed = true; prior.remove(); }
     }
     seatToastRack(stack);   // re-read the cabinet before the card is visible — a rail drag or a breakpoint may have moved the seam
     const sev = severityOf(cls);
@@ -9398,7 +9404,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const hasAction = !!(opts && typeof opts.onClick === 'function');
     const dwell = hasAction ? 10000 : sev === 'bad' ? 6500 : 4200;
     const cut = splitToastLabel(text);
-    const t = mkEl('div', 'toast' + (cls ? ' ' + cls : '') + ' sev-' + sev + (cut.label ? ' labeled' : ''));
+    const t = mkEl('div', 'toast' + (cls ? ' ' + cls : '') + ' sev-' + sev + (cut.label ? ' labeled' : '') + (swapped ? ' swap' : ''));
     if (toastKey) t.dataset.toastKey = toastKey;
     // The dwell rail drains over exactly `dwell` — the card SHOWS how long it has left rather than
     // vanishing without warning; --dwell is read by the CSS animation so the two can never disagree.
@@ -9413,7 +9419,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '</div>' +
       '<span class="toast-ts">' + clock(Date.now()) + '</span>' +
       '<span class="toast-dwell" aria-hidden="true"></span>';
-    stack.appendChild(t);
+    if (swapSeat && swapSeat.parentNode === stack) stack.insertBefore(t, swapSeat); else stack.appendChild(t);
     // ASCII-motion (asciifx.js): the toast message DECODES out of glyph-static as it slides in — the same
     // signal-resolving language as the window titles. Short (toasts are frequent); reduced-motion no-op.
     try { if (typeof AsciiFX !== 'undefined') AsciiFX.scramble(t.querySelector('.toast-txt'), { duration: 420 }); } catch (_) {}

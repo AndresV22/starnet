@@ -145,7 +145,7 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
       const StationUI = { notify: (text, cls, category, opts) => notes.push({ text, cls, category, opts }), settleNotifs: key => settled.push(key) };
       const w = new Function('window', 'DESKTOP', 'StationUI', 'staleTokenRecovery', 'tokenWithheld', 'Date',
         'let apiToken = window.__STARNET_API_TOKEN__ || "";\n' + wiringSrc +
-        '\nreturn { staleToken, stale: () => sessionStale, note: noteTokenWithheld, withheld: () => tokenWithheld, token: () => apiToken };')(
+        '\nreturn { staleToken, stale: () => sessionStale, note: noteTokenWithheld, boot: typeof bootNotices === "function" ? bootNotices : null, withheld: () => tokenWithheld, token: () => apiToken };')(
         win, false, StationUI, staleTokenRecovery, withheld, { now: () => clock.now });
       return { w, notes, settled, reads: () => reads, clock };
     };
@@ -202,9 +202,54 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
       A.ok(reads() === 1 && w.stale() === true && notes.length === 1 && /station restarted/.test(notes[0].text),
         'a keyed page whose token went stale keeps the restart + reload wording: ' + (notes[0] && notes[0].text));
     }
+    // (live walk 10-14) a restart whose first page read comes back without the new key (the ownership check timed out on a
+    // loaded box): ONE honest alert that stays while the page is refused, says the page keeps trying and reloads on a click —
+    // and the next refused call that finds the key marks it handled and says so in the same card
+    {
+      let served = withheldPage('lookup-failed');
+      const { w, notes, settled, reads, clock } = wire('', () => served);
+      w.note();
+      for (let i = 0; i < 3; i++) await w.staleToken.settle(forbiddenToken(), 'OLD', null);
+      A.ok(reads() === 1 && w.stale() === true, 'the first refused call reads the page at once; the next polls inside 3 s do not (' + reads() + ' reads)');
+      clock.now += 3000;
+      await w.staleToken.settle(forbiddenToken(), 'OLD', null);
+      A.ok(reads() === 2 && w.stale() === true, '…every 3 s the page is read again while the key is missing — never once per poll (each read runs the ownership lookup)');
+      A.eq(notes.length, 1, 'one notice for the whole refused stretch, not one per poll');
+      const n = notes[0] || {};
+      A.ok(/station restarted/.test(n.text) && /keeps trying on its own/.test(n.text) && /reload this page/i.test(n.text) && !/could not reconnect/.test(n.text),
+        'it says what is true: the page keeps trying, and a reload reconnects now: ' + n.text);
+      A.ok(n.opts && n.opts.kind === 'alert' && n.opts.key === 'station-restarted', 'kept in NOTIFICATIONS as one alert (it outlives the four-second toast)');
+      A.ok(n.opts && typeof n.opts.onClick === 'function' && /Friendly\.actionButton\(\{ action: 'reload' \}\)/.test(String(harness)), 'its toast\'s click takes the reload door COMMS error rows offer');
+      // (review 10-14) the SAME text is the kept bell row, and a bell row is a door only with opts.go: a row without one must
+      // never promise a click (it read "click here to reload now", and a click on it did nothing)
+      A.ok(n.opts && !n.opts.go && !/click/i.test(n.text), 'the kept row (no door in the bell) promises no click: ' + n.text);
+      served = pageWith('NEW');
+      clock.now += 3000;
+      const out = await w.staleToken.settle(forbiddenToken(), 'OLD', fresh => Promise.resolve(new Response('replayed:' + fresh)));
+      A.eq(await out.text(), 'replayed:NEW', 'the next refused call that finds the key replays with it');
+      A.ok(w.stale() === false && w.token() === 'NEW', 'the page is no longer stale and holds the new key');
+      A.eq(settled.filter(k => k === 'station-restarted').length, 1, 'the restart alert is marked handled');
+      const last = notes[notes.length - 1];
+      A.ok(notes.length === 2 && last.cls === 'good' && /reconnected on its own/.test(last.text) && last.opts && last.opts.key === 'station-restarted',
+        'and "reconnected on its own" replaces the warning card in place: ' + (last && last.text));
+    }
+    // (review 10-14) A RELOAD SETTLES IT. The alert lives in the bell's localStorage, and only onRecovered settled it — a page
+    // reloaded during the refused stretch (exactly what the toast's click does) came up ONLINE with the bell still saying
+    // "has not picked up its new key yet", unread. The alert belongs to the page that raised it: a new page life marks it
+    // handled at boot, whether it boots with its key or says why it was withheld.
+    for (const withheld of ['', 'lookup-failed']) {
+      const { w, notes, settled } = wire(withheld, pageWith('NEW'));
+      A.ok(typeof w.boot === 'function', 'the wiring has a boot step for an earlier page\'s alerts (' + (withheld || 'keyed') + ')');
+      if (typeof w.boot === 'function') w.boot();
+      A.ok(settled.indexOf('station-restarted') >= 0, 'a booting page marks an earlier page\'s "station restarted" alert handled (' + (withheld || 'keyed') + ')');
+      A.ok(withheld ? notes.length === 1 && /won’t take commands/.test(notes[0].text) : notes.length === 0,
+        '…and raises only what is true of this page (' + (withheld || 'keyed') + '): ' + JSON.stringify(notes.map(x => x.text)));
+    }
+    A.ok(/async function init\(\) \{[^}]*?\n\s*bootNotices\(\);/.test(harness), 'Harness.init runs that boot step');
     A.ok(/let tokenWithheld = \(typeof window !== 'undefined' && !window\.__STARNET_API_TOKEN__ && window\.__STARNET_TOKEN_WITHHELD__\)/.test(harness),
       'harness reads the withheld reason only when the page carries no key (cleared when a retry adopts one)');
-    A.ok(/async function init\(\) \{\s*(\/\/[^\n]*\n\s*)?noteTokenWithheld\(\);/.test(harness), 'boot shows the withheld notice before the first refused call');
+    A.ok(/async function init\(\) \{\s*(\/\/[^\n]*\n\s*)?bootNotices\(\);/.test(harness) && /function bootNotices\(\) \{\s*noteTokenWithheld\(\);/.test(harness),
+      'boot shows the withheld notice before the first refused call');
     A.ok(/tokenWithheld: \(\) => tokenWithheld,/.test(harness) && /tokenWithheldNotice: \(\) => tokenWithheldNotice\(tokenWithheld\),/.test(harness)
       && /tokenWithheldRetryable: \(\) => withheldRetryable\(tokenWithheld\),/.test(harness),
       'Harness exposes tokenWithheld(), tokenWithheldNotice() and tokenWithheldRetryable() for the surfaces');

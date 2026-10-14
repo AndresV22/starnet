@@ -291,6 +291,30 @@ const Harness = (() => {
   // NOT set for a page the station kept its key from (tokenWithheld): that is not a restart (tokenWithheldNotice says why).
   let sessionStale = false;
   let staleNotified = false;
+  /* ONE HONEST LINE WHILE THE PAGE IS REFUSED (live walk 10-14: after a sidecar restart every poll 403'd and nothing on screen
+     said why). The first re-read of '/' can come back without the new key — the station's ownership check timed out on a
+     loaded box — and every later refused call tries again, so the page usually reconnects by itself seconds later. The old
+     notice said "could not reconnect" and was gone in four seconds while the 403s went on. Now it is ONE alert kept in
+     NOTIFICATIONS until the page reconnects (then marked handled, and the toast is replaced in place by "reconnected"); it
+     says the page keeps trying, and a click on the toast takes the reload door COMMS error rows already offer.
+     The same words are the kept bell row, which has no door (a bell row opens only a session or a window), so they never say
+     "click here" (review 10-14: the row promised a click that did nothing). And the alert belongs to the page that raised it:
+     the next page life marks it handled at boot (bootNotices), so a reload never leaves it in the bell, unread. */
+  const STALE_KEY = 'station-restarted';
+  // "keeps trying" only where it is true: a page served by the sidecar re-reads '/' on every refused call; a desktop page never does
+  const staleLine = () => 'The station restarted and this page has not picked up its new key yet. '
+    + (!DESKTOP && !(typeof window !== 'undefined' && window.__STARNET_API__) ? 'It keeps trying on its own; reload this page to reconnect now.' : 'Reload this page to reconnect.');
+  function reloadThisPage() {
+    const door = typeof Friendly !== 'undefined' && Friendly.actionButton ? Friendly.actionButton({ action: 'reload' }) : null;
+    if (door && door.run) door.run(); else if (typeof location !== 'undefined' && location.reload) location.reload();
+  }
+  /* While the page is refused, '/' is re-read at most every few seconds (live walk 10-14). Each read runs the station's
+     ownership lookup (netstat + tasklist on Windows), and a read per refused poll — 236 in under two minutes in the live
+     check — only adds load to the very lookup that is timing out. The first refused call after a restart still reads at
+     once, so a clean restart reconnects as fast as before. */
+  const STALE_RETRY_MS = 3000;
+  let pageReadAt = -Infinity;
+  function staleRetryDue() { return !sessionStale || Date.now() - pageReadAt >= STALE_RETRY_MS; }
   function stationUI(method, args) {
     try { if (typeof StationUI !== 'undefined' && StationUI && StationUI[method]) StationUI[method].apply(StationUI, args); } catch (_) {}
   }
@@ -325,6 +349,13 @@ const Harness = (() => {
     withheldNotified = true;
     stationNotify(tokenWithheldNotice(tokenWithheld), 'warn', { kind: 'alert', key: 'token-withheld' });
   }
+  // A NEW PAGE LIFE (Harness.init): say what is true of THIS page — why its key was withheld, or settle an earlier withheld
+  // alert — and mark a "station restarted" alert raised by an earlier page handled. That page is gone; this one booted with
+  // whatever key the station gave it, and a refused call of its own raises the alert again if it is still true.
+  function bootNotices() {
+    noteTokenWithheld();
+    stationUI('settleNotifs', [STALE_KEY]);
+  }
   // A transient withheld reason re-runs the check (re-reads '/') at most once a minute, and only on a refused call.
   const WITHHELD_RETRY_MS = 60000;
   let withheldTriedAt = -Infinity;
@@ -336,11 +367,11 @@ const Harness = (() => {
     return true;
   }
   const staleToken = staleTokenRecovery({
-    rawFetch: (u, init) => window.fetch(u, init),   // '/' is not an API URL, so the wrapper passes it straight through
+    rawFetch: (u, init) => { pageReadAt = Date.now(); return window.fetch(u, init); },   // '/' is not an API URL, so the wrapper passes it straight through
     getToken: () => apiToken,
     setToken: t => { apiToken = t; try { window.__STARNET_API_TOKEN__ = t; } catch (_) {} },   // apiticket.js mints from the window copy
     // a withheld page re-reads '/' only when a transient retry is due (last: withheldRetryDue stamps the attempt)
-    canRefresh: () => !DESKTOP && !(typeof window !== 'undefined' && window.__STARNET_API__) && (!tokenWithheld || withheldRetryDue()),
+    canRefresh: () => !DESKTOP && !(typeof window !== 'undefined' && window.__STARNET_API__) && (!tokenWithheld || withheldRetryDue()) && staleRetryDue(),
     onRecovered: () => {
       sessionStale = false; staleNotified = false;
       if (tokenWithheld) {   // the re-run ownership check passed: not a restart, and the withheld alert is now handled
@@ -349,12 +380,13 @@ const Harness = (() => {
         stationNotify('The ownership check passed on retry — this page can drive the station now.', 'good');
         return;
       }
-      stationNotify('The station service restarted — this page reconnected on its own.', 'good');
+      stationUI('settleNotifs', [STALE_KEY]);   // the "has not picked up its new key" alert is handled now
+      stationNotify('The station service restarted — this page reconnected on its own.', 'good', { key: STALE_KEY });
     },
     onStale: () => {
       if (tokenWithheld) { noteTokenWithheld(); return; }   // not a restart: say why the key was kept, never "restarted"
       sessionStale = true;
-      if (!staleNotified) { staleNotified = true; stationNotify('The station restarted and this page could not reconnect — reload this page.', 'warn'); }
+      if (!staleNotified) { staleNotified = true; stationNotify(staleLine(), 'warn', { kind: 'alert', key: STALE_KEY, onClick: reloadThisPage }); }
     }
   });
   if (typeof window !== 'undefined' && window.fetch && !window.__STARNET_FETCH_HARDENED__) {
@@ -375,7 +407,7 @@ const Harness = (() => {
 
   /* desktop: load the keychain "configured?" flag once at boot, before the connect screen reads it */
   async function init() {
-    noteTokenWithheld();   // a page the station kept its key from says why before its first refused call
+    bootNotices();   // a page the station kept its key from says why before its first refused call; an earlier page's restart alert is handled
     await ensureApiToken();
     // BEFORE the desktop early-return on purpose: managed credits live in the SIDECAR, not the keychain, so
     // they are configured identically in a browser build and a packaged one. Probing after the return would
