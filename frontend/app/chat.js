@@ -229,7 +229,7 @@ const Chat = (() => {
     let pill = el('comms-newpill');
     if (!pill) {
       pill = document.createElement('button'); pill.id = 'comms-newpill'; pill.type = 'button'; pill.className = 'comms-newpill';
-      pill.onclick = () => { if (typeof SFX !== 'undefined' && SFX.click) SFX.click(); jumpToBottom(); };
+      pill.onclick = () => { if (typeof SFX !== 'undefined' && SFX.press) SFX.press(); jumpToBottom(); };
       panel.appendChild(pill);
     }
     if (hasNew) pill.classList.add('hasnew');
@@ -1150,7 +1150,7 @@ const Chat = (() => {
         }
         // TOOL CHIP: clicking a chip's head toggles its expanded detail (checked before the copy button)
         const chipHead = e.target.closest('.tc-head');
-        if (chipHead) { if (selecting) return; toggleChip(chipHead); if (typeof SFX !== 'undefined' && SFX.click) SFX.click(); return; }
+        if (chipHead) { if (selecting) return; toggleChip(chipHead); if (typeof SFX !== 'undefined' && SFX.press) SFX.press(); return; }
         // FENCED CODE: each block owns a copy control. Resolve the text from that exact wrapper so one click
         // never sweeps up the surrounding prose or a neighboring block in the same response.
         const codeBtn = e.target.closest('.md-copy');
@@ -1160,7 +1160,7 @@ const Chat = (() => {
           if (!codeEl) return;
           copyText(codeEl.textContent || '').then(ok => {
             showCopyResult(codeBtn, ok);
-            if (ok && typeof SFX !== 'undefined' && SFX.click) SFX.click();
+            if (ok && typeof SFX !== 'undefined' && SFX.press) SFX.press();
           });
           return;
         }
@@ -1170,7 +1170,7 @@ const Chat = (() => {
         if (!txt) return;
         copyText(txt).then(ok => {
           showCopyResult(btn, ok);
-          if (ok && typeof SFX !== 'undefined' && SFX.click) SFX.click();
+          if (ok && typeof SFX !== 'undefined' && SFX.press) SFX.press();
         });
       });
     }
@@ -1699,7 +1699,7 @@ const Chat = (() => {
     sel.__wired = true;
     sel.addEventListener('change', () => {
       const id = sel.value;
-      if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+      if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
       if (typeof App !== 'undefined' && App.selectAgent) App.selectAgent(id);
       // App.selectAgent → switchWorkstream → Chat.load → renderIdBar, so the model readout follows the switch.
     });
@@ -2622,7 +2622,7 @@ const Chat = (() => {
       const open = bodyWrap.hidden; bodyWrap.hidden = !open;
       head.setAttribute('aria-expanded', open ? 'true' : 'false');
       d.classList.toggle('open', open);
-      if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+      if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
     });
     if (open0) d.classList.add('open');
     d.appendChild(head); d.appendChild(bodyWrap);
@@ -3014,7 +3014,7 @@ const Chat = (() => {
     // blob URLs fetched FOR the lightbox are freed with it (the decoded thumbnail elsewhere keeps its own)
     if (lb.revokeUrl) { try { URL.revokeObjectURL(lb.revokeUrl); } catch (_) {} }
     lb.root.remove();
-    if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
   }
   // `load` -> Promise<objectURL>; opts.revoke says the URL is ours to free on close (false for a staged
   // attachment's localUrl, which renderAttachStrip still owns and revokes on remove/clear).
@@ -3039,7 +3039,7 @@ const Chat = (() => {
     x.focus();
     lightbox = { root, onKey, revokeUrl: '' };
     const mine = lightbox;
-    if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
     Promise.resolve().then(load).then(u => {
       if (lightbox !== mine) {   // closed (or replaced) before the bytes arrived — free a URL we now own
         if (opts && opts.revoke) { try { URL.revokeObjectURL(u); } catch (_) {} }
@@ -7848,7 +7848,7 @@ const Chat = (() => {
     if (typeof GoalLoop !== 'undefined') { const g = goalOf(activeWs); if (g && GoalLoop.isActive(g)) { GoalLoop.pause(g, 'you stopped the run'); persistGoal(); } }
     if (typeof Channels !== 'undefined' && Channels.clearPending) Channels.clearPending(id, Date.now());   // a pending approval is moot once stopped
     status('stopping…'); updateControls();
-    if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
     // runs only once the stop is CONFIRMED (or there was no run id to kill): the run's open approval cards go dead with it
     const localAbort = () => { retireOpenConsents(id, (typeof Channels !== 'undefined' && Channels.runIdOf(id)) || ''); const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
     const rid = (typeof Channels !== 'undefined') ? Channels.runIdOf(id) : null;
@@ -7897,7 +7897,7 @@ const Chat = (() => {
     const id = activeWs.id;
     const arr = queued.get(id) || []; arr.push(text); queued.set(id, arr);
     renderQueued();
-    if (typeof SFX !== 'undefined' && SFX.type) SFX.type();
+    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
   }
   function sendOrQueue(text) {
     const value = String(text == null ? '' : text).trim();
@@ -8213,7 +8213,7 @@ const Chat = (() => {
         b.textContent = ok ? '✓ diagnostics copied — paste into your report' : (text ? 'copy blocked — report shown below' : 'could not read diagnostics');
         if (!ok && !text) { b.disabled = false; return; }   // nothing was read — a later retry can still succeed
         if (!ok) { if (Diag.showBlock) { Diag.showBlock(rowEl, { text: text }); autoscroll(); } return; }
-        if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+        if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
         setTimeout(() => { try { rowEl.remove(); } catch (_) {} }, 2600);
       } });
     });
@@ -9516,7 +9516,7 @@ const Chat = (() => {
     if (!item) { closeSlash(); return; }
     const rawInput = input ? input.value : '';
     input.value = ''; closeSlash(); autoGrowInput();   // consume the "/query"; a recipe's run() then refills the input
-    if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
     // Try the sidecar for anything server-backed OR anything with no local action at all. The second half
     // matters on a cold start: before the catalog fetch lands, /away and /routine are only known from the
     // FALLBACK list (serverBacked === false) and have no handler — without this they would refuse without ever
@@ -10524,11 +10524,11 @@ const Chat = (() => {
           if (on) picked.add(it.value); else picked.delete(it.value);
           b.classList.toggle('sel', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
           b.textContent = (on ? '✓ ' : '') + it.label;   // the fill alone does not read as ON
-          if (typeof SFX !== 'undefined') SFX.click();
+          if (typeof SFX !== 'undefined') SFX.press();
           syncConfirm();
           return;
         }
-        done = true; activeChoiceRows.delete(rowEl); rowEl.remove(); if (typeof SFX !== 'undefined') SFX.click();
+        done = true; activeChoiceRows.delete(rowEl); rowEl.remove(); if (typeof SFX !== 'undefined') SFX.press();
         onPick(it.confirm ? Object.assign({}, it, { values: (items || []).filter(x => !x.skip && !x.confirm && picked.has(x.value)).map(x => x.value) }) : it);
       };
       if (multi && it.confirm) { confirmBtn = b; b.classList.add('confirm'); syncConfirm(); }

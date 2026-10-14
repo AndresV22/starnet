@@ -962,7 +962,9 @@ const App = (() => {
           : sel.reason === 'effort'
             ? 'REASONING: ' + effortLabel(effort)
             : 'MODEL: ' + providerLabel(provider) + ' / ' + shortModelLabel(model) + ' / ' + effortLabel(effort);
-      StationUI.notify(msg, 'good');
+      // a dock pick ('model'/'effort') is the user's own press — silent receipt; a catalog-driven change keeps its bell
+      const userPick = sel.reason === 'model' || sel.reason === 'effort';
+      StationUI.notify(msg, 'good', undefined, userPick ? { silent: true } : undefined);
     }
   }
   // the persisted shape of a crew member (systemPrompt is derived, recomposed on rehydrate).

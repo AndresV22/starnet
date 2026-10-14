@@ -9232,7 +9232,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (opts && opts.quiet && rec) return;
     let tOpts = opts;
     if (go && !(opts && opts.onClick)) tOpts = Object.assign({}, opts, { onClick: () => openNotif(rec, go) });
-    toast(String(text || ''), cls || '', pref.sound, tOpts);
+    // opts.silent: a receipt for a press the user JUST made (a model/effort pick) — the press already sounded, a bell on top is noise
+    toast(String(text || ''), cls || '', (opts && opts.silent) ? false : pref.sound, tOpts);
   }
   function goToNotif(go) {
     if (!go) return false;
