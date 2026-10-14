@@ -43,8 +43,8 @@ const px = v => { const m = String(v || '').match(/(\d+(?:\.\d+)?)px/); return m
   /* A FLOOR NEVER SHRINKS (review 10-14): the !important floor beat every context rule, so it also pulled the AGENT DOSSIER
      section titles (.agent-dossier .gx-title, 18px) and the QUESTS overview tags (.q-progress-overview .gx-tag, 16px) DOWN
      to 14px. A class may sit in the floor only while no stylesheet sets it larger than the floor anywhere. */
-  const allRules = ['app.css', 'agent-dossier.css', 'motion.css', 'quests.css', 'pipglass.css', 'settings.css', 'glass-comms.css', 'refit-glass.css']
-    .filter(f => fs.existsSync(path.join(__dirname, '..', 'frontend/css', f))).flatMap(f => rulesOf('frontend/css/' + f).map(r => Object.assign(r, { file: f })));
+  const allRules = fs.readdirSync(path.join(__dirname, '..', 'frontend/css')).filter(f => f.endsWith('.css') && f !== 'readability.css')
+    .flatMap(f => rulesOf('frontend/css/' + f).map(r => Object.assign(r, { file: f })));
   const floorClasses = roles.match(/\.[a-z][\w-]*/gi) || [];
   for (const c of floorClasses) {
     const bigger = allRules.filter(r => r.sels.some(s => new RegExp('\\' + c + '(?![\\w-])').test(s)))
@@ -54,6 +54,12 @@ const px = v => { const m = String(v || '').match(/(\d+(?:\.\d+)?)px/); return m
   // the gx-* titles and tags meet 14px from their own base rules, so the larger context rules still win
   const app = rulesOf('frontend/css/app.css');
   for (const sel of ['.gx-title', '.gx-tag']) A.ok(/var\(--sn-type-meta/.test(decl(app, sel, 'font-size') || ''), sel + ' base size is the 14px meta role, got ' + decl(app, sel, 'font-size'));
+  // …and every context rule that sizes them meets it too (the QUESTS section-header count chips were 9.5px under the floor)
+  for (const c of ['.gx-title', '.gx-tag']) {
+    const small = allRules.filter(r => r.sels.some(s => new RegExp('\\' + c + '(?![\\w-])').test(s)))
+      .map(r => ({ r, v: (r.body.match(/(?:^|;)\s*font-size\s*:\s*([^;]+)/) || [])[1] })).filter(x => x.v && !/var\(--sn-type-meta/.test(x.v) && px(x.v) < 14);
+    A.ok(!small.length, c + ' is never set under 14px: ' + small.map(x => x.r.file + ' ' + x.r.sels.join(',') + ' ' + x.v).join(' | '));
+  }
   const dossier = rulesOf('frontend/css/agent-dossier.css');
   A.eq(px(decl(dossier, '.agent-dossier .gx-title', 'font-size')), 18, 'the dossier section titles stay 18px');
   A.ok(/var\(--sn-type-meta/.test(decl(dossier, '.agent-dossier .gx-tag', 'font-size') || ''), 'the dossier tags read at 14px from their own rule');

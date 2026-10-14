@@ -3678,7 +3678,7 @@ body:not(.rows-inbox) #workstreams .ws-row.attn:not(.renaming):has(> .ws-agent-g
    chip treatment the kind badges use, so the headers stop being bare text with a number floated right. */
 .gx-quests .gx-sec { height: auto; padding-bottom: 6px; margin-bottom: 10px; }
 .gx-quests .gx-sec .gx-tag { border: 1px solid var(--ph-glow2); border-radius: 2px; padding: 0 6px;
-  font-size: 9.5px; line-height: 1.6; color: var(--ph); opacity: .85; font-variant-numeric: tabular-nums; }
+  font-size: var(--sn-type-meta, 14px); line-height: 1.6; color: var(--ph); opacity: .85; font-variant-numeric: tabular-nums; }
 /* the north star is the thing every quest below points at — give it the presence to lead the panel */
 .gx-quests .q-refresh-card { padding: 11px 13px; }
 .gx-quests .q-ns-text { font-size: 14px; line-height: 1.4; margin-top: 5px; }
