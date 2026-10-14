@@ -5,7 +5,8 @@
      P21 — the AGENT DOSSIER says where each per-agent setting lives, and station-wide switches say they are for every agent.
      P22 — RECRUIT speaks one language: RECRUIT a new agent from a CLASS, RE-SPEC an existing one.
      P26 — the COMMS title names the open session ('COMMS · <session>'), with one writer.
-     P25 — fewer empty sessions: a background hire mints none, a starter fills a blank open session, the busy row names who. */
+     P25 — fewer empty sessions: a background hire mints none, a starter fills a blank open session, the busy row names who.
+     P33 — starter-room machines show what they are: a capability prop raises a GLANCE nameplate + a pointer on hover. */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('fs');
@@ -128,5 +129,33 @@ A.ok(!/switch to its stream to task it/.test(APP) && /pick it ON THE LINE in COM
 A.ok(/ws = blank \? cur : Workstreams\.create\(st\.label/.test(CHAT), 'P25: a starter on a blank open session fills it (behaviour in test/starters.test.js)');
 A.ok(/String\(busyName\)\.toUpperCase\(\) \+ ' IS BUSY IN ' \+ streamLabel\(peer\)\.toUpperCase\(\)/.test(CHAT) && !/'ALSO RUNNING IN '/.test(CHAT), 'P25: the busy row reads <NAME> IS BUSY IN <SESSION> · VIEW ACTIVE RUN');
 A.ok(/function\s+maybeEmptyState[\s\S]{0,300}busyPeerFor\(activeWs\)/.test(CHAT), 'P25: the busy row stays visible in an empty session (it explains why a first message queues)');
+
+/* ---------- P33: starter-room machines show what they are (the shipped hit-test, run against the real catalogs) ---------- */
+const WORLD = read('frontend/app/world.js');
+const capFrom = WORLD.indexOf('  function capPropAt(wp) {'), capTo = WORLD.indexOf('  function drawCapHoverTag(now) {', capFrom);
+A.ok(capFrom > 0 && capTo > capFrom, 'P33: world.js has the capability-prop hit-test');
+const WM = require('../frontend/app/worldmodel.js');
+const WorldModelApi = (WM && WM.grantLabelForProp) ? WM : global.WorldModel;
+const LABELS = { war_intelcab: 'INTEL CAB', gigs_servercart: 'SERVER CART', comms_dish: 'DISH', workbench: 'WORKBENCH', studio: 'STUDIO', desk: 'DESK', plant: 'PLANT' };
+const props = [
+  { t: 'war_intelcab', x: 1, y: 0, w: 1, h: 2 }, { t: 'gigs_servercart', x: 1, y: 9, w: 1, h: 1 }, { t: 'comms_dish', x: 14, y: 0, w: 2, h: 2 },
+  { t: 'workbench', x: 3, y: 1, w: 2, h: 1 }, { t: 'studio', x: 14, y: 8, w: 2, h: 2 }, { t: 'desk', x: 8, y: 1, w: 2, h: 1 }, { t: 'plant', x: 0, y: 0, w: 1, h: 1 }
+];
+const capCtx = vm.createContext({ geo: { props }, T: 32, station: { capForProp: t => WorldModelApi.CAP_PROP_MAP[t] || null },
+  WorldModel: { grantLabelForProp: WorldModelApi.grantLabelForProp }, PropSprites: { spec: t => (LABELS[t] ? { label: LABELS[t] } : null) } });
+vm.runInContext(WORLD.slice(capFrom, capTo) + '\nthis.capPropAt = capPropAt;', capCtx);
+const at = (p) => capCtx.capPropAt({ x: (p.x + 0.5) * 32, y: (p.y + 0.5) * 32 });
+A.eq((at(props[0]) || {}).text, 'INTEL CAB · FILES', 'P33: hovering the INTEL CAB glances INTEL CAB · FILES');
+A.eq((at(props[1]) || {}).text, 'SERVER CART · MEMORY', 'P33: the SERVER CART glances its power');
+A.eq((at(props[2]) || {}).text, 'DISH · WEB', 'P33: the DISH glances WEB');
+A.eq((at(props[3]) || {}).text, 'WORKBENCH · TERMINAL', 'P33: the WORKBENCH glances TERMINAL');
+A.eq((at(props[4]) || {}).text, 'STUDIO · IMAGES', 'P33: the STUDIO glances IMAGES');
+A.eq(at(props[5]), null, 'P33: a desk keeps its own DESK SCREEN click/glance (no plate)');
+A.eq(at(props[6]), null, 'P33: decor raises nothing');
+A.ok(/hoverCap = \(hit \|\| hoverOutbox \|\| hoverCrate \|\| hoverBay \|\| hoverPlate\) \? null : capPropAt\(wp\);/.test(WORLD) && /cv\.style\.cursor = \(hit \|\| hoverCap \|\|/.test(WORLD),
+  'P33: hover arms the plate below every existing glance and the cursor turns to a pointer');
+A.ok(/drawCapHoverTag\(now\);/.test(WORLD) && !/capPropAt\(wp\)[^\n]*openTerm|hoverCap[^\n]*openTerm/.test(WORLD), 'P33: the plate is drawn as a glance — hover never opens a window');
+const mouseup = (WORLD.match(/cv\.addEventListener\('mouseup', ev => \{[\s\S]*?\n    \}\);/) || [''])[0];
+A.ok(mouseup && !/capPropAt|hoverCap/.test(mouseup), 'P33: no click is added (what a click does stays Andrew\'s pick)');
 
 A.report();
