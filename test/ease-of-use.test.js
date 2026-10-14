@@ -56,13 +56,13 @@ async function renderAccess(response, rejects = false, connected = true, posture
   assert.match(out.target.innerHTML, /AVAILABLE/);
   assert.doesNotMatch(out.target.innerHTML, /SWITCHED OFF|risky actions may ask/);
   // org P21: the summary speaks the ONE ACCESS posture words
-  assert.equal(out.summary.textContent, 'FULL POWER · no prompts');
+  assert.equal(out.summary.textContent, 'FULL POWER', 'the narrow tile reads the posture word alone; its meaning rides the tip');
   out = await renderAccess({ authority: { unrestricted: false, approvalLabel: 'ASK', filesystemLabel: 'Project folders', profileLabel: 'TRUSTED PROJECT', revoke: '' }, toolsets: [] },
     false, true, { approval: 'ask', label: 'LET IT WORK' });
-  assert.equal(out.summary.textContent, 'LET IT WORK · standing grants apply', 'an asking agent reads its posture');
+  assert.equal(out.summary.textContent, 'LET IT WORK', 'an asking agent reads its posture');
   out = await renderAccess({ authority: { unrestricted: false, approvalLabel: 'ASK', filesystemLabel: 'Project folders', profileLabel: 'TRUSTED PROJECT', revoke: '' }, toolsets: [] },
     false, true, { approval: 'full', label: 'FULL POWER' });
-  assert.equal(out.summary.textContent, 'custom · standing grants apply', 'a saved FULL POWER the live authority contradicts never reads FULL POWER');
+  assert.equal(out.summary.textContent, 'custom', 'a saved FULL POWER the live authority contradicts never reads FULL POWER');
   out = await renderAccess(null, true);
   assert.match(out.target.textContent, /could not be checked/);
   assert.equal(out.summary.textContent, 'unavailable');

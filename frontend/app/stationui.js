@@ -2087,7 +2087,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     ];
     return '<div class="ag-setup" role="group" aria-label="How this agent is set up">' +
       rows.map(r =>
-        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" data-tip="' + esc(r.tip) + '">' +
+        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" data-tip="' + esc(r.tip) + '" data-tip-below>' +
           '<span class="ag-setup-lbl">' + r.lbl + '</span>' +
           '<span class="ag-setup-val' + (r.dim ? ' dim' : '') + '">' + esc(r.val) + '</span>' +
           '<span class="ag-setup-go" aria-hidden="true">›</span></button>').join('') +
@@ -2346,7 +2346,23 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // ORG P21: the summary speaks the ONE ACCESS posture words. FULL POWER only when the live authority is unrestricted;
         // otherwise the agent's saved posture if it is an asking one, else custom — never a posture the live answer contradicts.
         const askingPosture = () => { const AP = agentPostureOf(a); return (AP && AP.approval === 'ask') ? AP.label : 'custom'; };
-        if (summary) summary.textContent = authority.unrestricted ? 'FULL POWER · no prompts' : askingPosture() + ' · standing grants apply';
+        // the value is the posture word alone (the tile is narrow); what it means rides the row's tip
+        if (summary) summary.textContent = authority.unrestricted ? 'FULL POWER' : askingPosture();
+        // FULL POWER that comes from OUTSIDE this agent (the launch environment or the station-wide switch) beats its
+        // saved answer: CONFIG › ACCESS says so instead of showing the saved posture as if it were in force.
+        const overrideBy = !authority.unrestricted || authority.source === 'agent' ? ''
+          : authority.source === 'environment' ? 'the SKYNET_FULL_ACCESS launch setting' : 'the station-wide FULL POWER switch';
+        const accessRow = body.querySelector('[data-goconfig="ag-approval-card"]');
+        if (accessRow && accessRow.dataset) accessRow.dataset.tip = (authority.unrestricted
+          ? 'never asks first' + (overrideBy ? ', set by ' + overrideBy : '') : 'asks first; standing grants apply') + ' · change it in CONFIG › ACCESS';
+        if (overrideBy) {
+          const SP = agentPostureOf(a);
+          const said = 'FULL POWER — on for every agent by ' + overrideBy + '. Its saved answer, ' + (SP ? SP.label : 'a custom mix') + ', applies again when that is off.';
+          const groupSummary = body.querySelector('#cf-grp-behaves .cf-group-summary');
+          if (groupSummary) groupSummary.textContent = said;
+          const plain = body.querySelector('#ag-access-plain');
+          if (plain) plain.textContent = said;
+        }
         const reach = body.querySelector('#ag-execution-plain');
         if (reach) reach.textContent = authority.filesystemLabel + (authority.unrestricted ? '. Full Power overrides the saved profile below.' : '. The selected profile and standing grants apply.');
         const html = '<p><b>' + esc(authority.approvalLabel) + '</b><br>' + esc(authority.filesystemLabel) + ' · ' + esc(authority.profileLabel) + '</p>' +

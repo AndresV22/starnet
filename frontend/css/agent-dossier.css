@@ -23,6 +23,8 @@
 .agent-dossier .ag-mission-text { font-size: 16px; line-height: 1.55; }
 .agent-dossier .ag-setup { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
 .agent-dossier .ag-setup-row { display: grid; grid-template-columns: 1fr auto; gap: 7px; padding: 14px; border: 1px solid rgba(var(--ph-rgb),.2); border-radius: 9px; background: rgba(var(--ph-rgb),.035); text-align: left; }
+/* an odd tile count never strands the last tile beside an empty cell: it spans the row */
+.agent-dossier .ag-setup-row:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .agent-dossier .ag-setup-lbl { font-size: 12px; }
 .agent-dossier .ag-setup-val { grid-column: 1; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
 .agent-dossier .ag-setup-go { grid-column: 2; grid-row: 1 / 3; align-self: center; }
