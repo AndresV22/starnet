@@ -8761,8 +8761,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           // live HERE — straight from the same status read, '' once the station is hot (never an invented line).
           const readyLine = NightReport.readinessText ? NightReport.readinessText(status && status.readiness) : '';
           if (!rep || !rep.hasReport) {
+            // the still-learning line is a second sentence of the SAME grey status paragraph style, full stop and all —
+            // an amber .dim row under a grey status read louder than the status it qualifies
             nsReport.innerHTML = '<p class="set-about">no report to show — autonomy recorded no acts or declines in the last 24h.</p>' +
-              (readyLine ? '<div class="set-row"><span class="dim">' + esc(readyLine) + '</span></div>' : '');
+              (readyLine ? '<p class="set-about">' + esc(readyLine.replace(/[.\s]*$/, '.')) + '</p>' : '');
             return;
           }
           const lines = [];
