@@ -72,6 +72,20 @@ A.ok(/<b>NEEDS YOU<\/b> at the top of SESSIONS lists every job waiting on you \(
 const Places = require('../frontend/app/places.js');
 const app = Places.PLACES.find(p => p.id === 'settings-app');
 A.ok(app && !/START FRESH/.test(app.about) && /ERASE EVERYTHING/.test(app.about), 'APP & BACKUP lists ERASE EVERYTHING and not START FRESH: ' + (app && app.about));
+{
+  // P30 review fix: the agent manual must not put START FRESH under APP & BACKUP either — in any section. The settings
+  // system section renders no START FRESH key; the only station-wide one is app.js's boot recovery screen.
+  const Manual = require('../sidecar/manual.js');
+  for (const s of Manual.MANUAL_SECTIONS) {
+    const text = Manual.manualSection(s.id).replace(/\n/g, ' ');
+    for (const clause of text.split(/;/)) {
+      A.ok(!(/settings-app/.test(clause) && /START FRESH/.test(clause)), 'manual ' + s.id + ' never puts START FRESH under APP & BACKUP: ' + clause.slice(0, 120));
+    }
+  }
+  A.ok(/START FRESH \(sets the old station aside\) is only on the startup recovery screen/.test(Manual.starnetManual()), 'CONCEPTS says where START FRESH really is');
+  A.ok(/id="btn-unreachable-fresh"|btn-unreachable-fresh/.test(read('frontend/app/app.js')), 'the startup recovery screen owns the START FRESH key');
+  A.ok(!/START FRESH/.test(read('frontend/app/stationui.js')), 'the SETTINGS window renders no START FRESH key');
+}
 
 // ---- MY WORK display words; keys unchanged ----
 A.ok(/const WORK_LABELS = \{ tasks: 'TASKS', deliverables: 'DELIVERABLES', agents: 'AGENT DOSSIER', notifs: 'NOTIFICATIONS' \}/.test(station),

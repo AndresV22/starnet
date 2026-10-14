@@ -236,8 +236,9 @@ const CONCEPTS =
   '- DOSSIER: an agent\'s file — BRIEF (who it is, CAN DO) [agent], GROWTH (level, XP) [agent-growth], RECORD (runs, failures, ' +
   'restore points) [agent-record], MEMORY [agent-memory], CONFIG (instructions, model, personality, access, look) [agent-config]. ' +
   'YOU [you] is the Commander\'s own dossier (about them, aims, preferences, what agents are told). REMOTE [settings-remote] pairs ' +
-  'a phone; APP & BACKUP [settings-app] exports the station (never keys), and holds START FRESH (sets the old station aside) and ' +
-  'ERASE EVERYTHING (deletes every bit of StarNet data — the Commander alone, never you); UPDATES [updates] installs a new build ' +
+  'a phone; APP & BACKUP [settings-app] exports the station (never keys) and holds ERASE EVERYTHING (deletes every bit of ' +
+  'StarNet data — the Commander alone, never you); START FRESH (sets the old station aside) is only on the startup recovery ' +
+  'screen, when a station cannot load; UPDATES [updates] installs a new build ' +
   '(installing stops every live run).\n';
 const TROUBLESHOOTING =
   'TROUBLESHOOTING — when the Commander is stuck, name the concrete fix:\n' +
