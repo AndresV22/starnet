@@ -261,9 +261,12 @@ const Delegated = (() => {
   // fold the run record + its transcript rows into what the receipt shows. Pure: the tests drive it directly.
   function foldReceipt(row, turns, deliveryText) {
     const parsed = typeof DeskScreen !== 'undefined' && DeskScreen.parseScreens ? DeskScreen.parseScreens(turns || []) : [];
-    const list = parsed.length ? parsed : ((row && row.toolTrace) || []).map(t => ({ name: t.name, args: {}, isError: !!t.isError || t.ok === false, done: true }));
+    // a call the Task Brief held did not run (it is made again once the brief settles): never a step, done or failed
+    const heldTrace = t => typeof TaskIntent !== 'undefined' && TaskIntent.isGateHeld && TaskIntent.isGateHeld(t);
+    const list = parsed.length ? parsed : ((row && row.toolTrace) || []).filter(t => !heldTrace(t)).map(t => ({ name: t.name, args: {}, isError: !!t.isError || t.ok === false, done: true }));
     const stepsOut = [], sites = [], searches = [], seenUrl = new Set();
     for (const s of list) {
+      if (s.held) continue;
       const n = String(s.name || '').toLowerCase().replace(/\./g, '_'), a = s.args || {};
       if (/web_search/.test(n) && a.query) searches.push(String(a.query));
       const url = typeof a.url === 'string' ? a.url : '';

@@ -281,7 +281,10 @@
        an error for the model, but every surface drew it as a red "✗ failed" chip. The host stamps this one summary on that
        result (sidecar/index.js) and the chat reads it back to draw the held call as the neutral, not-run state it is. */
     GATE_HELD: 'not run yet — waiting on the task brief',
-    isGateHeld: ev => !!(ev && ev.isError && ev.summary === 'not run yet — waiting on the task brief')
+    isGateHeld: ev => !!(ev && ev.isError && ev.summary === 'not run yet — waiting on the task brief'),
+    // the held result's TEXT (a reloaded transcript keeps the content, not the summary): the host opens it with this lead
+    GATE_HELD_LEAD: 'Task Brief gate: nothing ran.',
+    isGateHeldBody: body => /^(?:ERROR: )?Task Brief gate: nothing ran\./.test(String(body == null ? '' : body))
   };
 
   return { shouldOffer, directive, parse, strip, stripMarkers, liveText, readable, beliefText, CONF_FLOOR, MAX_OPTS, MARKER_KEY, TaskIntent };

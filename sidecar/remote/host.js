@@ -24,6 +24,7 @@
 
 const { note } = require('../failopen.js');
 const { withVoiceStyle } = require('./voice-style.js');
+const { TaskIntent } = require('../../frontend/app/fork.js');   // the held-call stamp a phone step reads as "not run yet"
 
 const TEXT_FLUSH_MS = 250;
 
@@ -315,7 +316,11 @@ function makeRemoteHost(d) {
       if ((name === 'agent.run.error' || name === 'agent.run.end') && p.runId && p.runId !== runId) return;
       if (name === 'agent.token') { buf += (p.delta || ''); if (!timer) timer = setTimeout(flush, TEXT_FLUSH_MS); }
       else if (name === 'agent.tool_call') { buf = ''; sent = 0; broadcast({ type: 'run.tool', runId, callId: String(p.callId || ''), name: clip(p.name, 80), summary: clip(p.argsSummary, 400) }); }
-      else if (name === 'agent.tool_result') broadcast({ type: 'run.step', runId, callId: String(p.callId || ''), ok: !!p.ok && !p.isError, ms: Number(p.ms) || 0 });
+      else if (name === 'agent.tool_result') {
+        // a call the Task Brief held did NOT run: never a ✕ failed step on the phone (fork.js TaskIntent.GATE_HELD)
+        const held = TaskIntent.isGateHeld(p);
+        broadcast(Object.assign({ type: 'run.step', runId, callId: String(p.callId || ''), ok: held ? null : (!!p.ok && !p.isError), ms: Number(p.ms) || 0 }, held ? { held: true } : {}));
+      }
       else if (name === 'agent.run.error') errMsg = clip(p.message || 'run error', 400);
       else if (name === 'agent.run.end') { reason = p.reason || null; if (typeof p.usd === 'number' && isFinite(p.usd)) usd = Math.max(usd, p.usd); }
     };

@@ -4,9 +4,11 @@
    that are not already pinned beside their engines (the marker grammar lives in fork.test.js, the marker-ended reply and
    the nudge wording in continuation-guard.test.js):
    A. THE BRIEF GATE'S PAUSE: a consequential call made before the Task Brief settles is HELD by the host and did not run.
-      It drew a red "✗ team.dispatch failed" chip. The host stamps one shared summary (fork.js TaskIntent.GATE_HELD) and every
-      surface draws that call as not-run: neutral chip, no red world pulse, no failed desk step. A station SETTING
-      (station.control — group.add brought "MY READ" cards and the red chip) is setup like team.summon, never held.
+      It drew a red "✗ team.dispatch failed" chip. The host stamps one shared summary (fork.js TaskIntent.GATE_HELD) and these
+      surfaces draw that call as not-run: the COMMS and group chips, the world (no red pulse), the desk screen (live and from
+      the transcript), the run's telemetry lines, a worker's receipt (not a step), and the phone's live steps. Station SETUP
+      (station.control group.add, session rename…; group.add brought "MY READ" cards and the red chip) is never held;
+      deleting, wiping or rewinding settings still wait for the brief.
    chat.js is browser-flow (DOM + streaming), not node-loadable, so — like comms-presence.test.js — its DOM-layer invariants
    are read from the source; the pure halves are executed. */
 'use strict';
@@ -31,8 +33,9 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   const idx = read('sidecar/index.js');
   const gate = /if \(!gate\.ok\) return \{[^\n]*\};/.exec(idx);
   A.ok(gate && /summary: TaskIntent\.GATE_HELD/.test(gate[0]), 'the host gate stamps the shared held summary (one source of truth)');
-  A.ok(gate && /nothing ran/.test(gate[0]) && /make the brief call with no text before it and never mention the gate/.test(gate[0]), 'and tells the model nothing ran and not to narrate the gate');
+  A.ok(gate && /TaskIntent\.GATE_HELD_LEAD/.test(gate[0]) && /nothing ran/.test(TaskIntent.GATE_HELD_LEAD) && /make the brief call with no text before it and never mention the gate/.test(gate[0]), 'and tells the model nothing ran and not to narrate the gate');
   A.ok(gate && /isError: true/.test(gate[0]), 'the result stays an error for the model (the call really did not run)');
+  A.ok(gate && /TaskIntent\.GATE_HELD_LEAD \+ ' ' \+ String\(gate\.reason\)\.charAt\(0\)\.toUpperCase\(\) \+ String\(gate\.reason\)\.slice\(1\)/.test(gate[0]), 'the gate text starts its reason as a sentence (the desk screen shows it): "nothing ran. Settle…"');
 
   const chat = read('frontend/app/chat.js');
   const rc = /function foldChipResult\(chip, ev\) \{[\s\S]*?\n  \}/.exec(chat);
@@ -43,14 +46,61 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   A.ok(/U\.bus\.emit\('agent\.tool_result', \{[^\n]*held: !!\(typeof TaskIntent !== 'undefined' && TaskIntent\.isGateHeld && TaskIntent\.isGateHeld\(ev\)\)/.test(chat), 'the bus copy carries held for the world');
   A.ok(/if \(tgt && !p\.held\) PropSprites\.pulseProp/.test(read('frontend/app/world.js')), 'the world never pulses a prop red for a call that did not run');
   A.ok(/s\.ok = \(typeof TaskIntent !== 'undefined' && TaskIntent\.isGateHeld && TaskIntent\.isGateHeld\(p\)\) \? null/.test(read('frontend/app/deskscreen.js')), 'the desk screen records no outcome (not a failed step)');
+  // the DESK SCREEN once the run's transcript loads (rc review 2026-10-14): the held call read "bad" and its screen showed the
+  // gate's instructions to the model; live, a held fs.write read as a finished "ok" editor screen
+  {
+    global.TaskIntent = TaskIntent;
+    const D = require('../frontend/app/deskscreen.js');
+    const gateBody = 'ERROR: Task Brief gate: nothing ran. Settle the Task Brief with brief_proceed, or ask the one material question with brief_ask, before consequential work, then make this same call again. This is a routine step: the Commander sees your brief as its own card, so make the brief call with no text before it and never mention the gate.';
+    const rows = [
+      { role: 'assistant', toolCalls: JSON.stringify([{ id: 'w1', function: { name: 'fs_write', arguments: '{"path":"a.md","content":"hello"}' } }]) },
+      { role: 'tool', toolCallId: 'w1', content: gateBody },
+      { role: 'assistant', toolCalls: JSON.stringify([{ id: 'w2', function: { name: 'fs_write', arguments: '{"path":"b.md","content":"x"}' } }]) },
+      { role: 'tool', toolCallId: 'w2', content: 'ERROR: EACCES: permission denied' }
+    ];
+    const [heldStep, failedStep] = D._parseScreens(rows);
+    A.ok(heldStep.held === true && !heldStep.isError && heldStep.done, 'a held call in the transcript is a held screen, not a failed one');
+    A.ok(failedStep.isError && !failedStep.held, 'a real failure still reads as failed');
+    const sc = D._screenOf(heldStep);
+    A.eq(sc.note, TaskIntent.GATE_HELD, 'its screen status says "not run yet — waiting on the task brief"');
+    A.ok(!/brief_proceed|never mention the gate|not written/.test(JSON.stringify(sc)), 'the gate\'s instructions to the model never reach the screen');
+    A.ok(/not written/.test(D._screenOf(failedStep).note), 'a failed write still says not written');
+    const ds = read('frontend/app/deskscreen.js');
+    A.ok(/data-s="' \+ \(!s\.done \? 'run' : s\.held \? 'held' : s\.isError \? 'bad' : 'ok'\)/.test(ds), 'a held screen is its own state, never "bad" or "ok"');
+    A.ok(/held: !!\(st\.done && st\.ok === null\)/.test(ds) && /s\.held = !!\(st\.done && st\.ok === null\)/.test(ds), 'the live screen keeps a held step held (the bus step records no outcome)');
+    A.ok(/\.ds-app\[data-s="held"\] \.ds-status \{ color: var\(--ph-dim\); \}/.test(read('frontend/css/deskscreen.css')), 'and draws it in dim phosphor');
+    A.ok(TaskIntent.isGateHeldBody(gateBody) && TaskIntent.isGateHeldBody(gateBody.slice(7)) && !TaskIntent.isGateHeldBody('ERROR: EACCES'), 'one recogniser for the held result text (with or without the ERROR: prefix)');
+    A.ok(/content: TaskIntent\.GATE_HELD_LEAD \+ ' '/.test(idx), 'the host writes the held result with that same lead');
+  }
+  // the run's telemetry lines under a resolved presence card read "not run yet" for it, never "failed" in red
+  {
+    const tr = /function telemetryRun\(entry, role, skipTools\) \{[\s\S]*?\n  \}/.exec(chat);
+    A.ok(tr && /const held = typeof TaskIntent !== 'undefined' && TaskIntent\.isGateHeld && TaskIntent\.isGateHeld\(t\);/.test(tr[0]) && /\(held \? ' held' : t\.isError \? ' err' : ''\)/.test(tr[0]) && /held \? 'not run yet' : t\.isError \? 'failed' : 'ok'/.test(tr[0]), 'a held call\'s telemetry line reads "not run yet", never "failed"');
+  }
+  // the PHONE live view (rc review 2026-10-14: it drew ✕ for a held call): the station sends held, and the phone app draws it
+  const host = read('sidecar/remote/host.js'), phone = read('relay/app/app.js');
+  A.ok(/const held = TaskIntent\.isGateHeld\(p\);[\s\S]{0,200}ok: held \? null : \(!!p\.ok && !p\.isError\)[\s\S]{0,80}held \? \{ held: true \} : \{\}/.test(host), 'the phone step for a held call carries held and no outcome (an older phone shows it pending, never ✕)');
+  A.ok(/if \(s\) \{ s\.ok = e\.held \? null : e\.ok; if \(e\.held\) s\.held = true; \}/.test(phone) && /if \(s\.held\) d\.appendChild\(el\('b', 'h', '▸'\)\);/.test(phone) && /s\.held \? ' · not run yet' : ''/.test(phone), 'the phone draws a held step as a dim ▸ "not run yet"');
+  A.ok(/\.step b\.h \{ color: var\(--ph-dim\); \}/.test(read('relay/app/app.css')), 'in dim phosphor, not red');
   const css = read('frontend/css/comms.css');
   A.ok(/\.tool-chip\.held \.tc-glyph,\s*\n\.tool-chip\.held \.tc-stat\s*\{ color: var\(--ph-dim\); \}/.test(css), 'the held chip is plain dim phosphor (no red)');
 
   // a station setting is setup, not the deliverable: station.control passes an unsettled brief; station.power still waits
   const reg = makeRegistry();
   makeStationControlTools({ station: { request: async () => ({ ok: true }) }, route: async () => ({ status: 200, json: { ok: true } }), surface: 'interactive' }).register(reg);
-  A.eq(Policy.canMutate({ status: 'ready' }, reg.get('station.control')).ok, true, 'station.control (group.add, rename…) is never held behind the Task Brief');
-  A.eq(Policy.canMutate({ status: 'ready' }, reg.get('station.power')).ok, false, 'station.power (an escalation) still waits for brief_proceed');
+  const ctl = reg.get('station.control'), unsettled = { status: 'ready' };
+  for (const action of ['group.add', 'group.configure', 'session.rename', 'session.pin', 'session.archive', 'look.set', 'estop.engage']) {
+    A.eq(Policy.canMutate(unsettled, ctl, { args: { action, args: {} } }).ok, true, 'station.control ' + action + ' (station setup) is never held behind the Task Brief');
+  }
+  A.eq(Policy.canMutate(unsettled, ctl, { args: { setting: 'group.add', members: ['copywriter'] } }).ok, true, 'the exemption reads the call the way the tool does (action named as setting, args flat)');
+  // only SETUP is exempt: a destructive or deliverable-shaping setting still waits for the brief (rc review 2026-10-14)
+  for (const action of ['agent.delete', 'session.delete', 'memory.reset', 'learning.wipe', 'checkpoint.restore', 'deliverables.cleanup', 'away.queue', 'deliverable.decide']) {
+    A.eq(Policy.canMutate(unsettled, ctl, { args: { action, args: {} } }).ok, false, 'station.control ' + action + ' still waits for brief_proceed');
+  }
+  A.eq(Policy.canMutate(unsettled, ctl).ok, false, 'a station.control call the gate cannot read is held (fail closed)');
+  A.eq(Policy.canMutate(unsettled, ctl, { args: { action: 'nope.nothing' } }).ok, false, 'an unknown action is held');
+  A.eq(Policy.canMutate(unsettled, reg.get('station.power'), { args: { action: 'group.add', args: {} } }).ok, false, 'station.power (an escalation) still waits for brief_proceed');
+  A.ok(/TaskBriefPolicy\.canMutate\(taskBriefState\.brief, liveTool, c\)/.test(idx), 'the host gate hands the call to canMutate, so an action-aware exemption sees the action');
 }
 
 /* ---------- A2. the LIVE reply (chat.js streamingAgent, executed) never shows a choice marker, and keeps every prose line ---------- */
