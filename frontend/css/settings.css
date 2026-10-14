@@ -72,6 +72,9 @@
 .settings-console .prov-accounts-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; line-height: 1.4; }
 .settings-console .key-edit:not([hidden]) { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px; border-radius: 8px; background: rgba(0,0,0,.16); }
 .settings-console .key-edit input { flex: 1 1 200px; }
+/* org P04 polish: the spare-key SAVE / CLEAR pair keeps one width — side by side, or each full width once the pane is too narrow for both */
+.settings-console .key-edit-pair { display: flex; flex-wrap: wrap; gap: 10px; flex: 1 1 260px; }
+.settings-console .key-edit-pair > .bb { flex: 1 1 0; white-space: nowrap; }
 .settings-console .key-row { padding: 14px; gap: 12px; border-radius: 9px; border-color: rgba(var(--ph-rgb), .2); box-shadow: none; }
 .settings-console .key-prov { font-size: 16px; }
 .settings-console .key-meta { font-size: 13px; line-height: 1.5; }

@@ -5934,8 +5934,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '</div>' +
         '<div class="key-edit" id="pool-edit-' + i + '" hidden>' +
         '<input type="password" class="key-input" id="pool-in-' + i + '" placeholder="paste spare keys, separated by commas…" autocomplete="off" spellcheck="false">' +
+        // org P04: the save/clear pair is one unit — side by side at equal widths, or stacked full width when the pane is narrow
+        '<div class="key-edit-pair">' +
         '<button class="bb sm" data-act="pool-save" data-i="' + i + '">SAVE SPARE KEYS</button>' +
         '<button class="bb sm danger" data-act="pool-clear" data-i="' + i + '">CLEAR SPARE KEYS</button>' +
+        '</div>' +
         '<span class="dim">up to 8 · scoped only to ' + esc(provName(k.provider)) + ' · a failed save keeps your previous spare keys or reports an incomplete rollback</span>' +
         '</div>' +
         baseBlock;
