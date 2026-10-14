@@ -9309,6 +9309,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       ? coach.getBoundingClientRect() : null;
     let floor = window.innerHeight - stage.bottom;
     if (cr && cr.height > 0) floor = Math.max(floor, window.innerHeight - cr.top + 6);
+    /* AN OPEN DOCK MENU IS NEVER COVERED (rc walk #29: an approval toast landed on the open BUILD menu, over CONNECT / NEW APP).
+       The rack stacks above a dock popover that reaches into its column, the way it stacks above the coach; navdock re-seats
+       it when a menu opens or closes. */
+    const rackW = Math.min(356, cap > 0 ? cap : 356) * z;   // the rack's own column, visual px (its CSS width cap, #toast-stack)
+    document.querySelectorAll('#bottombar .bb-group.open .bb-menu').forEach(menu => {
+      const mr = menu.getBoundingClientRect ? menu.getBoundingClientRect() : null;
+      if (mr && mr.height > 0 && mr.left < bar.left + rackW && mr.right > bar.left) floor = Math.max(floor, window.innerHeight - mr.top + 6);
+    });
     stack.style.setProperty('--toast-x', (bar.left / z) + 'px');
     stack.style.setProperty('--toast-b', (floor / z) + 'px');
     if (cap > 0) stack.style.setProperty('--toast-cap', cap + 'px');
@@ -11690,7 +11698,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // GROWTH Tier 3: repaint the Settings AUTONOMY panel's EARNED badge if it is open (no-op otherwise — the paint fn
   // queries its own (possibly detached) host nodes, so a closed panel costs nothing). Called after a trust accept.
   const repaintAutonomy = () => { try { if (repaintAutonomyDial) repaintAutonomyDial(); } catch (_) {} };
-  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState };
+  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { visibleTerminalRect, clampTerminalSize };
