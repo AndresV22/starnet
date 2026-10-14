@@ -132,6 +132,7 @@ A.eq(titleFor({ id: 's1', title: 'Fix the login bug' }).text, 'COMMS · Fix the 
 A.eq(titleFor({ id: 's2' }).text, 'COMMS · New session', 'P26: an untitled session reads New session (Workstreams.titleOf)');
 A.eq(titleFor({ id: 'g1', agentId: 'agent', conversationMode: 'group' }, { members: ['agent', 'cy', 'a3', 'a4', 'a5'] }).text, 'COMMS · ULTRON, CYPHER +3',
   'P26: an untitled group follows the rail grammar (lead first, +N), never a GROUP chip');
+A.eq(titleFor({ id: 'g3', title: 'Group chat', agentId: 'agent', conversationMode: 'group' }, { members: ['agent', 'cy'] }).text, 'COMMS · ULTRON, CYPHER', 'D16: the server placeholder title "Group chat" reads as untitled: the members name it');
 A.eq(titleFor({ id: 'g2', title: 'Launch plan', agentId: 'agent', conversationMode: 'group' }, { members: ['agent', 'cy'] }).text, 'COMMS · Launch plan', 'P26: a titled group keeps its title');
 A.eq(titleFor({ id: 's1', title: 'Fix it' }, { project: true }).text, 'COMMS', 'P26: a shown project home owns the title (the writer steps aside)');
 A.eq(titleFor({ id: 's1', title: 'Fix it' }, { hudActivity: true }).text, 'COMMS', 'P26: the HUD ▮ ACTIVITY view owns the title');
