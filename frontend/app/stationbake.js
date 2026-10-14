@@ -755,10 +755,29 @@ const StationBake = (() => {
      whole-station bake, so ~3.1x on a 1320px floor, but the 6x cap on every 384px BUILD MODE chunk: a chunk painted
      ~3.7x the plate pixels the live world shows for the same floor (and 4x the GPU memory), and BUILD MODE looked
      sharper after an edit than before it. Every bake of a station now paints at the station's own density, quantised
-     to 1/128 so a chunk edge (CHUNK_PX * k/128 = 3k plate pixels) always lands on whole plate pixels — which is what
-     lets a chunk be CUT from the whole-station plate instead of re-baked (see slicedChunks). */
+     to 1/16 so a chunk edge (CHUNK_PX * k/16 = 24k plate pixels) always lands on whole plate pixels.
+     A CHUNK AND THE WHOLE STATION SHARE ONE PLATE GRID (2026-10-14, the busy-station walk: 0.8-1.1 M plate pixels of the
+     kept BUILD MODE bake disagreed with a fresh one, worst Δ255, all on the hull skirts). Below 6x a plate pixel is not a
+     whole number of bake pixels, so every dense scratch layer the bake folds into the plate must start and end on that
+     grid too (plateStep) or it is resampled by a fraction that depends on the canvas it was cut for. The density is
+     quantised to 1/16, not finer, so that grid step stays small (at most 16 bake px of scratch overshoot). */
   const fixtureOpts = () => ({ wallUp: WALL.up, corUp: WALL.corUp, infillFixtures: projectionPresentation });
-  const detailRef = () => ({ scale: Math.floor(Math.min(6, 4096 / Math.max(W, H, 1)) * 128) / 128 });
+  const plateDensity = (w, h) => Math.floor(Math.min(6, 4096 / Math.max(w, h, 1)) * 16) / 16;
+  const detailRef = () => ({ scale: plateDensity(W, H) });
+  // the density a bake of a w x h floor paints its dense plate at, or 0 when it paints none (classic textures, a headless
+  // test, or below the 1.5x detailContext refuses). A chunk painted at another density is not this floor's chunk.
+  const paintedDensity = (w, h) => {
+    if (typeof IndustrialTextures === 'undefined' || !IndustrialTextures.enabled || !IndustrialTextures.enabled()) return 0;
+    const s = plateDensity(w, h);
+    return s < 1.5 ? 0 : s;
+  };
+  // the dense plate's grid step in bake px: the smallest q with q * density a whole number of plate pixels (1 at 6x or
+  // with no plate, at most 16)
+  const plateStep = () => {
+    const s = paintedDensity(W, H);
+    let q = 1; while (s && !Number.isInteger(q * s) && q < 16) q++;
+    return q;
+  };
   const rectCulled = r => !!cullBox && ((r.x2 + 1) * T < cullBox[0] || r.x1 * T > cullBox[2] || (r.y2 + 1) * T < cullBox[1] || r.y1 * T > cullBox[3]);
   const tileCulled = (tx, ty) => !!cullBox && ((tx + 1) * T < cullBox[0] || tx * T > cullBox[2] || (ty + 1) * T < cullBox[1] || ty * T > cullBox[3]);
   const h2 = (x, y, s) => U.hash(x + ',' + y + ',' + (s || ''));
@@ -4351,6 +4370,18 @@ const StationBake = (() => {
       ctx.globalCompositeOperation = 'source-over';
     };
 
+    /* ON THE PLATE GRID (2026-10-14). These scratch rects are local to THIS canvas (a chunk's ownership raster is clipped to
+       the chunk), so the same skirt gets a different scratch origin and size in a chunk bake than in a whole-station bake.
+       Below 6x that moved the scratch plate's pixel grid against the base plate's by a fraction and stretched it by
+       ceil(w * s) / (w * s) when it was folded back in — the hull skirts came out resampled differently in every chunk
+       (Δ255 against a whole-station bake on a 1464px floor). Snapping each scratch rect outward to the plate grid (its top
+       measured from the base canvas row, M rows above this canvas) makes every fold a 1:1 copy at whole plate pixels; the
+       few extra margin pixels are transparent and masked out exactly as before. */
+    const step = plateStep();
+    const onGrid = bd => {
+      const x = Math.floor(bd.x / step) * step, y = M + Math.floor((bd.y - M) / step) * step;
+      return { x, y, right: x + Math.ceil((bd.right - x) / step) * step, bottom: y + Math.ceil((bd.bottom - y) / step) * step };
+    };
     list.forEach((grp, gi) => {
       if (visibleGroups && !visibleGroups.has(gi)) return;
       const pal = hullPal(grp.z);
@@ -4365,7 +4396,7 @@ const StationBake = (() => {
       };
       // Dense plates only need the extent surviving the ownership mask. Keep
       // painter coordinates chunk-relative so textures and seams do not move.
-      const bounds = own ? groupBounds[gi] : { x: 0, y: 0, right: CW, bottom: CH2 };
+      const bounds = onGrid(own ? groupBounds[gi] : { x: 0, y: 0, right: CW, bottom: CH2 });
       const { cv: f, ctx: fg } = shellLayer(bounds);
       const stamp = (dy, c) => {
         tg.globalCompositeOperation = 'source-over';
@@ -4391,7 +4422,7 @@ const StationBake = (() => {
         if (recipe.veins && own && tops) {
           for (let i = 0; i < rects.length; i++) {
             if (groupOfRect[i] !== gi || !visibleRects[i]) continue;
-            const rb = rectBounds[i];
+            const rb = onGrid(rectBounds[i]);
             const { cv: one, ctx: og } = shellLayer(rb);
             og.imageSmoothingEnabled = false;
             // world-coord keying: the canvas' top-left is world (VX, VY - M), so a recipe adding
@@ -5267,17 +5298,32 @@ const StationBake = (() => {
     return result;
   }
 
-  function bakeViewport(geo, viewport) {
+  // `chunk`: a BUILD MODE chunk keeps only its canvases and lists (bakeChunk) — the nav lights, interior clip path and door
+  // occluders are whole-station parts (stitchWhole builds them from the stitched pixels), so a chunk skips their readbacks
+  function bakeViewport(geo, viewport, chunk) {
     if (!setBakeState(geo, viewport)) return blankBake(geo);
     const baseCv = buildBase();
     const { lightCv, interiorCv, flickers, lamps } = buildLightMap();
-    const navLights = hullNavLights(baseCv, interiorCv), interiorPath = interiorLightPath(interiorCv);
-    const doorOccluders = buildDoorOccluders(baseCv);
+    const navLights = chunk ? [] : hullNavLights(baseCv, interiorCv), interiorPath = chunk ? null : interiorLightPath(interiorCv);
+    const doorOccluders = chunk ? [] : buildDoorOccluders(baseCv);
     return { baseCv, lightCv, interiorCv, interiorPath, navLights, doorOccluders, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, wallFixtures,
       viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H }, doorRecords: doorOcclusion, glassRects: viewportRects };
   }
 
+  /* THE WHOLE STATION IS ITS CHUNKS, STITCHED (2026-10-14, the busy-station walk). BUILD MODE's first edit cuts the chunks
+     it does not re-bake from the live world's whole-station bake (slicedChunks), and every later edit compares — and
+     composes — them with freshly baked chunks. A whole-station canvas is not a chunk canvas: the same art drawn at another
+     canvas size and offset rounds a level differently here and there, a chunk's rim differs where a pass reads past its
+     edge, and on a 1464px floor the cut chunks disagreed with fresh ones by ~6k pixels (0.8-1.1 M before the plate-grid
+     fix above). So a station larger than one chunk is baked AS its chunks and stitched (stitchWhole): the world's bake, the
+     chunks BUILD MODE cuts from it, the ones it re-bakes and the floor it hands back on SAVE & EXIT are one set of pixels by
+     construction. A one-chunk station, or a set stitchWhole refuses, bakes whole as before. */
   function bake(geo) {
+    const grid = chunkGrid(geo);
+    if (grid.cols * grid.rows > 1) {
+      const whole = stitchWhole(geo, bakeIncremental(geo, null, null));
+      if (whole) return whole;
+    }
     return bakeViewport(geo, null);
   }
 
@@ -5364,7 +5410,7 @@ const StationBake = (() => {
   }
   function bakeChunk(geo, cx, cy, usedAt) {
     const viewport = chunkViewport(geo, cx, cy);
-    const baked = bakeViewport(geo, viewport);
+    const baked = bakeViewport(geo, viewport, true);
     return { key: chunkKey(cx, cy), cx, cy, x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h,
       baseCv: baked.baseCv, lightCv: baked.lightCv, interiorCv: baked.interiorCv,
       flickers: baked.flickers, lamps: baked.lamps || [], wallFixtures: baked.wallFixtures || [], usedAt: usedAt || 0,
@@ -5398,9 +5444,15 @@ const StationBake = (() => {
      the new frame are kept; an edge chunk the new size reshapes is dropped (a visible one re-bakes below). An origin
      move still re-bakes everything: the bake hashes some marks by local coordinates, so a shifted chunk would not be
      pixel-identical to a fresh one. */
+  /* ...AND THE PLATE DENSITY DID NOT MOVE EITHER (2026-10-14). The density follows the floor's larger side, so a room past
+     the east edge of a wide station (or the south edge of a tall one) changes it: every kept chunk's dense plate was painted
+     at the old density, at another size than a fresh chunk's (9 chunks on the busy-station walk). Then nothing is kept. */
+  function samePlateDensity(prev, geo) {
+    return paintedDensity(prev.W, prev.H) === paintedDensity(geo.W, geo.H);
+  }
   function keptChunks(prev, geo) {
     if (!(prev && prev.chunked && prev.chunkMap && prev.origin && prev.chunkPx === CHUNK_PX &&
-      prev.origin.tx === geo.origin.tx && prev.origin.ty === geo.origin.ty)) return null;
+      prev.origin.tx === geo.origin.tx && prev.origin.ty === geo.origin.ty && samePlateDensity(prev, geo))) return null;
     const grid = chunkGrid(geo), kept = new Map();
     for (const c of prev.chunkMap.values()) {
       if (c.cx >= grid.cols || c.cy >= grid.rows) continue;
@@ -5419,7 +5471,12 @@ const StationBake = (() => {
   function slicedChunks(prev, geo) {
     const whole = prev && prev.viewport;
     if (!(prev && !prev.chunked && prev.baseCv && prev.lightCv && prev.origin && whole && whole.x === 0 && whole.y === 0 &&
-      whole.w === prev.W && whole.h === prev.H && prev.origin.tx === geo.origin.tx && prev.origin.ty === geo.origin.ty)) return null;
+      whole.w === prev.W && whole.h === prev.H && prev.origin.tx === geo.origin.tx && prev.origin.ty === geo.origin.ty &&
+      samePlateDensity(prev, geo))) return null;
+    // only a bake made of chunks cuts back into them exactly (bake(): THE WHOLE STATION IS ITS CHUNKS, STITCHED); a
+    // whole-canvas bake of a larger floor is not one, and its chunks bake instead
+    const prevGrid = chunkGrid(prev);
+    if (!prev.stitched && prevGrid.cols * prevGrid.rows > 1) return null;
     const grid = chunkGrid(geo), old = { W: prev.W, H: prev.H }, out = new Map();
     const cut = (cv, v) => {
       if (!cv) return null;

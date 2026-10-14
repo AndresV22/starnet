@@ -109,6 +109,7 @@ function fakeCtx(canvas) {
     },
     fillText(s, x, y) { writeRect(x, y - 7, Math.max(1, String(s || '').length * 4), 7, fillValue()); },
     measureText(s) { return { width: String(s || '').length * 7 }; },
+    getTransform() { return { a: 1, b: 0, c: 0, d: 1, e: state.tx, f: state.ty }; },
     createRadialGradient: fakeGradient
   };
 }
@@ -539,6 +540,61 @@ global.IndustrialTextures.isRemaster = () => false;
 const classicDoors = StationBake.bake(doorGeo).doorOccluders;
 const doorGeometry = d => ({ x: d.x, y: d.y, w: d.w, h: d.h, sortY: d.sortY });
 A.eq(remasterDoors.map(doorGeometry), classicDoors.map(doorGeometry), 'remaster preserves every door occluder footprint and depth anchor');
+
+/* ONE PLATE GRID, ONE SET OF PIXELS (2026-10-14, the busy-station walk: BUILD MODE's kept bake disagreed with a fresh one by
+   0.8-1.1 M dense-plate pixels after a rename or a room past the south/east edge, and a room past the east edge left 9 chunks
+   at the wrong plate size). With the industrial plate on, a floor wider than 682px paints at a fractional density. */
+function gridGeo(COLS, ROWS, rooms) {
+  const TILE = 12, zoneGrid = new Array(COLS * ROWS).fill(null), idx = (x, y) => y * COLS + x, zones = {};
+  for (const r of rooms) { zones[r.z] = r; for (let y = r.y1; y <= r.y2; y++) for (let x = r.x1; x <= r.x2; x++) zoneGrid[idx(x, y)] = r.z; }
+  return { TILE, COLS, ROWS, W: COLS * TILE, H: ROWS * TILE, origin: { tx: 0, ty: 0 }, allRects: rooms.slice(), zones,
+    ROOM_IDS: rooms.map(r => r.z), windows: [], doorDefs: [], zoneGrid, idx, chamfers: [], isCorridor: () => false,
+    canStep: (x1, y1, x2, y2) => zoneGrid[idx(x1, y1)] === zoneGrid[idx(x2, y2)],
+    baseColorOf: () => '#30343a', nameOf: z => z.toUpperCase(), kindOf: () => 'hab', FLOOR_STYLES: { hull: { base: '#30343a' } } };
+}
+const gridRooms = [{ z: 'a', x1: 2, y1: 2, x2: 30, y2: 14 }, { z: 'b', x1: 40, y1: 4, x2: 70, y2: 20 }, { z: 'c', x1: 6, y1: 24, x2: 36, y2: 34 }];
+{
+  // every dense scratch layer the bake folds back into a plate lands on that plate's pixel grid, 1:1 — its size and its offset
+  // in the canvas it folds into are whole plate pixels (a fractional one resamples the hull skirts differently per canvas)
+  const plated = new Set(), folds = [], dc = global.IndustrialTextures.detailContext;
+  global.IndustrialTextures.detailContext = (ctx, ref) => {
+    const s = ref && ref.scale;
+    plated.add(ctx.canvas);
+    return new Proxy(ctx, {
+      get(target, key) {
+        const v = target[key];
+        if (key === 'drawImage') return (img, x, y, ...rest) => {
+          if (plated.has(img) && s) { const m = target.getTransform(); folds.push({ s, w: img.width, h: img.height, x: x + m.e, y: y + m.f }); }
+          return v.apply(target, [img, x, y, ...rest]);
+        };
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+      set(target, key, value) { target[key] = value; return true; }
+    });
+  };
+  StationBake.bakeIncremental(gridGeo(84, 40, gridRooms), null, null);
+  global.IndustrialTextures.detailContext = dc;
+  const whole = n => Math.abs(n - Math.round(n)) < 1e-9;
+  A.ok(folds.length > 0 && folds.every(f => f.s === 4.0625), 'a 1008px floor paints its plate at 4.0625x and folds hull layers into it (' + folds.length + ')');
+  const off = folds.filter(f => !whole(f.w * f.s) || !whole(f.h * f.s) || !whole(f.x * f.s) || !whole(f.y * f.s));
+  A.eq(off.length, 0, 'every hull scratch layer folds into the plate 1:1 on its pixel grid' + (off.length ? ' (first off-grid: ' + JSON.stringify(off[0]) + ')' : ''));
+}
+{
+  const narrow = gridGeo(75, 40, gridRooms), wide = gridGeo(84, 40, gridRooms), tall = gridGeo(75, 50, gridRooms);
+  const before = StationBake.bakeIncremental(narrow, null, null);
+  const east = StationBake.bakeIncremental(wide, before, [{ x1: 76, y1: 2, x2: 82, y2: 8 }]);
+  A.eq([east.stats.fullReset, east.stats.reusedChunks], [true, 0], 'a floor that grew east past a plate density step keeps no chunk painted at the old density');
+  const south = StationBake.bakeIncremental(tall, before, [{ x1: 2, y1: 42, x2: 9, y2: 47 }]);
+  A.ok(!south.stats.fullReset && south.stats.reusedChunks > 0, '…while one that grew without moving the density keeps its unreached chunks');
+  const stitched = StationBake.bake(narrow);
+  A.ok(stitched.stitched, 'a station wider than one chunk bakes AS its chunks, stitched — the world, the cut chunks and the re-baked ones are one set of pixels');
+  A.ok(!StationBake.bake(textureGeo('bulkhead', '#476a91')).stitched, '…a one-chunk station bakes whole');
+  const cut = StationBake.bakeIncremental(narrow, stitched, [{ x1: 10, y1: 5, x2: 12, y2: 6 }]);
+  A.ok(!cut.stats.fullReset && cut.stats.reusedChunks > 0, 'BUILD MODE\'s first edit cuts its unreached chunks from that stitched bake');
+  const monolithic = Object.assign({}, stitched, { stitched: false });
+  A.eq(StationBake.bakeIncremental(narrow, monolithic, [{ x1: 10, y1: 5, x2: 12, y2: 6 }]).stats.fullReset, true,
+    '…but never from a whole-canvas bake of a larger floor, which is not made of chunk pixels');
+}
 
 delete global.IndustrialTextures;
 delete global.WorldSurface;

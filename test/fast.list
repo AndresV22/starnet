@@ -728,6 +728,7 @@ test/stationbake.materials.test.js
 test/stationbake.seam.test.js
 test/stationbake.connections.test.mjs
 test/stationbake.hull.test.js
+test/stationbake.plate-parity.test.mjs
 test/canvas-loss-recovery.test.js
 test/render-pacing.test.js
 test/static-bake-guard.test.js
