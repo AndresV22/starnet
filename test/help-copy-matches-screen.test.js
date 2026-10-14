@@ -138,6 +138,10 @@ for (const o of [undefined, { cancelSource: 'estop_by_run' }]) {
   A.ok(/Keys for Gmail, Notion and other services live in CONNECT › ABILITIES\. <button type="button" class="bb sm" data-act="to-service-keys">▸ SAVED API CONNECTIONS<\/button>/.test(ui), 'API KEYS points service keys at SAVED API CONNECTIONS with a glass key');
   A.ok(/toServiceKeys\.addEventListener\('click', \(\) => \{ sfx\('click'\); openTerm\('connectors', 'keys'\); \}\)/.test(ui), 'the key opens the connectors keys section');
   A.ok(/P\('api-connections', [^\n]*\{ term: 'connectors', section: 'keys' \}\)/.test(places), 'which is the places.js api-connections target');
+  // the public "Connect a service" guide walks the same paths the app shows (P05 review): no retired window or tab name
+  const guide = rd('website/docs/connect-a-platform.html');
+  A.ok(!/TOOLSETS &amp; CONNECTORS|&#8644; TOOLSETS|in <b>KEYS<\/b>|row in\s+KEYS|in TOOLSETS\.|MCP CONNECTORS|PICK A PLATFORM/.test(guide), 'the Connect a service guide names no retired window or tab (TOOLSETS & CONNECTORS, KEYS, TOOLSETS, PICK A PLATFORM)');
+  A.ok(/CONNECT &rsaquo; ABILITIES &rarr; SAVED API CONNECTIONS &rarr; ADD A KEY/.test(guide) && /\(dock: <b>&#8644; CONNECT<\/b>\)/.test(guide), 'its paths read CONNECT › ABILITIES › SAVED API CONNECTIONS, from the ⇄ CONNECT dock button');
 }
 
 A.report('help-copy-matches-screen.test');
