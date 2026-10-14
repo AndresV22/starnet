@@ -27,10 +27,10 @@ const keyRule = (ICSS.match(/#crew \.crew-dossier \{[^}]*\}/) || [''])[0];
 A.ok(keyRule && !/opacity:\s*0/.test(keyRule), 'P20: the DOSSIER key is visible without hover (no opacity:0 base)');
 A.ok(!/:is\(:hover,:focus-within,\.filtering\) \.crew-dossier \{ opacity: 1; \}/.test(ICSS), 'P20: no hover-only reveal rule is left');
 A.ok(/font: 14px\/1 'VT323'/.test(keyRule), 'P20: the key wears key metrics (14px), not the 12px faint chip');
-// the base rows pad the text column for the bottom-right key; the glass rows seat the key at the foot of the portrait well
-// (left, off the text column — the 10-14 live-walk crew-card fit), so no row's step text sits under it
+// the base rows pad the text column for the bottom-right key; the glass rows give the key its own reserved line under the
+// status (off the portrait well, where it covered the legs — P31 polish), so no row's step text sits under it
 A.ok(/#crew \.crew-row:has\(\.crew-dossier\) :is\(\.crew-status, \.crew-step\) \{ padding-right: 66px; \}/.test(ICSS)
-  && /#crew \.crew-dossier \{[^}]*left: 9px; right: auto;/.test(CG)
+  && /#crew \.crew-dossier \{[^}]*left: 70px; right: auto;/.test(CG) && /\.crew-row:has\(\.crew-dossier\) \.crew-main \{ padding-bottom: 25px; \}/.test(CG)
   && !/:is\(:hover, :focus-within, \.filtering\):has\(\.crew-dossier\) \.crew-step/.test(CG),
   'P20: EVERY row keeps its step text clear of the key (not just a hovered/filtering row)');
 const MAN = require('../sidecar/manual.js').starnetManual();
