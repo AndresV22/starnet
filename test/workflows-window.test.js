@@ -287,5 +287,30 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.eq(WW._lineWord({ line: key, jobId: 'j1', name: 'Research' }), 'LINE DIGEST', 'a renamed line reads its new floor name, never the name the job recorded');
   }
 
+  /* ---------- org P15 (2026-10-14): the line page says how it starts, and opens the one place starts are made ---------- */
+  {
+    const l0 = WW._floor().lines.find(x => x.key === line.key);
+    const entry = WL.entryDocksOf(l0.flow)[0];
+    A.ok(!!entry, 'fixture: the line has an entry step');
+    A.eq(WW._startsText(l0), null, 'no start facts read yet: nothing claimed (the line says checking…)');
+    const job = { id: 'r1', name: 'Morning', agentId: 'nova', dockId: entry, runsLine: true, scheduleDisplay: 'every 6h', enabled: true };
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: false, jobs: [] }, lt: { triggers: [] }, chans: {} });
+    A.eq(WW._startsText(l0), 'by hand only', 'nothing automatic: by hand only');
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: false, jobs: [job] }, chans: {},
+      lt: { triggers: [{ id: 't1', lineId: l0.key, kind: 'folder', enabled: true, blockedBy: null, config: { path: 'C:/in' } }] } });
+    A.eq(WW._startsText(l0), 'by hand · every 6h · when a file lands in C:/in', 'a schedule and a folder trigger, composed by WorkflowLine.lineStarts');
+    ctx.World.startFacts = () => ({ cron: { enabled: false, halted: false, jobs: [job] }, lt: { triggers: [] }, chans: {} });
+    A.eq(WW._startsText(l0), 'by hand · every 6h (scheduling is off)', 'a schedule saved while scheduling is off is said as off, never as a start');
+    // org P16's RUN BY reads the same entry the INBOX form's schedule fires at
+    const sl = WW.startLines().find(x => x.key === l0.key);
+    A.ok(sl && sl.dockId === entry && sl.agentId === 'nova', 'startLines: the line\'s first routed step and its agent (SCHEDULES › RUN BY)');
+    // the page: STARTS sits between Send it a job and Last jobs; its key opens EDIT WORKFLOW at 'Or start it automatically'
+    A.ok(/\+ '<\/section>' \+ startsHTML\(l\) \+ '<section class="wfw-sec"><h3>Last jobs<\/h3>'/.test(src), 'STARTS: sits between the job box and LAST JOBS');
+    A.ok(/data-act="automatic" data-tip="[^"]+">⊕ MAKE IT AUTOMATIC<\/button>/.test(src) && /B\(\)\.editLine\(l\.intakeId\)\)\) return;\s*\n\s*if \(typeof WorkflowPanel !== 'undefined' && WorkflowPanel\.revealStarts\)/.test(src), '⊕ MAKE IT AUTOMATIC opens the editor on the INBOX and reveals its starts');
+    const panelSrc = rd('frontend/app/workflowpanel.js');
+    A.ok(/<section class="wf-sec" id="wf-starts"><h3>Or start it automatically<\/h3>/.test(panelSrc) && /selectFromFloor, revealStarts, showTest,/.test(panelSrc), 'the panel names that section and exports revealStarts');
+    A.ok(src.includes('scheduled and channel runs are filed in DELIVERABLES'), 'an empty LAST JOBS says where scheduled and channel runs are filed');
+  }
+
   A.report('workflows-window.test');
 })().catch(e => { console.error(e); process.exit(1); });

@@ -108,6 +108,11 @@ const WorkflowsWindow = (() => {
     }, () => { S.jobsErr = true; schedule(); });
   }
   const jobsOf = key => (S.jobs || []).filter(j => j.line === key);
+  // the start facts (org P15): World's feed poll — the STARTS line repaints once the server has answered
+  function pollStarts() {
+    if (typeof World === 'undefined' || !World.pollFeed) return;
+    try { Promise.resolve(World.pollFeed()).then(() => { if (S.view === 'line') schedule(); }, () => {}); } catch (e) { /* the line keeps saying checking… */ }
+  }
   /* the job the station's ONE sample slot is riding (this window's SEND / the panel's RUN ONE REAL JOB). A job another line HANDED
      ON (SEND TO, `from`) is not it: it holds no sample lock, the sample STOP cannot stop it, and it never blocks sending (10-11) */
   const runningJob = () => (S.jobs || []).find(j => j.status === 'running' && !j.from) || null;
@@ -604,7 +609,8 @@ const WorkflowsWindow = (() => {
   function jobRows(l) {
     const rows = jobsOf(l.key).slice(0, 8);
     if (S.jobsErr && !rows.length) return '<p class="wfw-note">The job history could not be read — is the station running?</p>';
-    if (!rows.length) return '<p class="wfw-note">No jobs yet. The first one will show here.</p>';
+    // (org P15) a scheduled or channel run is not a job record yet: say where it is filed, never an empty "nothing ran"
+    if (!rows.length) return '<p class="wfw-note">No jobs yet. Jobs you send show here; scheduled and channel runs are filed in DELIVERABLES.</p>';
     const mark = s => ({ delivered: '<span class="wfw-st ok">✓ DONE</span>', running: '<span class="wfw-st run">RUNNING</span>', stopped: '<span class="wfw-st">STOPPED</span>',
       problem: '<span class="wfw-st warn">⚠ PROBLEM</span>', failed: '<span class="wfw-st warn">DIDN’T RUN</span>', interrupted: '<span class="wfw-st warn">INTERRUPTED</span>' })[s] || '';
     // a handed-on job reads as FROM LINE A · the job (its text is the job as it first arrived); a standing refusal says ×N
@@ -622,7 +628,28 @@ const WorkflowsWindow = (() => {
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="send"' + (busy ? ' disabled' : '') + '>▶ SEND IT A JOB</button>'
       + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, and to the OUTBOX.' + ((l.sendNames || []).length ? ' Then it ' + (l.sendsAll ? 'rides on' : 'can ride on') + ' to ' + esc(l.sendNames.join(' / ')) + ' — its crew, at its cost.' : '')) + '</span></div>'
       + (S.msg ? '<p class="' + (S.msg.bad ? 'wfw-bad' : 'wfw-okline') + '">' + (S.msg.bad ? '✕ ' : '') + esc(S.msg.text) + '</p>' : '')
-      + '</section><section class="wfw-sec"><h3>Last jobs</h3>' + jobRows(l) + '</section>';
+      + '</section>' + startsHTML(l) + '<section class="wfw-sec"><h3>Last jobs</h3>' + jobRows(l) + '</section>';
+  }
+  /* WHAT STARTS IT (org P15, 2026-10-14): one read-only line — WorkflowLine.lineStarts over the server answers World's feed poll
+     read (GET /api/cron, /api/routing/triggers, /api/channels/status): the same composition the Workflow panel, BUILD MODE's
+     finish card and the lead's station.layout read, so the four never disagree. A schedule saved while scheduling is off is said
+     as off, never as a start. ⊕ MAKE IT AUTOMATIC opens the ONE place starts are made (EDIT WORKFLOW › INBOX › Or start it
+     automatically) — never a second trigger editor here; working folder and LINE BUDGET stay there too. */
+  function startsText(l) {
+    const Wl = W(), facts = (typeof World !== 'undefined' && World.startFacts) ? World.startFacts() : null;
+    if (!Wl || !Wl.lineStarts || !l.flow || !facts) return null;
+    const human = d => { const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } })();
+      return (typeof CronHuman !== 'undefined' && CronHuman.describeDisplay) ? CronHuman.describeDisplay(d, { tz }) : String(d == null ? '' : d); };
+    let st;
+    try { st = Wl.lineStarts(l.flow, { lt: facts.lt, lineKey: l.key, cron: facts.cron, chans: facts.chans, agents: roster(), human }); } catch (e) { return null; }
+    const auto = [].concat(st.schedules || [], (st.channels || []).map(c => 'when a ' + c + ' message arrives'), st.events || []);
+    const off = (st.offSchedules || []).map(s => s + ' (scheduling is off)');
+    return auto.length || off.length ? ['by hand'].concat(auto, off).join(' · ') : 'by hand only';
+  }
+  function startsHTML(l) {
+    const t = startsText(l);
+    return '<section class="wfw-sec wfw-starts"><div class="wf-row"><span class="wfw-k">STARTS:</span><span class="wfw-startsv">' + esc(t == null ? 'checking…' : t) + '</span>'
+      + '<button type="button" class="bb sm" data-act="automatic" data-tip="Opens EDIT WORKFLOW at its INBOX’s ‘Or start it automatically’: a schedule, a channel message, a folder or a webhook.">⊕ MAKE IT AUTOMATIC</button></div></section>';
   }
   function runningHTML(l, rec) {
     const text = S.out ? S.out.text : (rec && rec.text) || '';
@@ -764,6 +791,12 @@ const WorkflowsWindow = (() => {
     on('[data-act="back"]', () => { sfx('click'); S.view = 'list'; S.job = null; S.step = null; S.msg = null; S.pick = null; paint(); });
     on('[data-act="more"]', () => { sfx('click'); if (B() && B().openWorkflows) B().openWorkflows(); });
     on('[data-act="edit"]', () => { const l = line(); if (!l) return; sfx('click'); if (B() && B().editLine) B().editLine(l.intakeId); });
+    // ⊕ MAKE IT AUTOMATIC (org P15): the full editor on this line's INBOX, scrolled to 'Or start it automatically'
+    on('[data-act="automatic"]', () => {
+      const l = line(); if (!l) return; sfx('click');
+      if (!(B() && B().editLine && B().editLine(l.intakeId))) return;
+      if (typeof WorkflowPanel !== 'undefined' && WorkflowPanel.revealStarts) setTimeout(() => { try { WorkflowPanel.revealStarts(); } catch (e) { /* the editor is open on the INBOX either way */ } }, 0);
+    });
     on('[data-starter]', n => pickStarter(n.dataset.starter));
     on('[data-act="draft"]', () => draftIt(String(S.draft.describe || '').trim()));
     on('[data-pick-agent]', n => { if (!S.pick) return; S.pick.agents[+n.dataset.pickAgent] = n.dataset.aid; sfx('click'); schedule(); });
@@ -796,6 +829,7 @@ const WorkflowsWindow = (() => {
   function openLine(key) {
     S.view = 'line'; S.line = key; S.job = null; S.fix = null; S.msg = null; S.step = null;
     paint();
+    pollStarts();
     const sc = body && (body.closest('.term-body') || body); if (sc) sc.scrollTop = 0;
   }
   function stopTimers() {
@@ -820,11 +854,13 @@ const WorkflowsWindow = (() => {
     watchedStation = null; attachFloor();
     paint();
     loadJobs();
+    if (S.view === 'line') pollStarts();
   }
   function open(view, from) {
     const ui = UI(); if (!ui || !ui.openTerm) return;
     if (view) Object.assign(S, view);
     if (alive()) paint();
+    if (S.view === 'line') pollStarts();
     // from another work window (the OUTBOX): that window steps aside and this one keeps a ‹ back to it (StationUI.navigateWork)
     const h = H();
     if (from && h && h.navigateWork) h.navigateWork(from, 'workflows'); else ui.openTerm('workflows');
@@ -897,6 +933,6 @@ const WorkflowsWindow = (() => {
     });
   }
   return { open, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob, startLines,
-    _state: S, _floor: floor, _lineWord: lineWord, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, _resultHTML: resultHTML, EX_HEAD };   // (the _ seams are test/eval reads)
+    _state: S, _floor: floor, _lineWord: lineWord, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, _resultHTML: resultHTML, _startsText: startsText, EX_HEAD };   // (the _ seams are test/eval reads)
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowsWindow;

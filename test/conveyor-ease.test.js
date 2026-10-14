@@ -28,8 +28,8 @@ A.ok(/'<p class="wf-help wf-adds">' \+ addsOnTopHTML\(p\) \+ '<\/p>'/.test(panel
 
 /* ---------- SEND IT A JOB ---------- */
 const trig = at(panel, '  function paintTrigger(body, f, p) {', '  // LINE BUDGET: one save');
-A.ok(/const sendHTML = '<section class="wf-sec wf-send"><h3><span class="n">INBOX<\/span>Send it a job<\/h3>'/.test(trig) && /body\.innerHTML = sendHTML \+ '<section class="wf-sec"><h3>Or start it automatically<\/h3>'/.test(trig),
-  'the INBOX card opens on SEND IT A JOB; the automatic starts follow it');
+A.ok(/const sendHTML = '<section class="wf-sec wf-send"><h3><span class="n">INBOX<\/span>Send it a job<\/h3>'/.test(trig) && /body\.innerHTML = sendHTML \+ '<section class="wf-sec" id="wf-starts"><h3>Or start it automatically<\/h3>'/.test(trig),
+  'the INBOX card opens on SEND IT A JOB; the automatic starts follow it (#wf-starts: WORKFLOWS\' ⊕ MAKE IT AUTOMATIC lands there, org P15)');
 const sendDyn = at(panel, '  function sendDynHTML(f) {', '  function jobResultHTML(');
 A.ok(/'▶ SEND IT DOWN THE LINE'/.test(sendDyn) && /H\.runSample\(cc, \{ text: t, onUpdate: jobUpdate \}\);/.test(sendDyn) && /if \(!t\) \{ refuse\('write the job first/.test(sendDyn),   // (refuse: said in the panel under the key — 2026-10-09)
   '…the same real job as RUN ONE REAL JOB, with the typed text (an empty job is refused with the reason)');

@@ -225,6 +225,22 @@ const WorkflowPanel = (() => {
   function paint(force) {
     if (!el || !H) return;
     parked(() => paintAll(force));
+    if (S.revealUntil && Date.now() < S.revealUntil) scrollToStarts();
+  }
+  /* ⊕ MAKE IT AUTOMATIC (org P15, 2026-10-14): WORKFLOWS' door lands on this INBOX's 'Or start it automatically' — the one
+     place a line's starts are made (no second trigger editor). It stays in view through the first repaints the open sets off
+     (server facts, TODAY) for a moment, then the Commander's own scrolling owns the view again. */
+  function scrollToStarts() {
+    const sc = $('#wf-scroll'), sec = $('#wf-starts');
+    if (!sc || !sec) return false;
+    // rects are VISUAL px, scrollTop is ZOOMED px (the uiZoom law): divide once
+    const z = (typeof U !== 'undefined' && U.uiZoom) ? (U.uiZoom() || 1) : 1;
+    sc.scrollTop += (sec.getBoundingClientRect().top - sc.getBoundingClientRect().top) / z;
+    return true;
+  }
+  function revealStarts() {
+    S.revealUntil = Date.now() + 1500;
+    return scrollToStarts();
   }
   function paintAll(force) {
     const f = flow();
@@ -1069,7 +1085,7 @@ const WorkflowPanel = (() => {
       + '<textarea id="wf-send-in" class="refit-input refit-brief" rows="3" maxlength="2000" aria-label="The job to send down this line" placeholder="What should the line work on? e.g. Find this week’s most useful research on sleep and memory.">'
       + esc(S.testJob[S.lineKey] || (routines.find(r => r.startsLine) || {}).prompt || '') + '</textarea>'
       + '<div data-live="send">' + sendDynHTML(f) + '</div></section>';
-    body.innerHTML = sendHTML + '<section class="wf-sec"><h3>Or start it automatically</h3>'
+    body.innerHTML = sendHTML + '<section class="wf-sec" id="wf-starts"><h3>Or start it automatically</h3>'
       + '<p class="wf-help">Any of these runs the <b>whole line</b> by itself. A direct COMMS message only runs the agent you message.</p>'
       + startHead('A schedule', !S.cron ? 'reading…' : routines.length ? '' : 'none yet', 'rt',
         '<button type="button" class="bb sm' + (S.trgOpen ? ' active' : '') + '" id="trg-new" aria-expanded="' + S.trgOpen + '" aria-controls="trg-form">⊕ ADD A SCHEDULE</button><button type="button" class="bb sm" id="trg-auto">MANAGE</button>')
@@ -2327,7 +2343,7 @@ const WorkflowPanel = (() => {
     });
   }
 
-  return { open, close, isOpen, refresh, select, selectFromFloor, showTest, _state: S, _flow: () => flow() };
+  return { open, close, isOpen, refresh, select, selectFromFloor, revealStarts, showTest, _state: S, _flow: () => flow() };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowPanel;
