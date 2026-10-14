@@ -400,6 +400,29 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
       dispatch: async () => ({ ok: false, isError: true, content: 'ERROR: invalid tool arguments: "sources" must be an array' }) });
     const tr = hid.messages.find(m => m.role === 'tool');
     A.ok(/sources" must be an array \(This tool is invisible to the Commander: make the corrected call with no text before it, and never mention this error or its fix\.\)$/.test(String(tr && tr.content)), 'a hidden tool error carries the invisible-step note: ' + JSON.stringify(tr && tr.content));
+    // A REPAIR TURN AFTER AN INVISIBLE STEP IS NOT CHAT: after a held call (the brief gate) the model's "let me settle the brief
+    // first:" turn — whose only call is the hidden brief tool — is never streamed and never kept; a repair turn that makes a
+    // visible call streams its text whole.
+    {
+      const textTool = (t, id, name) => [{ type: 'text', delta: t }, { type: 'tool_start', index: 0, id, name }, { type: 'tool_args', index: 0, chunk: '{}' }, { type: 'done', finishReason: 'tool_calls' }];
+      const tokens = [];
+      const emitTok = (name, p) => { if (name === 'agent.token') tokens.push(p.delta); };
+      let n = 0;
+      const prov = scripted([textTool('Handing it over.', 'd1', 'thing'), textTool('Got it — let me settle the brief first:', 'b1', 'brief_proceed'), textTool('Now dispatching:', 'd2', 'thing'), textTurn('Dispatched.')]);
+      const res = await run(prov, { emit: emitTok, tools: [{ name: 'brief_proceed', description: 'b', schema: { type: 'object' } }].concat(TOOLS), hiddenTools: ['brief_proceed'],
+        dispatch: async c => (c.name === 'thing' && ++n === 1)
+          ? { ok: false, isError: true, content: 'Task Brief gate: nothing ran.', summary: 'not run yet — waiting on the task brief', quietRepair: true }
+          : { ok: true, isError: false, content: 'ok', summary: 'ok' } });
+      const streamed = tokens.join('');
+      A.ok(!/settle the brief/.test(streamed), 'the repair narration over a hidden-only turn never streams: ' + JSON.stringify(streamed));
+      A.ok(/Handing it over\./.test(streamed) && /Now dispatching:/.test(streamed) && /Dispatched\./.test(streamed), 'every other turn still streams');
+      A.ok(!res.messages.some(m => m.role === 'assistant' && /settle the brief/.test(String(m.content || ''))), 'and the narration is not kept in the transcript either');
+      const tokens2 = [];
+      let m2 = 0;
+      await run(scripted([textTool('Handing it over.', 'd1', 'thing'), textTool('Retrying the handoff now:', 'd2', 'thing'), textTurn('Done.')]), { emit: (name, p) => { if (name === 'agent.token') tokens2.push(p.delta); },
+        dispatch: async () => (++m2 === 1) ? { ok: false, isError: true, content: 'held', quietRepair: true } : { ok: true, isError: false, content: 'ok' } });
+      A.ok(/Retrying the handoff now:/.test(tokens2.join('')), 'a repair turn that makes a VISIBLE call streams its text whole');
+    }
     const vis = await run(scripted([toolTurn(9), textTurn('Done.')]), { dispatch: async () => ({ ok: false, isError: true, content: 'boom' }) });
     A.eq(String(vis.messages.find(m => m.role === 'tool').content), 'ERROR: boom', 'a VISIBLE tool error is byte-identical (its chip shows it)');
   }

@@ -333,7 +333,7 @@
   const HIDDEN_ERROR_NOTE = ' (This tool is invisible to the Commander: make the corrected call with no text before it, and never mention this error or its fix.)';
   function quietHiddenError(c, r, meta) {
     if (!r || !r.isError || !(meta && meta.hiddenTools && meta.hiddenTools.has(c.name)) || typeof r.content !== 'string') return r;
-    return Object.assign({}, r, { content: r.content + HIDDEN_ERROR_NOTE });
+    return Object.assign({}, r, { content: r.content + HIDDEN_ERROR_NOTE, quietRepair: true });
   }
   // Every call gets exactly one result (success / error / timeout / denial / cancelled skip) — never thrown.
   async function executeCalls(calls, dispatch, capCtx, emit, meta) {
@@ -367,7 +367,7 @@
         return { c, r, ms: Math.max(0, (meta.clock ? meta.clock.now() : 0) - t0) };
       }));
       for (const s of settled) {
-        results.push({ callId: s.c.id, isError: !!s.r.isError, ok: !!s.r.ok, content: s.r.content, summary: s.r.summary || (s.r.isError ? 'error' : 'ok'), control: s.r.control || null, images: s.r.images || null, parkedPath: s.r.parkedPath || null });
+        results.push({ callId: s.c.id, isError: !!s.r.isError, ok: !!s.r.ok, content: s.r.content, summary: s.r.summary || (s.r.isError ? 'error' : 'ok'), control: s.r.control || null, images: s.r.images || null, parkedPath: s.r.parkedPath || null, ...(s.r.quietRepair ? { quietRepair: true } : {}) });
         if (meta.hiddenTools && meta.hiddenTools.has(s.c.name)) continue;
         emit('agent.tool_result', {
           agentId: meta.agentId, runId: meta.runId, callId: s.c.id, ok: !!s.r.ok,
@@ -410,7 +410,7 @@
       }
       r = quietHiddenError(c, r || { ok: false, isError: true, content: 'tool returned nothing', summary: 'error' }, meta);
       const t1 = meta.clock ? meta.clock.now() : 0;
-      results.push({ callId: c.id, isError: !!r.isError, ok: !!r.ok, content: r.content, summary: r.summary || (r.isError ? 'error' : 'ok'), control: r.control || null, images: r.images || null, parkedPath: r.parkedPath || null });
+      results.push({ callId: c.id, isError: !!r.isError, ok: !!r.ok, content: r.content, summary: r.summary || (r.isError ? 'error' : 'ok'), control: r.control || null, images: r.images || null, parkedPath: r.parkedPath || null, ...(r.quietRepair ? { quietRepair: true } : {}) });
       if (r.control && r.control.final) finalControl = r.control;
       if (r.control && r.control.stopTools) stopToolsControl = r.control;
       if (!hidden) emit('agent.tool_result', {
@@ -1160,6 +1160,12 @@
        delta with a paragraph break. Only the live stream changes — every turn's durable text is untouched — and a
        length-continuation (which joins mid-sentence) never gets one. */
     let spokeSinceReset = false, turnBreakPending = false;
+    /* A REPAIR TURN AFTER AN INVISIBLE STEP IS NOT CHAT (rc walk 2026-10-14). After the Task Brief gate held a call, or a hidden
+       brief tool refused its arguments, the model's next turn narrated the fix — "Got it — let me settle the brief first:",
+       "Let me fix that—sources needs to be an array:" — over a step the Commander cannot see (the brief shows as its own
+       card). Wording the result was not enough for every model. So that one turn's text is held until the turn ends: a turn
+       whose calls are ALL hidden drops it (never streamed, never kept); any other turn streams it whole. */
+    let quietRepair = false, quietBuf = '';
 
     /* dedupeKeepFull distinguishes the two callers of the dedupe machinery. A LENGTH-CONTINUATION's previous
        partial is already in `messages`, so stripping the overlap from acc.text is correct — the parts join back
@@ -1873,7 +1879,8 @@
               // went silent for minutes and the liveness sweep (subagents.checkStalls) marked it stale.
               if (delta && dedupeAgainst == null) waiting.pause();
               acc.text += delta;
-              if (dedupeAgainst == null) {
+              if (dedupeAgainst == null && quietRepair) quietBuf += delta;   // held until this turn's calls are known
+              else if (dedupeAgainst == null) {
                 let shown = delta;
                 if (turnBreakPending && shown) { shown = '\n\n' + shown; turnBreakPending = false; }
                 if (shown) spokeSinceReset = true;
@@ -2159,6 +2166,18 @@
       let priorAssistantText = null;
       for (let mi = messages.length - 1; mi >= 0; mi--) { if (messages[mi].role === 'assistant') { priorAssistantText = String(messages[mi].content == null ? '' : messages[mi].content); break; } }
       const calls = Object.keys(acc.toolCalls).sort((a, b) => a - b).map((k, i) => parseCall(acc.toolCalls[k], i));
+      if (quietRepair) {
+        quietRepair = false;
+        const hiddenNames = o.hiddenTools || [];
+        if (calls.length > 0 && calls.every(c => hiddenNames.indexOf(c.name) >= 0)) acc.text = '';   // narration of an invisible step
+        else if (quietBuf) {
+          let shown = quietBuf;
+          if (turnBreakPending) { shown = '\n\n' + shown; turnBreakPending = false; }
+          spokeSinceReset = true;
+          emit('agent.token', { agentId, runId, delta: shown });
+        }
+        quietBuf = '';
+      }
       // TEXT TOOL-CALL MARKUP: a zero-wire-call turn whose TEXT carries tool-call markup is neither a final
       // answer nor a call to execute (echoed markup = data; see scrubTextToolCallMarkup). Strip it from the
       // kept turn; the stop branch below nudges the model to make a REAL call.
@@ -2493,6 +2512,7 @@
           }
         }
       }
+      quietRepair = results.some(r => r && r.quietRepair);   // the next turn may narrate this invisible step (see quietRepair)
       const repairNote = failedCheckRepairNote(calls, results);
       if (repairNote) messages.push({ role: 'system', content: repairNote });
       if (calls.length === 1 && results.length === 1 && results[0].ok && !results[0].isError) {
