@@ -133,7 +133,11 @@ const XpStore = (() => {
       pushTopbar();
 
       if (ra.awards.levelUp) { refreshCrewLevel(); celebrateAgent(a, ra.awards.levelTo); }
-      for (const id of ra.awards.milestones) announceMilestone(id);   // agent-scoped milestones
+      /* ONE TROPHY LINE PER STATION (rc walk 2026-10-14: "TROPHY EARNED · FIRST LIGHT" twice in one conversation and again
+         in General — every crew member's first task earned its own, and the line never says whose). Each agent's case still
+         lights silently (ra above); COMMS announces a trophy the moment the STATION first earns it. The rollup counts every
+         agent's work, so it earns each one first — once, ever. */
+      for (const id of rs.awards.milestones) announceMilestone(id);
       if (rs.awards.levelUp) celebrateStation(rs.awards.levelTo);
     }
 

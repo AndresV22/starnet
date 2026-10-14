@@ -115,6 +115,10 @@ A.eq(researcher.stats.level, 2, 'overseer events do not mutate researcher');
 A.ok(world.pulse.some(p => p.agentId === 'agent' && p.level === 2), 'overseer pulse still works when addressed');
 A.eq((XpStore.stationStats().counters || {}).tasksDone, 8, 'station rollup still includes all agents tasks');
 A.eq((XpStore.stationStats().counters || {}).positiveFeedback, 6, 'station rollup includes all agents positive feedback');
+// ONE TROPHY LINE PER STATION (rc walk 2026-10-14): the researcher's first task and the overseer's first task each lit their
+// OWN case, but COMMS said "TROPHY EARNED · FIRST LIGHT" twice (and never whose). The station earns it once; it is said once.
+A.ok(researcher.stats.milestones.includes('first_light') && overseer.stats.milestones.includes('first_light'), 'each agent\'s own trophy case still lights FIRST LIGHT');
+A.eq(broadcasts.filter(b => b.text === 'TROPHY EARNED · FIRST LIGHT').length, 1, 'FIRST LIGHT is announced once per station, not once per crew member');
 
 /* ---- S4: the boot-time TROPHY RECONCILE + honest announce copy ----
    A save written before a badge existed holds the record that earns it and none of the credit. Without the
