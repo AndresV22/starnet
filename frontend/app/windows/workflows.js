@@ -538,14 +538,16 @@ const WorkflowsWindow = (() => {
   function newHTML(f) {
     const first = !f.lines.length, pk = S.pick, dr = S.drafting;
     // the Build Library's tile: the line's miniature, its name, one small line; what it is for is its tip (the goal tile's tip quotes
-    // the Commander's own words first — the shelf's FOR YOUR GOAL tip)
+    // the Commander's own words first — the shelf's FOR YOUR GOAL tip). (org D2/D3) the goal tile leads on a row of its own above the
+    // four, and its small line is the step count like every tile and like CONVEYORS › LINES — the goal it fits is its tip, never a
+    // stat that reads as if it matched the still-empty field above
     const goal = goalStarter();
     const tiles = (goal ? [goal.id] : []).concat(STARTERS).map(id => {
       const bp = bpOf(id); if (!bp) return '';
       const roles = bayRoles(bp), art = lineArt(id), on = pk && pk.bp === id, isGoal = !!goal && goal.id === id, purpose = (words().purpose || {})[id] || '';
       const tip = (isGoal ? '“' + goal.quote + '” — ' + goal.why + '\n' : '') + (purpose ? purpose.charAt(0).toUpperCase() + purpose.slice(1) + '.' : plainName(id));
       return '<button type="button" class="wfw-tile' + (on ? ' on' : '') + (isGoal ? ' wfw-goal' : '') + '" data-starter="' + esc(id) + '" aria-pressed="' + !!on + '" data-tip="' + esc(tip) + '">'
-        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + (isGoal ? 'for your goal' : roles.length + ' step' + (roles.length === 1 ? '' : 's') + (bp.props.some(p => p.t === 'loop') ? ' · reviewed' : '')) + '</span></button>';
+        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + roles.length + ' step' + (roles.length === 1 ? '' : 's') + (bp.props.some(p => p.t === 'loop') ? ' · reviewed' : '') + '</span></button>';
     }).join('');
     let h = '<header class="wfw-head">' + (first ? '' : '<button type="button" class="bb sm" data-act="back">‹ ALL WORKFLOWS</button>')
       + '<h2 class="wfw-title">' + (first ? 'Make your first workflow' : 'New workflow') + '</h2></header>'
