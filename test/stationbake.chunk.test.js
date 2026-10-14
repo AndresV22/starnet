@@ -254,9 +254,11 @@ A.eq(drawn[0].x, 384, 'drawBase preserves chunk world offset when culling');
 
 const fullDrawn = [];
 StationBake.drawBase({ drawImage(cv, x, y) { fullDrawn.push({ cv, x, y, w: cv.width, h: cv.height }); } }, first, 0, 0);
+// every chunk is a whole CHUNK_PX square, the edge ones too (past the floor's edge it is transparent): a floor that grows
+// or shrinks there never changes a chunk's size, so it never re-bakes a chunk its rects do not reach
 A.eq(fullDrawn.map(d => [d.x, d.y, d.w, d.h]), [
-  [0, 0, 384, 384], [384, 0, 384, 384], [768, 0, 132, 384],
-  [0, 384, 384, 266], [384, 384, 384, 266], [768, 384, 132, 266]
+  [0, 0, 384, 384], [384, 0, 384, 384], [768, 0, 384, 384],
+  [0, 384, 384, 384], [384, 384, 384, 384], [768, 384, 384, 384]
 ], 'full chunk composite covers the station without gaps, overlaps, or seam offsets');
 
 canvases.length = 0;
@@ -323,21 +325,12 @@ A.eq(grownBake.stats.fullReset, false, 'a floor that grew south keeps its frame'
 A.ok(grownBake.chunkMap.get('0,0') === beforeBake.chunkMap.get('0,0') && grownBake.chunkMap.get('2,0') === beforeBake.chunkMap.get('2,0'),
   'chunks the new room cannot reach are kept, not re-baked');
 A.ok(grownBake.chunkMap.get('0,1') !== beforeBake.chunkMap.get('0,1'), 'the edge chunk the new room reaches is re-baked');
-/* AN EDGE CHUNK IS RESIZED, NOT RE-BAKED: the bottom row is 240px tall before and a whole 384 after, and the chunk the room
-   does not reach is the old one at its new size (its pixels copied, the rest transparent), not a bake */
-A.eq(grownBake.stats.dirtyChunks.includes('2,1'), false, '…the edge chunk it does not reach is not baked again');
-A.eq([grownBake.chunkMap.get('2,1').h, grownBake.chunkMap.get('2,1').baseCv.height], [384, 384], '…it is resized to the row the floor grew to');
-A.eq(grownBake.stats.rebakedChunks, 5, '…so the bakes are the four chunks the room reaches and the one new chunk the floor grew (2,2)');
-/* (the pixel checks run on a floor whose old edge ends on a chunk row: this canvas mock has no readback, so its hull pass
-   paints its band over every transparent pixel of a chunk, past the floor too, which a real canvas masks away — a resized
-   edge chunk is transparent there. The real-canvas resize is stationbake.plate-parity's south room.) */
-const before768 = roomsGeo([northRoom], 64), beforeBake768 = StationBake.bakeIncremental(before768, null, null);
-const southRoom768 = { z: 'r2', x1: 4, y1: 70, x2: 30, y2: 76 }, grown768 = roomsGeo([northRoom, southRoom768], 80), grownMono768 = StationBake.bake(grown768);
-const grownBake768 = StationBake.bakeIncremental(grown768, beforeBake768, [southRoom768]);
-A.eq(pixelDiff(composeLayer(grownBake768, 'base'), grownMono768.baseCv), 0, 'the kept + re-baked composite is the grown floor, pixel for pixel');
-A.eq(pixelDiff(composeLayer(grownBake768, 'light'), grownMono768.lightCv), 0, '…its light too');
-const shrunk = StationBake.bakeIncremental(before768, grownBake768, [southRoom768]);
-A.eq(pixelDiff(composeLayer(shrunk, 'base'), StationBake.bake(before768).baseCv), 0, 'removing it again composes the original floor');
+A.ok(grownBake.chunkMap.get('2,1') === beforeBake.chunkMap.get('2,1'), '…and the edge chunk it does not reach is kept: the new size reshapes no chunk');
+const grownMono = StationBake.bake(grownGeo);
+A.eq(pixelDiff(composeLayer(grownBake, 'base'), grownMono.baseCv), 0, 'the kept + re-baked composite is the grown floor, pixel for pixel');
+A.eq(pixelDiff(composeLayer(grownBake, 'light'), grownMono.lightCv), 0, '…its light too');
+const shrunk = StationBake.bakeIncremental(before, grownBake, [southRoom]);
+A.eq(pixelDiff(composeLayer(shrunk, 'base'), StationBake.bake(before).baseCv), 0, 'removing it again composes the original floor');
 const movedOrigin = roomsGeo([northRoom], 52); movedOrigin.origin = { tx: -3, ty: 0 };
 A.eq(StationBake.bakeIncremental(movedOrigin, beforeBake, [northRoom]).stats.fullReset, true, 'an origin move still resets every chunk');
 // an edit with no rects re-bakes the station: only what is on screen bakes now, the rest as it pans into view
@@ -355,8 +348,11 @@ A.eq(firstSame.stats.rebakedChunks, 1, '…and only the one the edit reaches is 
 A.eq(pixelDiff(composeLayer(firstSame, 'base'), wholeBefore.baseCv), 0, 'cut chunks compose the whole-station bake exactly');
 A.eq(pixelDiff(composeLayer(firstSame, 'light'), wholeBefore.lightCv), 0, '…its light too');
 A.eq(firstSame.lamps.length, wholeBefore.lamps.length, '…and every lamp');
-// (the same chunk-row floor, for the same reason: a chunk cut from a whole-station bake ends at that bake's edge)
-const whole768 = StationBake.bake(before768);
+/* (the floor here ends on a chunk row: this canvas mock has no readback, so its hull pass paints its band over every
+   transparent pixel of a chunk, beyond the floor too, which a real canvas masks away — a chunk cut from a whole-station bake
+   ends at that bake's edge. The real-canvas cut of a part-row edge chunk is stationbake.plate-parity's south room.) */
+const before768 = roomsGeo([northRoom], 64), whole768 = StationBake.bake(before768);
+const southRoom768 = { z: 'r2', x1: 4, y1: 70, x2: 30, y2: 76 }, grown768 = roomsGeo([northRoom, southRoom768], 80), grownMono768 = StationBake.bake(grown768);
 const firstGrown = StationBake.bakeIncremental(grown768, whole768, [southRoom768]);
 A.eq(firstGrown.stats.fullReset, false, 'a first edit that grows the floor south keeps the frame too');
 A.eq(firstGrown.stats.reusedChunks, 4, '…cutting every chunk of the old floor the new room cannot reach');
