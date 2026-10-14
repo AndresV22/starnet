@@ -370,7 +370,7 @@
         { id: 'advanced', label: 'CREATE / ADVANCED', sections: ['extensions', 'exchange'] }
       ],
       searchLabel: 'Search abilities',
-      searchPlaceholder: 'search a platform, tool or skill — try “notion”…',
+      searchPlaceholder: 'search abilities…',   // fits the rail's search box whole (the long hint was cut at 'search a platform,')
       searchEmptyText: 'No abilities match that search. Try another platform, tool, or skill.'
     });
     lanes.forEach(l => { try { if (typeof l.wire === 'function') l.wire(); } catch (_) {} });

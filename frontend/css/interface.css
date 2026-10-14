@@ -222,6 +222,8 @@ body:not(.rows-inbox) #workstreams .ws-row.attn > .ws-kebab { grid-area: menu; }
 .ab-router > summary, .cf-group > summary { list-style: none; cursor: pointer; position: relative; }
 .ab-router > summary::-webkit-details-marker, .cf-group > summary::-webkit-details-marker { display: none; }
 .ab-router > summary::after, .cf-group > summary::after { content: '＋'; position: absolute; right: 12px; top: 13px; color: var(--ph-dim); }
+/* the ADD AN ABILITY summary is also .ab-router-q, whose ::after was a fading phosphor rule: drop that rule's line, keep the ＋/− toggle */
+.ab-router > summary::after { flex: none; height: auto; background: none; opacity: 1; }
 .ab-router[open] > summary::after, .cf-group[open] > summary::after { content: '−'; }
 .ab-router .ab-router-q { display: flex; flex-direction: column; gap: 5px; padding: 12px 34px 12px 12px; margin: 0; font-size: 16px; color: var(--ph-bright); }
 .ab-router-q small { color: var(--ph-dim); font-size: 13px; font-weight: 400; letter-spacing: .3px; }
