@@ -4099,11 +4099,12 @@ const Chat = (() => {
      tool is named in the card title's own words ("fs read", never "fs.read").
      wsId -> Map(tool -> Set(promptId)): a re-render of the same ask never counts as a second ask. */
   const askedTools = new Map();
-  const NUMBERLESS_DENY = 'auto-denies if left unanswered';
+  // sentence case like the card's title and keys; with no number yet it still says WHAT ends it (a timer), never a bare threat
+  const NUMBERLESS_DENY = 'Auto-denies on a timer if left unanswered';
   let consentSeenMs = 0;   // the sidecar's on-screen deny bound, once read (0 = unknown: no number)
   function autoDenyWords() {
     const m = consentSeenMs > 0 ? Math.round(consentSeenMs / 6000) / 10 : 0;
-    return m > 0 ? 'auto-denies within ' + (m >= 10 ? Math.round(m) : m) + ' min if left unanswered' : NUMBERLESS_DENY;
+    return m > 0 ? 'Auto-denies within ' + (m >= 10 ? Math.round(m) : m) + ' min if left unanswered' : NUMBERLESS_DENY;
   }
   // the tool in the card title's words (actionPhrase's ANY OTHER TOOL line): a connector tool says whose
   const toolWordsOf = t => { const mcp = /^mcp__(.+?)__(.+)$/.exec(t); return (mcp ? mcp[1] + ' ' + mcp[2] : t).replace(/[._]+/g, ' ').trim(); };

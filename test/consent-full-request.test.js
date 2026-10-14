@@ -379,7 +379,7 @@ test('a general approval card offers Full power (the FULL POWER word, not Never 
   const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
   assert.deepEqual(buttons.children.filter(b => b.className !== 'consent-hint').map(b => b.textContent), ['Approve once', 'Always', 'Full power', 'Deny'], 'the standing key reads Full power');
   // org P02: one hint line under the keys says what happens if nobody answers (no number: the page is never told the deadline)
-  assert.deepEqual(buttons.children.filter(b => b.className === 'consent-hint').map(b => b.textContent), ['auto-denies if left unanswered'], 'one hint line, numberless');
+  assert.deepEqual(buttons.children.filter(b => b.className === 'consent-hint').map(b => b.textContent), ['Auto-denies on a timer if left unanswered'], 'one hint line, numberless');
   assert.ok(!buttons.children.some(b => /full access|never ask/i.test(String(b.textContent) + ' ' + String((b.dataset && b.dataset.tip) || b.title || ''))), 'no key or tip uses the retired Full access / Never ask names');
   const fullKey = buttons.children.find(b => b.textContent === 'Full power');
   assert.ok(/stops asking and can use the whole local computer, until you change it back/.test(String(fullKey.dataset.tip || '')), 'the Full power tip states its real scope, the whole local computer: ' + fullKey.dataset.tip);
