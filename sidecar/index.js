@@ -259,7 +259,7 @@ const LineJobs = require('./routing/linejobs.js');   // WORKFLOWS — every job 
 const LineDraft = require('./routing/linedraft.js');   // WORKFLOWS › SET IT UP FOR ME — "what should it make?" → a starter, a name, each step's instructions (/api/routing/line-draft)
 const LineFix = require('./routing/linefix.js');   // NOT RIGHT? — a result the Commander doesn't want → fixes to the line's step instructions (/api/routing/fix-suggest)
 const { lineStats: foldLineStats } = require('./routing/line-stats.js');   // LINE WATCH: per-line runs/shipped/failed/$ + each bay's last outcome (GET /api/routing/lines/stats)
-const { makeLineShipments, validateShipments, loadShipmentReceipts, cleanJobRows, SHIPMENT_KEEP_MS } = require('./routing/line-shipments.js');
+const { makeLineShipments, validateShipments, loadShipmentReceipts, cleanJobRows, provenWork, SHIPMENT_KEEP_MS } = require('./routing/line-shipments.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const LineTriggers = require('./routing/triggers.js');   // LINE TRIGGERS (2026-09-23): folder/webhook events that start ONE line
 const { makeTriggerRunner, crewedDocksOnLine } = require('./routing/trigger-runner.js');
@@ -12612,10 +12612,12 @@ async function runSampleJob(readArgs) {
     await settled;
     // the REAL recorded outcomes: runs.jsonl rows carrying this sample's streamId (newest-first from the
     // store, so [0] is the LAST stage that ran — the one whose reply the line delivered).
-    let runs = [];
+    let runs = [], anyProvenWork = null;   // anyProvenWork: did ANY stage of this job do proven work (the receipt rule)? null = unread
     try {
-      runs = (runStore.list(null, { streamId: streamId, limit: 200 }) || [])   // THIS sample's rows, not the station's newest 50
-        .filter(r => r && String(r.streamId || '') === streamId)
+      const rows = (runStore.list(null, { streamId: streamId, limit: 200 }) || [])   // THIS sample's rows, not the station's newest 50
+        .filter(r => r && String(r.streamId || '') === streamId);
+      anyProvenWork = rows.some(provenWork);
+      runs = rows
         .map(r => ({ runId: r.runId, agentId: r.agentId, reason: r.reason, usd: r.usd, ts: r.ts, title: r.title, streamId: r.streamId, turns: r.turns,
           dockId: r.dockId || null, lineId: r.lineId || null,
           taintedBy: r.taintedBy || null }));   // (a stage that read untrusted content: whoever reads this job's text inherits it — station.test_line relays it)   // (the BAY each stage ran at: the panel names each step's work by it)
@@ -12682,11 +12684,15 @@ async function runSampleJob(readArgs) {
        is delivered but never shipped, so the panel says so beside ✓ DELIVERED instead of leaving SHIPPED 0 to contradict it.
        true / false / null (the receipt history cannot be read: unknown, never false). */
     const shipped = lineShipments.jobShipped(entryLineId || line, runs.map(r => r.runId));
+    /* WHY NOT (review of #30): `shipped:false` alone only proves there is no receipt. The panel may say "a text answer" only when
+       the run rows PROVE it — no stage had a tool succeed or saved a file (the receipt rule's provenWork, so that job could
+       never mint one). Any other cause (an empty final text, an unmatched run row, a runs read that threw) carries no reason. */
+    const shippedWhy = (shipped === false && runs.length && anyProvenWork === false) ? 'no-proven-work' : null;
     return json(200, Object.assign({
       ok: true, sample: true, chatId: SAMPLE_CHAT, streamId: streamId,
       agentId: agentId || null, isTask: isTask, workitemId: workitemId || null,
       replies: sampleReplies.slice(), runs: runs, delivered: delivered, totalUsd: totalUsd, shipped
-    }, line ? { line: line } : null, jobId ? { jobId } : null, onward));
+    }, shippedWhy ? { shippedWhy } : null, line ? { line: line } : null, jobId ? { jobId } : null, onward));
   } finally {
     // a job whose route threw after it went out is never left "running"
     if (sampleInFlight && sampleInFlight.jobId) { try { lineJobsSet(LineJobs.finish(lineJobs, sampleInFlight.jobId, { at: Date.now(), status: 'failed', error: 'the station hit an error while the job was out' })); } catch (e) { failNote('linejobs.finish', e); } }

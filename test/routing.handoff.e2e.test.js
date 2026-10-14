@@ -81,6 +81,9 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
 
     const sent = await fixture.json('POST', '/api/routing/sample', { line: LA, text: 'Two facts about the moon.', name: 'A' });
     assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    // (rc walk #30) the job's own answer says whether it counted in SHIPPED — and why not, only when its run rows prove it
+    assert.equal(sent.body.shipped, false, 'a talk-only delivered job answers shipped:false (no SHIPPED receipt)');
+    assert.equal(sent.body.shippedWhy, 'no-proven-work', '…with the proven reason: no step had a tool succeed or saved a file');
     let onB = [];
     for (let i = 0; i < 100 && !(onB.length && onB[0].status !== 'running'); i++) {
       await sleep(100);
@@ -127,6 +130,10 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     await arm(geoOf('p4'));
     const fileJob = await fixture.json('POST', '/api/routing/sample', { line: LA, text: 'FILE PROOF: save handoff-note.txt, then send the finished work.', name: 'A' });
     assert.equal(fileJob.status, 200, JSON.stringify(fileJob.body));
+    // (review of #30) the productive case, at the route: the receipt is written before the sample answers, so a job that saved a
+    // file reads shipped:true in its OWN 200 — never a "not counted in SHIPPED" beside a job SHIPPED did count
+    assert.equal(fileJob.body.shipped, true, 'a job that saved a file answers shipped:true: ' + JSON.stringify({ shipped: fileJob.body.shipped, why: fileJob.body.shippedWhy }));
+    assert.equal(fileJob.body.shippedWhy, undefined, '…and carries no reason word');
     let fileDownstream;
     for (let i = 0; i < 150; i++) {
       const jobs = (await fixture.json('GET', '/api/line-jobs?line=' + encodeURIComponent(LB))).body.jobs;
@@ -169,7 +176,10 @@ test('a job that ships on LINE A rides on to LINE B by SEND TO', async () => {
     assert.ok(/shipment history/.test(String(unread.body.shippedUnknown || '')) && unreadLA.shippedUnknown === unread.body.shippedUnknown, 'the answer and the line say why: ' + JSON.stringify(unread.body.shippedUnknown));
     assert.ok(typeof unreadLA.runs === 'number' && unreadLA.runs > 0 && typeof unreadLA.failed === 'number' && typeof unreadLA.usdToday === 'number', 'runs, failed and $ today still count: ' + JSON.stringify(unreadLA));
     assert.ok(unread.body.docks && Object.keys(unread.body.docks).length > 0, 'the bay lamps keep their last outcomes');
-    assert.equal((await fixture.json('POST', '/api/routing/sample', { line: LA, text: 'Another short answer.', name: 'A' })).status, 200, 'receipt storage failure does not block actual work');
+    const blind = await fixture.json('POST', '/api/routing/sample', { line: LA, text: 'Another short answer.', name: 'A' });
+    assert.equal(blind.status, 200, 'receipt storage failure does not block actual work');
+    assert.equal(blind.body.shipped, null, 'with the receipt history unreadable the job\'s answer is unknown (null), never false');
+    assert.equal(blind.body.shippedWhy, undefined, '…so no reason is given');
     assert.equal(fs.readFileSync(receiptFile, 'utf8'), invalidReceipts, 'a completed job cannot overwrite an unreadable prior history');
     fs.writeFileSync(receiptFile, savedReceipts);
     assert.equal(await shipped(), 1, 'next real stats poll retries and recovers the preserved history');

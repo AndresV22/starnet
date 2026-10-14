@@ -337,7 +337,17 @@ const WorkflowPanel = (() => {
     row.innerHTML = '<span class="wf-today-l">TODAY</span>' + cells.map(c => '<span data-tip="' + esc(todayTip(c[0], c[1])) + '"><span class="k">' + esc(c[0]) + '</span> <b' + (c[0] === 'FAILED' && c[1] !== '0' ? ' class="bad"' : '') + '>' + esc(c[1]) + '</b></span>').join('');
   }
   // the delivered job card's word for a job SHIPPED leaves out (rc walk #30) — the same rule as the SHIPPED tip below
-  const NOT_SHIPPED_TIP = 'NOT IN SHIPPED\nSHIPPED counts jobs that reached the OUTBOX after a tool succeeded or a file was saved. This job answered in text only: it is delivered (the result is below), just not counted there';
+  const NOT_SHIPPED_RULE = 'NOT IN SHIPPED\nSHIPPED counts jobs that reached the OUTBOX after a tool succeeded or a file was saved. ';
+  /* only what the server PROVED: shipped:false = no SHIPPED receipt for this job; the reason ("a text answer") is said only when the
+     server's shippedWhy says no step had a tool succeed or saved a file — an empty final text or an unmatched run row has no
+     receipt either, and is never called a text answer. */
+  function notShippedNote(mine) {
+    if (!mine || mine.shipped !== false) return '';
+    const textOnly = mine.shippedWhy === 'no-proven-work';
+    const tip = NOT_SHIPPED_RULE + (textOnly ? 'No step of this job had a tool succeed or saved a file — it answered in text' : 'The station holds no SHIPPED receipt for this job')
+      + ': it is delivered (the result is below), just not counted there';
+    return ' · <span class="wf-noship" data-tip="' + esc(tip) + '">' + (textOnly ? 'a text answer: ' : '') + 'not counted in SHIPPED</span>';
+  }
   /* WHAT EACH TODAY NUMBER COUNTS: RUNS counts stages; SHIPPED counts recorded productive OUTBOX jobs.
      Older runs without shipment receipts cannot prove a historic delivery total. Each tip names its scope. */
   function todayTip(k, v) {
@@ -1972,10 +1982,10 @@ const WorkflowPanel = (() => {
       : '<p class="wf-help wf-sent">An OUTBOX on this line sends on to ' + to + ' (SEND TO) — if this job was handed on, WORKFLOWS › LAST JOBS shows that line’s job, or why it was not sent.</p>';
     return '<div class="wf-job' + (v.ok ? '' : ' problem') + '">'
       /* DELIVERED AND SHIPPED SAY ONE THING (rc walk #30: "✓ DELIVERED" sat under TODAY "SHIPPED 0"): a job the server says was not
-         counted in SHIPPED (a text-only answer — no tool succeeded, no file saved) says so here, with the rule as its tip. The
+         counted in SHIPPED says so here, with the rule as its tip (notShippedNote: the reason only when the server proved it). The
          server's own answer (true / false / unknown) — never guessed from the reply text. */
       + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (mine.folded ? ' · in the OUTBOX' : '')
-        + (mine.shipped === false ? ' · <span class="wf-noship" data-tip="' + esc(NOT_SHIPPED_TIP) + '">a text answer: not counted in SHIPPED</span>' : '') + '</div>'
+        + notShippedNote(mine) + '</div>'
         : '<div class="wf-job-h"><b class="warn">⚠ FINISHED WITH A PROBLEM</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + '</div><div class="wf-warnline">' + esc(badLine) + '</div>')
       + onward
       + ln.notes.map(t => '<div class="wf-warnline">⚠ ' + esc(t) + '</div>').join('')
