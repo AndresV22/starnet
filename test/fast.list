@@ -98,6 +98,8 @@ test/provider.openrouter.test.js
 test/provider.openai-compatible.test.js
 test/provider.ollama-native.test.js
 test/provider.ollama-system.test.js
+test/provider.host-notes.test.js
+test/provider.host-fences.test.js
 test/realtime-voice.test.js
 test/native-stt.test.js
 test/local-voice.test.js
@@ -679,6 +681,7 @@ test/subagents.test.js
 test/orchestration.test.js
 test/builder-lend.test.js
 test/crew-call.test.js
+test/crew-diet.test.js
 test/domain-terminal.test.js
 test/worker-iteration-cap.test.js
 test/channels.test.js
@@ -1174,3 +1177,4 @@ test/group-add.test.js
 test/group-kickoff.test.js
 
 test/ask-cards-readable.test.js
+test/run-context.compaction.test.js

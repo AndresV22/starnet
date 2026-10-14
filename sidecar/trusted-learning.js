@@ -21,7 +21,7 @@ function quotedMaterial(text) {
 // leaves quoted turns out on its own: learningevidence.js). test/trusted-learning.test.js locks these bounds.
 const LEARNING_TAIL_CHARS = 16000;
 const LEARNING_TAIL_MESSAGE_CHARS = 4000;
-const RECALL_FENCE = /<recalled-memory>[\s\S]*?<\/recalled-memory>|<\/?recalled-memory>/gi;
+const RECALL_FENCE = /<(recalled-memory|run_context)>[\s\S]*?<\/\1>|<\/?(?:recalled-memory|run_context)>/gi;   // + the per-run <run_context> note (lean-prompt 2026-10-12)
 // quotedInLearningTail: is there quoted material in a user turn a learning pass can still read? A quote that scrolled
 // past every pass's tail must not keep learning off for the rest of a long conversation. Each later turn counts the
 // LEAST any pass would count it, so a quote is never called out of reach too early: tool and block-content turns

@@ -25,6 +25,10 @@
   // fold-fidelity helpers (verbatim user section, usage anchor, provider-reported window). Node-only like failopen;
   // absent (a browser build that never runs the loop) = compaction stays off rather than folding unfaithfully.
   const fidelity = (typeof require === 'function') ? require('./compaction-fidelity.js') : null;
+  // the per-run <run_context> note's predicate (providers/provider.js owns the fence) — compaction pins that note
+  const isRunContextNote = (typeof require === 'function') ? require('./providers/provider.js').isRunContextNote : null;
+  // ... and the <crew_call> note (review 2026-10-12): it left the run-context note to trail the newest user message
+  const isCrewCallNote = (typeof require === 'function') ? require('./providers/provider.js').isCrewCallNote : null;
 
   // tool-call argument repair (L2): recover mechanically-broken JSON from non-Anthropic models. Degrades to
   // identity if the module is absent (e.g. a browser build that never runs the loop).
@@ -1510,6 +1514,18 @@
       const realNow = (hint && hint.realBefore > 0) ? hint.realBefore : anchor;
       const plan = context.planCompaction(working.slice(i), { scale: rulerNow > 0 ? Math.max(1, realNow / rulerNow) : 1 });
       if (!plan.older.length) return false;                               // nothing safely foldable yet (no paid call)
+      /* THE RUN CONTEXT IS PINNED (lean-prompt, 2026-10-12). The per-run <run_context> note (Task Brief, runtime identity,
+         quests — index.js CACHE-STABLE PREFIX) sits with the run's newest user message, which a long run folds. It used to
+         close the system prompt, which no fold touches, so no fold may take it now: it leaves the folded slice and rides
+         right after the summary note. The micro tier removes no message, so there it simply stays where it is. */
+      // The <crew_call> note is pinned the same way (review 2026-10-12): in the system prompt no fold ever took it either.
+      const ctxNote = isRunContextNote ? (plan.older.find(isRunContextNote) || null) : null;
+      const crewNote = isCrewCallNote ? (plan.older.find(isCrewCallNote) || null) : null;
+      const carriedCtx = [ctxNote, crewNote].filter(Boolean);
+      const foldOlder = carriedCtx.length ? plan.older.filter(m => carriedCtx.indexOf(m) < 0) : plan.older;
+      // the pin can leave NOTHING to fold (the plan's slice was the note alone): no paid summarizer call over an empty
+      // slice, no agent.compact for a fold that removes nothing — the same answer as an empty plan above
+      if (!foldOlder.length) return false;
       const beforeTokens = context.estimateMessages(messages);
       const threshold = (typeof context.thresholdTokens === 'function') ? context.thresholdTokens() : 0;
       const appendTodo = (arr) => { if (todoNote) { try { const tn = todoNote(); if (tn) return arr.concat([{ role: 'system', content: String(tn) }]); } catch (e) { failNote('loop.compaction.todoNote', e); } } return arr; };
@@ -1559,8 +1575,8 @@
         // digest the ORIGINAL messages: a tool result's first line is usually the fact worth keeping — an elided body would
         // reduce every read to "[elided]" and the run forgets what it saw (live-proved 08-21 against a real model)
         if (summarize && typeof summarize.drain === 'function') { try { summarize.drain(plan.older); } catch (e) { failNote('loop.compaction.fallbackDrain', e); return false; } }
-        const note = summaryNote(fallbackNote(plan.older, prevSummary));
-        const rebuilt = appendTodo(prefix.concat([note], plan.tail));
+        const note = summaryNote(fallbackNote(foldOlder, prevSummary));
+        const rebuilt = appendTodo(prefix.concat([note], carriedCtx, plan.tail));
         const afterTokens = context.estimateMessages(rebuilt);
         if (afterTokens >= beforeTokens) return false;                  // didn't shrink — don't spin the overflow retry
         messages.length = 0; for (const mm of rebuilt) messages.push(mm);
@@ -1585,7 +1601,7 @@
       let r;
       // Pass the loop's CURRENT provider/model/cost: after a rotation or a cross-provider fallback these are the
       // only live ones, and the injected summarizer captured its own bindings before the run started.
-      try { r = await summarize(plan.older, prevSummary, { provider, model, cost }); }   // prevSummary => the summarizer MERGE-updates it (H5.2)
+      try { r = await summarize(foldOlder, prevSummary, { provider, model, cost }); }   // prevSummary => the summarizer MERGE-updates it (H5.2)
       catch (e) { if (++compactionFails >= 2) compactionOff = true; usageReading = null; return false; }   // summarizer threw -> skip
       if (signal.aborted) return false;
       const summary = (typeof r === 'string') ? r : ((r && r.summary) || '');
@@ -1605,7 +1621,7 @@
       }
       compactionFails = 0;
       const note = summaryNote(summary);
-      let rebuilt = prefix.concat([note], plan.tail);
+      let rebuilt = prefix.concat([note], carriedCtx, plan.tail);
       // re-append the active task plan so it rides through the compaction (folded into the after-count below)
       if (todoNote) { try { const tn = todoNote(); if (tn) rebuilt = rebuilt.concat([{ role: 'system', content: String(tn) }]); } catch (e) { failNote('loop.compaction.todoNote', e); } }
       const afterTokens = context.estimateMessages(rebuilt);
