@@ -83,7 +83,7 @@
     xp:           'experience an agent earns from work you rate well — it levels up as it proves itself.',
     workspace:    'the folder on your machine where an agent’s files land (workspaces/<agent>/).',
     desk:         'an agent’s own workstation — it needs one placed in BUILD MODE before it can take floor work.',
-    recruit:      'summon a new agent class onto your crew, or re-spec the agent you already have.',
+    recruit:      'recruit a new agent from a class onto your crew, or re-spec the agent you already have.',
     slag:         'a post-mortem of a run that ended without producing anything — its cause, and the fix.',
     kudos:        'the good ratings you give an agent’s work — they raise its satisfaction and earn it XP.',
     leash:        'the cap on how many jobs an agent may do on its own before it stops and waits for you.',

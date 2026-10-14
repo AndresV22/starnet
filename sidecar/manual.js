@@ -256,7 +256,7 @@ const TROUBLESHOOTING =
   'the top of COMMS) before sending.\n' +
   '- “Where did my agent go?” → agents walk to their workstation to work and roam when idle; they ' +
   'are still on the crew manifest — its DOSSIER key opens its file; with 2+ agents a row click shows its sessions.\n' +
-  '- “How do I get more agents?” → open the Recruitment Bay and SUMMON one (pick a class, or build ' +
+  '- “How do I get more agents?” → open the Recruitment Bay and RECRUIT one (pick a class, or build ' +
   'a custom class).\n';
 
 // ORDERED: `lead` is the blank line that preceded the section in the original single literal, so

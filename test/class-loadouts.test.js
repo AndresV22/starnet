@@ -522,8 +522,9 @@ A.ok(/function hydrateSkillRows\(\)/.test(mkt) && /hydrateSkillRows\(\)/.test(mk
 // CLEARANCE/EFFORT honesty moved onto the control that resolves them (modelHelpHTML), replacing a spec-grid row
 // whose value was the words "station default". The claim must still be advisory, never a promise summon can't keep.
 const mhh = mkt.slice(mkt.indexOf('function modelHelpHTML('), mkt.indexOf('function modelHelpHTML(') + 1200);
-A.ok(/orchestrator/.test(mhh) && /tuned for/.test(mhh),
-  'the MODEL helper is honest — an unpinned model INHERITS the orchestrator, the class tier is only a tuning note');
+// org P22 (2026-10-14): "orchestrator" became "the agent on the line" — summonAgent copies the FOCUSED agent's model
+A.ok(/Copies the model of the agent on the line now/.test(mhh) && /tuned for/.test(mhh),
+  'the MODEL helper is honest — an unpinned model COPIES the agent on the line, the class tier is only a tuning note');
 A.ok(/overrides the class default/.test(mhh), 'a pinned model is labelled as overriding the class default');
 A.ok(/applied at summon/.test(mkt), 'the builder still labels reasoning effort as what summon APPLIES');
 

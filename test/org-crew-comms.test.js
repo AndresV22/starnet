@@ -2,7 +2,8 @@
    changed, so a later edit can't quietly undo what the user now reads:
      P23 — PURPOSE and the house-rules card say they are THIS agent's only; standing orders say every agent follows them.
      P20 — the crew row's DOSSIER key is always shown at every crew size; the manual stops claiming a row click focuses.
-     P21 — the AGENT DOSSIER says where each per-agent setting lives, and station-wide switches say they are for every agent. */
+     P21 — the AGENT DOSSIER says where each per-agent setting lives, and station-wide switches say they are for every agent.
+     P22 — RECRUIT speaks one language: RECRUIT a new agent from a CLASS, RE-SPEC an existing one. */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('fs');
@@ -47,5 +48,20 @@ A.ok(CONN.includes('id="ts-agent" class="ab-agent-pick"') && /select\.ab-agent-p
 A.ok(/each switch turns a built-in ability on or off for every agent; CHECK WITH ME and LET IT WORK obey the switches, FULL POWER overrides them/i.test(CONN), 'P21: BUILT-IN ABILITIES says its switches are for every agent, in ONE ACCESS words');
 A.ok(CONN.includes("data-tip=\"Turns ' + esc(t.label) + ' on or off for every agent\"") && CONN.includes("notify((tsLabels[id] || id) + (enabled ? ' on' : ' off') + ' for every agent'"),'P21: the switch tip and toast name the ability and say every agent');
 A.ok(/toolsetDisabled/.test(read('sidecar/index.js')), 'P21: "for every agent" stays true — the toggle writes the station-wide toolsetDisabled map');
+
+/* ---------- P22: RECRUIT speaks one language ---------- */
+const MKT = read('frontend/app/marketplace.js');
+A.ok(/'⏼ RECRUIT <span class="mkt-candidate-name">'/.test(MKT) && !/⏼ SUMMON/.test(MKT), 'P22: the bay\'s primary key reads RECRUIT <NAME>');
+A.ok(/RE-SPEC ' \+ esc\(ctx\.agentName\)\.toUpperCase\(\) \+ ' INSTEAD ▸<\/button>/.test(MKT) && /'<div class="mkt-cta-sub">replaces ' \+ esc\(ctx\.agentName\) \+ '’s purpose — no new agent<\/div><\/div>'/.test(MKT),
+  'P22: the secondary reads RE-SPEC <AGENT> INSTEAD ▸ with the "no new agent" sub-line');
+A.ok(/armCta\(deployCurBtn, 'RE-SPEC ' \+/.test(MKT), 'P22: the re-spec keeps its armed RE-SPEC <AGENT>? confirm');
+A.ok(!MKT.includes("'⏼ DEPLOY TO ") && !MKT.includes("'\">⏼ DEPLOY TO ") && !MKT.includes("' deployed to '") && /' re-specced as ' \+ s\.name/.test(MKT), 'P22: no DEPLOY verb or "deployed to" toast is left; toasts say re-specced');
+A.ok(!MKT.includes("sectH('▮ YOUR SPECIALISTS')") && !MKT.includes('SPECIALIST ARCHIVE — deep cuts') && !MKT.includes("SPECIALIST ARCHIVE (' +") &&
+  MKT.includes("sectH('▮ YOUR CLASSES')") && MKT.includes("sectH('▮ CLASS ARCHIVE — deep cuts')"), 'P22: the nouns are CLASS / YOUR CLASSES / CLASS ARCHIVE');
+A.ok(/'recruit a new agent onto your crew — it gets its own session'/.test(MKT) && /'choose a class for your agent'/.test(MKT), 'P22: the subtitles say recruit / choose a class');
+A.ok(!/Same as the orchestrator|Inherits your orchestrator/.test(MKT) && !/inheritLabel: 'Same as the station default'/.test(MKT) && /Copies the model of the agent on the line now/.test(MKT),
+  'P22: the model copy says an unpinned recruit copies the on-the-line agent\'s model (it does not track the station default)');
+A.ok(/model:\s*\(pin && pin\.model\)\s*\|\|\s*agent\.model/.test(read('frontend/app/app.js')), 'P22: …which stays true: summonAgent copies the focused agent\'s model');
+A.ok(read('frontend/index.html').includes('grow the crew — recruit a class, or re-spec your agent') && /Recruitment Bay and RECRUIT one/.test(MAN), 'P22: the dock subtitle and the manual say RECRUIT');
 
 A.report();

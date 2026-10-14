@@ -421,14 +421,15 @@ const Marketplace = (() => {
   function title() { return '▮ ' + plainTitle(); }
 
   function subtitle() {
+    // ORG P22 — ONE LANGUAGE: a new agent is RECRUITED from a CLASS; rewriting an existing agent is a RE-SPEC.
     if (ctx && ctx.mode === 'pick') return ctx.summon
-      ? ('summon a new agent onto your crew — it gets its own chat thread'
+      ? ('recruit a new agent onto your crew — it gets its own session'
          + (ctx.concurrentCap > 0 ? ' · up to ' + ctx.concurrentCap + ' run at once' : ''))
-      : 'choose a specialist to wake your agent as';
+      : 'choose a class for your agent';
     const who = (ctx && ctx.agentName) || 'your agent';
     return tab === 'recipes'
       ? 'launch a ready-made recipe — ' + who + ' picks it up in a new task conversation'
-      : 'deploy a specialty onto ' + who + ' — or save this one as a template';
+      : 're-spec ' + who + ' as a class — or save this one as a template';
   }
 
   /* ---------- the bar: tabs + lane filter ---------- */
@@ -663,7 +664,7 @@ const Marketplace = (() => {
 
     // MINE view: the Commander's own specialists only (matches the RECIPES-tab MINE chip).
     if (laneFilter === 'mine') {
-      html += sectH('▮ YOUR SPECIALISTS');
+      html += sectH('▮ YOUR CLASSES');
       html += customs.length
         ? '<div class="mkt-grid mkt-rows">' + customs.map(cardHTML).join('') + buildTile + '</div>'
         : '<p class="mkt-hint mkt-yours-hint">' + (query ? 'none of your specialists match your search — '
@@ -676,7 +677,7 @@ const Marketplace = (() => {
     // SPECIALISTS + the build tile sit at the bottom. (audit item 7 reconciled with item 3)
     const pinCustoms = hasAnyCustoms && !query;
     if (pinCustoms) {
-      html += sectH('▮ YOUR SPECIALISTS');
+      html += sectH('▮ YOUR CLASSES');
       html += '<div class="mkt-grid mkt-rows">' + customs.map(cardHTML).join('') + buildTile + '</div>';
     }
 
@@ -690,7 +691,7 @@ const Marketplace = (() => {
     html += archiveSectionHTML(filtering);
 
     if (!pinCustoms) {
-      html += sectH('▮ YOUR SPECIALISTS');
+      html += sectH('▮ YOUR CLASSES');
       if (!customs.length) html += '<p class="mkt-hint mkt-yours-hint">' +
         (query ? 'none of your specialists match your search — ' : 'none yet — ') +
         'build one from scratch below' + (deploy && !query ? ', or save the live agent as a specialty above' : '') + '.</p>';
@@ -713,13 +714,13 @@ const Marketplace = (() => {
     if (filtering) {
       // searching / lane-filtering: archetypes participate like any class — matches render expanded, no toggle.
       if (!archs.length) return '';
-      return sectH('▮ SPECIALIST ARCHIVE — deep cuts') + '<div class="mkt-grid mkt-rows">' + archs.map(cardHTML).join('') + '</div>';
+      return sectH('▮ CLASS ARCHIVE — deep cuts') + '<div class="mkt-grid mkt-rows">' + archs.map(cardHTML).join('') + '</div>';
     }
     const head = '<button type="button" class="mkt-sect-h mkt-archive-head" aria-expanded="' + (archiveOpen ? 'true' : 'false') + '">' +
-      '<span aria-hidden="true">' + (archiveOpen ? '▾' : '▸') + '</span> SPECIALIST ARCHIVE (' + all.length + ')</button>';
+      '<span aria-hidden="true">' + (archiveOpen ? '▾' : '▸') + '</span> CLASS ARCHIVE (' + all.length + ')</button>';
     if (!archiveOpen) return head;
     return head +
-      '<p class="mkt-hint">niche classes held off the main roster — fully specified, summon any time. When your real work points at one, the station drafts it onto the shelf above for you.</p>' +
+      '<p class="mkt-hint">niche classes held off the main roster — fully specified, recruit any time. When your real work points at one, the station drafts it onto the shelf above for you.</p>' +
       '<div class="mkt-grid mkt-rows">' + archs.map(cardHTML).join('') + '</div>';
   }
   /* Name and the live character preview lead. Skin choices stay visible; model controls expand
@@ -757,14 +758,16 @@ const Marketplace = (() => {
     const pin = pickedSummonModel;
     if (pin && pin.model) return 'pinned to <b>' + esc(shortModel(pin.model)) + '</b>' +
       (pin.effort ? ' at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort' : '') + ' — overrides the class default.';
-    if (pin && pin.effort) return 'the same brain as your orchestrator, at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort.';
-    return 'Inherits your orchestrator’s model; tuned for <b>' + esc(clearanceLabel(s && s.model).toLowerCase()) + '</b>' +
+    // ORG P22: an unpinned recruit COPIES the model of the agent on the line at recruit time (app.js summonAgent:
+    // pin.model || agent.model) — it does not follow later station-default changes, so the copy never says it does.
+    if (pin && pin.effort) return 'copies the model of the agent on the line now, at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort.';
+    return 'Copies the model of the agent on the line now; tuned for <b>' + esc(clearanceLabel(s && s.model).toLowerCase()) + '</b>' +
       (s && s.reasoningEffort ? ' · ' + esc(String(s.reasoningEffort).toLowerCase()) + ' effort' : '') + '.';
   }
 
   function summonModelSummary() {
     const pin = pickedSummonModel;
-    return (pin && pin.model ? shortModel(pin.model) : 'Station default') +
+    return (pin && pin.model ? shortModel(pin.model) : 'Copies the agent on the line') +
       (pin && pin.effort ? ' · ' + pin.effort : '');
   }
   function shortModel(m) { return String(m || '').split('/').pop().replace(/[-_]+/g, ' ').trim() || String(m || ''); }
@@ -819,7 +822,7 @@ const Marketplace = (() => {
     const max = (ctx && ctx.displayNameLimit) || (typeof AgentId !== 'undefined' && AgentId.NAME_MAX) || 18;
     const issue = summonNameIssue(), dup = summonNameConflict();
     const helper = issue === 'too-long' ? 'too long — shorten this name before summoning'
-      : dup ? 'duplicate name — summon requires a second confirmation; the agent id will remain unique'
+      : dup ? 'duplicate name — recruiting needs a second confirmation; the agent id will remain unique'
       : 'blank uses the proposed default: ' + summonCandidateName((focusAgent && Specialties.get(focusAgent)) || null);
     return '<div class="mkt-skinbar mkt-namebar"><label class="mkt-skinlabel" for="mkt-summon-name">NAME</label>' +
       '<input class="mkt-in" id="mkt-summon-name" type="text" autocomplete="off" spellcheck="false" aria-invalid="' + (issue ? 'true' : 'false') + '" placeholder="' + esc(summonCandidateName((focusAgent && Specialties.get(focusAgent)) || null)) + '" value="' + esc(pickedSummonName) + '">' +
@@ -861,7 +864,7 @@ const Marketplace = (() => {
     if (!(ctx && ctx.mode === 'pick' && ctx.summon) || typeof ModelPicker === 'undefined') return '';
     return '<div class="mkt-skinbar mkt-modelbar"><div class="mkt-skinlabel">MODEL &amp; EFFORT</div>' +
       '<div class="mkt-modelpick" id="mkt-model-pick">' +
-        ModelPicker.shellHTML({ id: 'mkt-model', inheritLabel: 'Same as the orchestrator', ariaLabel: 'New agent model', effort: true }) +
+        ModelPicker.shellHTML({ id: 'mkt-model', inheritLabel: 'Copy the model of the agent on the line', ariaLabel: 'New agent model', effort: true }) +
       '</div>' +
       '<div class="mkt-field-help" id="mkt-model-help">' + modelHelpHTML(s) + '</div></div>';
   }
@@ -1118,10 +1121,10 @@ const Marketplace = (() => {
     const deploy = !ctx || ctx.mode !== 'pick';
     const here = !!(ctx && ctx.currentSpecialtyId && ctx.currentSpecialtyId === s.id);
     const badges = (here ? ' <span class="mkt-badge mkt-here">DEPLOYED</span>' : '') + (s.custom ? ' <span class="mkt-badge">CUSTOM</span>' : '');
-    const ctaLabel = deploy ? ('⏼ DEPLOY TO ' + esc(((ctx && ctx.agentName) || 'AGENT')).toUpperCase())
-      : ('⏼ SUMMON <span class="mkt-candidate-name">' + esc(summonCandidateName(s)) + '</span>');
+    const ctaLabel = deploy ? ('⏼ RE-SPEC ' + esc(((ctx && ctx.agentName) || 'AGENT')).toUpperCase())
+      : ('⏼ RECRUIT <span class="mkt-candidate-name">' + esc(summonCandidateName(s)) + '</span>');
     const ctaSub = deploy
-      ? 're-specs ' + esc((ctx && ctx.agentName) || 'your agent') + '’s purpose &amp; standing orders'
+      ? 'replaces ' + esc((ctx && ctx.agentName) || 'your agent') + '’s purpose &amp; standing orders — no new agent'
       : 'joins your crew with its own <span data-hint="workstream">chat thread</span>, pre-filled from this class';
     const custActs = s.custom
       ? '<div class="mkt-cta-row"><button class="bb sm mkt-edit" data-id="' + esc(s.id) + '">✎ EDIT</button>' +
@@ -1145,8 +1148,8 @@ const Marketplace = (() => {
       // of a separate dock button. It rides in NORMAL FLOW, outside the sticky block: pinning it too made the
       // permanent footer four elements tall (~190px of a ~660px pane), which is what pushed CONFIGURE off screen.
       (!deploy && ctx && ctx.onDeploy && ctx.agentName && !here
-        ? '<div class="mkt-cta-second"><button class="mkt-cta-alt mkt-deploy-cur" data-id="' + esc(s.id) + '">⏼ DEPLOY TO ' + esc(ctx.agentName).toUpperCase() + ' ▸</button>' +
-          '<div class="mkt-cta-sub">re-specs ' + esc(ctx.agentName) + ' instead — no new crew member</div></div>'
+        ? '<div class="mkt-cta-second"><button class="mkt-cta-alt mkt-deploy-cur" data-id="' + esc(s.id) + '">RE-SPEC ' + esc(ctx.agentName).toUpperCase() + ' INSTEAD ▸</button>' +
+          '<div class="mkt-cta-sub">replaces ' + esc(ctx.agentName) + '’s purpose — no new agent</div></div>'
         : '') +
       '</div><div class="mkt-dos-cta">' + custActs +
         // adopt-voice sits BESIDE the DEPLOY CTA it modifies (audit item 8), not orphaned up in the toolbar.
@@ -2160,7 +2163,7 @@ const Marketplace = (() => {
       const help = root.querySelector('.mkt-name-help');
       if (help) {
         help.textContent = issue === 'too-long' ? 'too long — shorten this name before summoning'
-          : dup ? 'duplicate name — summon requires a second confirmation; the agent id will remain unique'
+          : dup ? 'duplicate name — recruiting needs a second confirmation; the agent id will remain unique'
           : 'blank uses the proposed default: ' + summonCandidateName(s);
         help.classList.toggle('warn', !!(issue || dup));
       }
@@ -2269,11 +2272,11 @@ const Marketplace = (() => {
             if (input) { try { input.scrollIntoView({ block: 'center' }); } catch (_) {} input.focus(); }
             return;
           }
-          if (ctx.summon && summonNameConflict()) return armDelete(deployBtn, deployBtn.textContent, commit, 'SUMMON DUPLICATE NAME?');
+          if (ctx.summon && summonNameConflict()) return armDelete(deployBtn, deployBtn.textContent, commit, 'RECRUIT DUPLICATE NAME?');
           commit();
         });
       } else {
-        // DEPLOY TO <current> (deploy mode) — a RE-SPEC that rewrites the live agent's purpose + standing orders.
+        // RE-SPEC <current> (deploy mode) — a RE-SPEC that rewrites the live agent's purpose + standing orders.
         // That's consequential, so it arms/confirms ("RE-SPEC <NAME>?") like every other irreversible bay action.
         armCta(deployBtn, 'RE-SPEC ' + String((ctx && ctx.agentName) || 'AGENT').toUpperCase() + '?', () => {
           const s = Specialties.get(deployBtn.dataset.id); if (!s) return;
@@ -2282,19 +2285,19 @@ const Marketplace = (() => {
           sfx('close');
           if (ctx && ctx.onDeploy) ctx.onDeploy(s, { adoptVoice });
           try { if (typeof ProspectStore !== 'undefined' && ProspectStore.recommendationVerdict) { ProspectStore.recommendationVerdict('recruit', s.id, 'completed', 'completed'); ProspectStore.recommendationOutcome('recruit', s.id, { adopted: true, quality: 1, completedAt: Date.now() }); } } catch (_) {}
-          note(s.name + ' deployed to ' + ((ctx && ctx.agentName) || 'your agent') + (adoptVoice ? ' (+ voice)' : ''), 'good');
+          note(((ctx && ctx.agentName) || 'your agent') + ' re-specced as ' + s.name + (adoptVoice ? ' (+ voice)' : ''), 'good');
           close();
         });
       }
     }
-    // second verb on the merged recruit door: DEPLOY TO <current> from summon mode (no voice adoption checkbox in
+    // second verb on the merged recruit door: RE-SPEC <current> INSTEAD from summon mode (no voice adoption checkbox in
     // this pane — deploy keeps the agent's voice; the dossier can retune it). Same re-spec, same arm/confirm.
     const deployCurBtn = sc.querySelector('.mkt-deploy-cur');
     if (deployCurBtn) armCta(deployCurBtn, 'RE-SPEC ' + String((ctx && ctx.agentName) || 'AGENT').toUpperCase() + '?', () => {
       const s = Specialties.get(deployCurBtn.dataset.id); if (!s) return;
       sfx('close');
       if (ctx && ctx.onDeploy) ctx.onDeploy(s, { adoptVoice: false });
-      note(s.name + ' deployed to ' + ((ctx && ctx.agentName) || 'your agent'), 'good');
+      note(((ctx && ctx.agentName) || 'your agent') + ' re-specced as ' + s.name, 'good');
       close();
     });
     const launchBtn = sc.querySelector('.mkt-launch');
