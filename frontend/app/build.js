@@ -2652,7 +2652,7 @@ const Build = (() => {
     // SURFACE means three different gestures depending on which surface is targeted — say which
     let verb = (t && t.verb) || (t && t.hint) || '';
     if (tool === 'select' && buildGroup === 'props') verb = 'Pick a prop, then click the floor to place it · click a placed one to edit it';
-    if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag a machine onto another to belt them · click a piece, then drag it onto open floor to move it · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes · hold Alt to see every setting';
+    if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag a machine onto another to belt them · click a piece, then drag it onto open floor to move it · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes a conveyor piece or belt · hold Alt to see every setting';
     // THE HAND: what is held, what a click does with it, and how to put it down (or what the armed dock key's next tap does)
     if (tool === 'select' && hand && hand.newLine) verb = 'Click where your line starts · Esc cancels';   // (the dock's hint bar shows ~45 characters; right-click cancels too)
     else if (tool === 'select' && hand) verb = 'Holding ' + propLabel(hand.t) + (hand.agentId ? ' (crewed by ' + agentLabel(hand.agentId) + ')' : '') + ' · click to place it' + (JUNCTION_TAG_TYPES[hand.t] ? ' · click a belt to put it on that line' : '') + ' · right-click or Esc puts it down';
@@ -4969,6 +4969,13 @@ const Build = (() => {
       if (drag) { releaseDrag(); hideTip(); } if (connectFrom || connectTo) { connectFrom = null; connectTo = null; hideTip(); } if (dupe) { dupe = null; hideTip(); setHint(); }
       if (hand || touchArm || dropPick) setHand(null, { silent: true });
       if (!held && removeAt(ev)) return;
+      /* ...AND ON FURNITURE IT SAYS SO (2026-10-14, the busy-station walk: five right-clicks on a plant removed nothing and said
+         nothing while the Conveyors strip read "right-click removes"). Right-click stays the conveyors' gesture; with nothing
+         held, landing on furniture names what it removes and how this piece goes instead (click it, then Del). */
+      if (!held) {
+        const fid = propAtEvent(ev), fp = fid && station.propById(fid);
+        if (fp && !isConveyorPiece(fp)) { sfx('bad'); flashTip(ev, String(propLabel(fp.t)).toUpperCase() + ' — RIGHT-CLICK REMOVES ONLY CONVEYOR PIECES AND BELTS · CLICK IT, THEN DEL', false); }
+      }
       deselectTool(); return;
     }
     if (ev.pointerType === 'touch') {
