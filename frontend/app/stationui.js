@@ -1965,13 +1965,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       desc: 'The system prompt sent to the model on every run — the heart of who your agent is.',
       ph: 'You are …' },
     { key: 'purpose', file: 'purpose.md', badge: 'YOU WRITE THIS',
-      desc: 'What your agent is for. Folded into the prompt so it colours everything it does.',
+      // P23 REACH: the purpose and house rules are THIS agent's only; rules for every agent are YOU › PREFERENCES'
+      // standing orders (DossierStore.composeBlock rides every agent's prompt + cron's withDossier). Name the reach.
+      desc: n => 'What your agent is for. Folded into the prompt so it colours everything it does. Only ' + n + ' · a workflow step’s DOES can add to it.',
       ph: 'e.g. Track AI-policy news and brief me each morning.' },
     { key: 'context', file: 'context.md', badge: 'YOU WRITE THIS',
       desc: 'About you and your world — your project, domain, and what "good" looks like. Grounds every run.',
       ph: 'e.g. I build TypeScript web apps solo; "good" = tested, minimal diffs, no hand-waving.' },
     { key: 'manual', file: 'operating-manual.md', badge: 'YOU WRITE THIS',
-      desc: 'House rules appended to every run — tone, format, the do-nots. Always obeyed.',
+      desc: n => 'Only ' + n + ' follows these house rules — tone, format, the do-nots · rules for every agent live in YOU › PREFERENCES.',
       ph: '- Cite your sources.\n- Keep it terse.\n- Never message anyone without asking first.' }
   ];
 
@@ -2371,7 +2373,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<span class="cf-badge you">' + f.badge + '</span>' +
       '<span class="cf-bytes">' + (val || '').length + ' chars</span>' +
       (editing ? '' : '<button class="bb sm cf-edit" data-edit="' + f.key + '">✎ EDIT</button>') +
-      '</div><div class="cf-desc">' + f.desc + '</div>';
+      '</div><div class="cf-desc">' + (typeof f.desc === 'function' ? f.desc(esc((a && a.name) || 'this agent')) : f.desc) + '</div>';
     if (editing) {
       return '<div class="cf cf-on">' + head +
         '<textarea class="cf-ta" id="cf-ta-' + f.key + '" aria-label="' + esc(f.file) + '" spellcheck="false" placeholder="' + esc(f.ph) + '">' + esc(val) + '</textarea>' +
@@ -9843,7 +9845,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         door.appendChild(go); el.appendChild(door);
         addCards(['goals', 'pain', 'ambition'])(el);
       } },
-      { id: 'preferences', label: 'PREFERENCES', glyph: '≡', desc: 'How you like to work, your standing instructions, and your schedule.', build: addCards(['style', 'standing_orders', 'schedule']) },
+      { id: 'preferences', label: 'PREFERENCES', glyph: '≡', desc: 'How you like to work, your standing orders (every agent follows these), and your schedule.', build: addCards(['style', 'standing_orders', 'schedule']) },
       { id: 'briefing', label: 'AGENT BRIEFING', glyph: '▤', desc: 'See the exact profile text included in your agents’ briefing.', build: el => {
         el.appendChild(mkEl('p', 'cd-privacy', 'Your profile is stored locally. Its briefing is sent to each agent’s configured model when it works; relevant summaries may also be used for suggestions.'));
         el.appendChild(cdBriefing(ds));
