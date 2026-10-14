@@ -9661,11 +9661,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         (door ? '<span class="nf-go">OPEN ▸</span>' : '') + '</div>' +
         '<button class="nf-x" data-nid="' + esc(n.id) + '" title="Dismiss notification" aria-label="Dismiss ' + esc(n.txt) + '">✕</button></div>';
     };
-    // a live NEEDS YOU row: the rail's own line, its OPEN, and Dismiss only where the rail has one (failed work)
+    // a live NEEDS YOU row: the rail's own line, its OPEN, and Dismiss only where the rail has one (failed work). Its lamp
+    // tells the kinds apart as the stored entries did: STEP-IN and a build decision gold ★, a quest said done and loop results
+    // to review ✓, failed work ✗, an approval / question / extension ⚠
+    const LIVE_SEV = { stepin: 'gold', build: 'gold', attest: 'good', loop: 'good', failed: 'bad', routine: 'bad' };
     const liveRow = (it, i) => {
-      const dis = NY.canDismiss(it);
-      return '<div class="nf warn sev-warn nf-k-needs nf-door nf-live" style="--ci:' + i + '" data-ny-key="' + esc(it.key) + '" role="button" tabindex="0" data-tip="Open where this waits">' +
-        '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH.warn) + '</span>' +
+      const dis = NY.canDismiss(it), sev = LIVE_SEV[it.kind] || 'warn';
+      return '<div class="nf ' + sev + ' sev-' + sev + ' nf-k-needs nf-door nf-live" style="--ci:' + i + '" data-ny-key="' + esc(it.key) + '" role="button" tabindex="0" data-tip="Open where this waits">' +
+        '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH[sev]) + '</span>' +
         '<div class="nf-copy"><div class="nf-meta"><span class="nf-kind">NEEDS YOU</span>' + (it.since ? '<span class="nf-ts">' + notifStamp(it.since) + '</span>' : '') + '</div>' +
         '<span class="nf-txt">' + esc(it.who + ' ' + NY.lineOf(it) + ' · in ' + it.where) + '</span><span class="nf-go">OPEN ▸</span></div>' +
         (dis ? '<button class="nf-x" data-ny-dismiss="' + esc(it.key) + '" data-tip="Dismiss: it leaves NEEDS YOU here and on the rail" aria-label="Dismiss ' + esc(it.who + ' ' + it.what) + '">✕</button>' : '') + '</div>';

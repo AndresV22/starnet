@@ -84,11 +84,12 @@ const NeedsYou = (() => {
       for (const l of LoopsReview.waiting()) {
         if (!l || !l.id || !(l.count > 0)) continue;
         out.push({ key: 'loop:' + l.id, kind: 'loop', who: nameOf(l.agentId || 'agent'),
-          what: '"' + String(l.name || 'a goal loop') + '" has ' + plural(l.count, 'result', 'results') + ' waiting on your review', where: 'GOAL LOOPS', since: Number(l.since) || 0 });
+          what: 'has ' + plural(l.count, 'result', 'results') + ' waiting on your review from "' + String(l.name || 'a goal loop') + '"', where: 'GOAL LOOPS', since: Number(l.since) || 0 });
       }
     }
     refreshFeeds(false, now);
-    if (feeds.extensions > 0) out.push({ key: 'extensions', kind: 'extension', who: 'STATION', what: plural(feeds.extensions, 'extension', 'extensions') + ' awaiting your approval', where: 'EXTENSIONS', since: 0 });
+    // no time: the sidecar's pending lists carry none, so the row shows no age rather than a guessed one
+    if (feeds.extensions > 0) out.push({ key: 'extensions', kind: 'extension', who: 'STATION', what: 'has ' + plural(feeds.extensions, 'extension', 'extensions') + ' awaiting your approval', where: 'EXTENSIONS', since: 0 });
     for (const m of (feeds.builds || [])) {
       out.push({ key: 'build:' + m.runId, kind: 'build', who: nameOf(m.agentId), what: 'built "' + String(m.title || 'a build') + '": keep or discard it', where: 'DELIVERABLES', since: Number(m.builtAt) || 0 });
     }
@@ -138,7 +139,7 @@ const NeedsYou = (() => {
       for (const id of GroupChat.attentionIds()) {
         const ws = Workstreams.get(id); if (!ws) continue;
         const st = GroupChat.stateOf ? GroupChat.stateOf(id) : null;
-        out.push({ key: 'group:' + id, kind: 'group', wsId: id, who: 'GROUP', what: st && st.approvals ? 'an approval is waiting' : 'a question is waiting', where: titleOf(ws), since: 0 });
+        out.push({ key: 'group:' + id, kind: 'group', wsId: id, who: 'GROUP', what: st && st.approvals ? 'has an approval waiting' : 'has a question waiting', where: titleOf(ws), since: 0 });
       }
     }
     const ov = typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
@@ -166,7 +167,7 @@ const NeedsYou = (() => {
     return s < 60 ? 'now' : s < 3600 ? Math.floor(s / 60) + 'm' : s < DAY / 1000 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd';
   }
   const KIND = { approval: 'wants to', question: 'asks', group: '', failed: '', routine: '' };
-  const RAIL_CHARS = 48;   // about what the rail's two clamped lines show (pipglass.css .ny-what: line-clamp 2)
+  const RAIL_CHARS = 48;   // within what the rail's three clamped ask lines show (pipglass.css .ny-what: line-clamp 3)
   // the rail shows one glance line. Approve from here only when that line IS the whole request; when the approval card
   // holds more (INSPECT: a long command's tail, a file change, every argument; a station ask's own sentence: a build's
   // plan, the job a line runs, what its runs spend, that it runs unattended), or the line is longer than the rail
@@ -199,7 +200,8 @@ const NeedsYou = (() => {
     const shown = expanded ? list : list.slice(0, SHOW);
     return '<div class="ny-head"><span class="ny-lamp" aria-hidden="true"></span><span class="ny-title">Needs you</span><span class="ny-count">' + list.length + '</span></div>'
       + '<ul class="ny-list">' + shown.map(i => '<li class="ny-item ' + i.kind + '" data-ny-key="' + esc(i.key) + '">'
-        // the rail is narrow: who · where · how long on one line, what exactly on its own (two lines at most), keys below
+        // the rail is narrow: who · where · how long (where wraps under who rather than being cut), what exactly on its own
+        // (an ask three lines at most, any other wait in full), keys below
         + '<div class="ny-line"><span class="ny-who">' + esc(i.who) + '</span><button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '">in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
         + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '')) + '">' + esc((KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what) + '</div>'
         + '<div class="ny-keys">' + keysFor(i) + '</div>'
