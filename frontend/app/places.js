@@ -65,7 +65,7 @@
     P('you', 'CREW › YOU', 'the Commander\'s own dossier: about you, aims, preferences, what agents are told', { term: 'commander' }),
     // ---- SYSTEM ----
     P('settings', 'SETTINGS', 'every station setting', { term: 'settings' }),
-    P('settings-ai', 'SETTINGS › AI & MODELS', 'AI providers, their keys and sign-ins, default and backup models, StarNet credits (the STORE: balance, top up)', { term: 'settings', section: 'providers' }),
+    P('settings-ai', 'SETTINGS › AI & MODELS', 'AI providers, their keys and sign-ins, default and fallback models, StarNet credits (the STORE: balance, top up)', { term: 'settings', section: 'providers' }),
     P('settings-autonomy', 'SETTINGS › AUTONOMY', 'when agents work on their own, and what they did while you were away', { term: 'settings', section: 'autonomy' }),
     P('settings-permissions', 'SETTINGS › PERMISSIONS', 'access and approval rules for the station or one agent', { term: 'settings', section: 'permissions' }),
     P('settings-spending', 'SETTINGS › SPENDING LIMITS', 'spending caps, recorded usage, and interrupted runs to settle', { term: 'settings', section: 'budget' }),

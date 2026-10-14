@@ -205,7 +205,7 @@ const CONCEPTS =
   'resumes; /stop stops just one run.\n' +
   '- SPENDING [settings-spending]: caps per run, per agent, per day and overall, in dollars (0 = no cap); a capped day pauses ' +
   'with a one-click RESUME. On StarNet credits a run with no per-run cap still stops at $2; runs on the Commander\'s own key or ' +
-  'subscription do not. Backup models live in SETTINGS › AI & MODELS [settings-ai]. You: station.power {action:"budget.set", ' +
+  'subscription do not. Fallback models live in SETTINGS › AI & MODELS [settings-ai]. You: station.power {action:"budget.set", ' +
   'args:{perDay:5}} (perRun / perAgent / perDay / global; budget.resume the same way; even to lower a cap); station.control ' +
   'fallback.set. Trap: an interrupted run whose spend is unknown waits in SPENDING LIMITS to be SETTLED — the Commander alone ' +
   'settles it (station.settings spending lists it as unsettled). On StarNet credits, money HELD by other live runs (a per-run cap ' +

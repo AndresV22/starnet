@@ -5441,7 +5441,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const set = h.hasStoredCredential ? h.hasStoredCredential(provider)
         : ((h.configured && h.configured(provider)) || !!(h.getKey && h.getKey(provider)));
       // A KEYLESS custom endpoint (vLLM / LM Studio / any no-auth OpenAI-compatible server) still earns its row:
-      // the ✎ STATION LINK editor lives ONLY on this row, so gating it on a stored key froze the endpoint at
+      // the ✎ ENDPOINT URL editor lives ONLY on this row, so gating it on a stored key froze the endpoint at
       // whatever onboarding stored — and REMOVE-ing the last custom key stranded a still-active endpoint with no
       // editor. hasStoredCredential('custom') stays false for it (an endpoint is configuration, not a credential).
       const keylessEp = provider === 'custom' && !!(h.getBaseUrl && h.getBaseUrl('custom'));
@@ -5496,18 +5496,24 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       rerender('settings');
     });
   }
+  /* ONE KEY BOX PER PROVIDER (org P04): a provider whose card shows ＋ ADD KEY / ⏼ SIGN IN takes its key THERE — a second
+     "Add a <provider> key" box under API KEYS left users unsure which one counted. This list-side form survives only for a
+     provider with no such card key (cardOffersAdd false), and CUSTOM never gets one: its card's ＋ ADD KEY takes the
+     endpoint URL (#113). */
+  const ADD_ON_CARD = 'Add a key on a provider card above.';
+  function cardOffersAdd(provider) {
+    const p = PROVIDERS.find(x => x.id === provider);
+    return !!(p && p.live && (providerAcceptsKey(provider) || isOAuthProvider(provider)));
+  }
   function addKeyHtml(provider, empty) {
     provider = provider || 'openrouter';
-    const custom = provider === 'custom';
+    if (provider === 'custom') return '<div class="key-empty"><p>' + ADD_ON_CARD + '</p></div>';
     return '<div class="key-empty">' +
-      '<p>' + (custom
-        ? 'Point StarNet at any OpenAI-compatible endpoint (LM Studio, vLLM, FreeLLMAPI…). The key is optional — many local servers need none.'
-        : empty
+      '<p>' + (empty
           ? 'No API keys connected. Paste a key here to reconnect - it stays on this machine.'
           : 'Add a ' + esc(provName(provider)) + ' key — it stays on this machine.') + '</p>' +
       '<div class="key-edit">' +
-      (custom ? customEndpointInputHtml('base-in-new') : '') +
-      '<input type="password" class="key-input" id="key-in-new" placeholder="paste ' + esc(provName(provider)) + ' key' + (custom ? ' (optional)' : '') + '..." autocomplete="off" spellcheck="false">' +
+      '<input type="password" class="key-input" id="key-in-new" placeholder="paste ' + esc(provName(provider)) + ' key..." autocomplete="off" spellcheck="false">' +
       '<button class="bb sm" data-act="add" data-provider="' + esc(provider) + '">SAVE</button>' +
       '</div></div>';
   }
@@ -5678,7 +5684,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const keys = connectedKeys(), active = activeProv();
     const addProvider = active === 'codex' ? 'openrouter' : active;
     const hasAddProvider = keys.some(k => k.provider === addProvider);
-    if (!keys.length) return providerAcceptsKey(addProvider) ? addKeyHtml(addProvider, true) : '<div class="key-empty"><p>No API keys connected.</p></div>';
+    if (!keys.length) return (cardOffersAdd(addProvider) || !providerAcceptsKey(addProvider)) ? '<div class="key-empty"><p>' + ADD_ON_CARD + '</p></div>' : addKeyHtml(addProvider, true);
 /*
     if (!keys.length) {
       // reachable in-session via REMOVE — let the user reconnect right here, no CONNECT-screen round-trip.
@@ -5757,13 +5763,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           ' · <span class="key-stat">no API key needed</span></div>' +
           '</div></div>';
       }
-      // STATION LINK / base-URL edit (post-onboarding, EL-11 #12): a custom OpenAI-compatible endpoint carries an
+      // ENDPOINT URL / base-URL edit (post-onboarding, EL-11 #12): a custom OpenAI-compatible endpoint carries an
       // editable base URL. Onboarding is the only other place Harness.setBaseUrl is called; without this control the
       // endpoint was frozen at whatever onboarding stored. Only the 'custom' provider uses a base URL, so gate on it.
       const isCustomEp = k.provider === 'custom';
       const poolCount = H() && H().keyPoolSize ? H().keyPoolSize(k.provider) : 0;
       const baseBtn = isCustomEp
-        ? '<button class="bb sm" data-act="baseurl-edit" data-i="' + i + '" title="change this station link / endpoint URL without re-onboarding">✎ STATION LINK</button>'
+        ? '<button class="bb sm" data-act="baseurl-edit" data-i="' + i + '" title="change this endpoint URL without re-onboarding">✎ ENDPOINT URL</button>'
         : '';
       const baseBlock = isCustomEp
         ? '<div class="key-edit" id="base-edit-' + i + '" hidden>' +
@@ -5782,7 +5788,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '</div>' +
         '<div class="key-acts">' +
         '<button class="bb sm" data-act="edit" data-i="' + i + '">✎ UPDATE</button>' +
-        '<button class="bb sm" data-act="pool-edit" data-i="' + i + '">↻ BACKUPS' + (poolCount ? ' (' + poolCount + ')' : '') + '</button>' +
+        '<button class="bb sm" data-act="pool-edit" data-i="' + i + '">↻ SPARE KEYS' + (poolCount ? ' (' + poolCount + ')' : '') + '</button>' +
         baseBtn +
         '<button class="bb sm danger" data-act="rm" data-i="' + i + '">✕ REMOVE</button>' +
         '</div></div>' +
@@ -5791,14 +5797,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '<button class="bb sm" data-act="save" data-i="' + i + '">SAVE</button>' +
         '</div>' +
         '<div class="key-edit" id="pool-edit-' + i + '" hidden>' +
-        '<input type="password" class="key-input" id="pool-in-' + i + '" placeholder="paste backup keys, separated by commas…" autocomplete="off" spellcheck="false">' +
+        '<input type="password" class="key-input" id="pool-in-' + i + '" placeholder="paste spare keys, separated by commas…" autocomplete="off" spellcheck="false">' +
         '<button class="bb sm" data-act="pool-save" data-i="' + i + '">REPLACE POOL</button>' +
         '<button class="bb sm danger" data-act="pool-clear" data-i="' + i + '">CLEAR POOL</button>' +
         '<span class="dim">up to 8 · scoped only to ' + esc(provName(k.provider)) + ' · failed saves restore the prior pool or report an incomplete rollback</span>' +
         '</div>' +
         baseBlock;
     });
-    if (providerAcceptsKey(addProvider) && !hasAddProvider) rows.push(addKeyHtml(addProvider, false));
+    if (providerAcceptsKey(addProvider) && !hasAddProvider && !cardOffersAdd(addProvider)) rows.push(addKeyHtml(addProvider, false));
     return rows.join('');
   }
   // edit-in-place / guarded remove for a stored key. Mirrors the CLEAR arm/confirm pattern
@@ -5907,10 +5913,6 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           return;
         }
         if (!h) return;
-        if (act === 'add' && (b.dataset.provider || activeProv()) === 'custom') {
-          saveCustomEndpoint(body.querySelector('#base-in-new'), body.querySelector('#key-in-new'));
-          return;
-        }
         if (act === 'add') {              // empty-state: connect a first key without leaving the game
           const inp = body.querySelector('#key-in-new');
           const v = inp ? inp.value.trim() : '';
@@ -5944,13 +5946,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         } else if (act === 'pool-save' || act === 'pool-clear') {
           const inp = body.querySelector('#pool-in-' + i);
           const keys = act === 'pool-clear' ? [] : String((inp && inp.value) || '').split(/[\n,;]+/).map(v => v.trim()).filter(Boolean);
-          if (act === 'pool-save' && !keys.length) { notify('paste at least one backup key, or use CLEAR POOL', 'bad'); sfx('bad'); return; }
+          if (act === 'pool-save' && !keys.length) { notify('paste at least one spare key, or use CLEAR POOL', 'bad'); sfx('bad'); return; }
           Promise.resolve(h.validateAndSetKeyPool ? h.validateAndSetKeyPool(keys, row.provider) : h.setKeyPool(keys, row.provider)).then(res => {
             const count = (res && typeof res === 'object') ? Number(res.count) || 0 : res;   // { count, engine } (#89); a bare count from older hosts
-            notify(count ? ('✓ ' + count + ' verified backup key' + (count === 1 ? '' : 's') + ' active only for ' + provName(row.provider)) : ('cleared backup keys for ' + provName(row.provider)), count ? 'good' : 'warn');
+            notify(count ? ('✓ ' + count + ' verified spare key' + (count === 1 ? '' : 's') + ' active only for ' + provName(row.provider)) : ('cleared spare keys for ' + provName(row.provider)), count ? 'good' : 'warn');
             warnIfStationLacksKey(res);   // #89: …and whether the station's copy for routines followed
             rerender('settings');
-          }).catch(err => { notify('✕ ' + ((err && err.message) || 'could not update backup keys'), 'bad'); sfx('bad'); });
+          }).catch(err => { notify('✕ ' + ((err && err.message) || 'could not update spare keys'), 'bad'); sfx('bad'); });
         } else if (act === 'baseurl-edit') {
           const ed = body.querySelector('#base-edit-' + i);
           if (ed) { ed.hidden = !ed.hidden; if (!ed.hidden) { const inp = body.querySelector('#base-in-' + i); if (inp) inp.focus(); } }
@@ -7649,7 +7651,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // MODELS — the ordered FALLBACK CHAIN (P0-3). The primary model is chosen live in the COMMS model dock; this
       // sets what the loop tries NEXT if that model fails mid-run. Persisted server-side + applied live to every run
       // path (browser, cron, channels); env SKYNET_FALLBACK_MODELS is the default until you save one here.
-      '<h4 class="ms-h">Backup models <span class="dim">— tried in order if your primary model fails</span></h4>' +
+      '<h4 class="ms-h">FALLBACK MODELS <span class="dim">— tried in order if your primary model fails</span></h4>' +
       '<p class="set-about">Choose your primary model in COMMS. If it fails mid-run because of availability, authentication, billing, or rate limits, StarNet tries this list from top to bottom. Saved models use your OpenRouter connection, or your StarNet connection when StarNet is the primary provider. <b>An empty list disables fallback.</b> Model changes appear in COMMS and the logbook.</p>' +
       '<div class="mc-form" id="fbc-form">' +
         '<div id="fbc-list" class="mc-list-fb"><div class="dim">reading chain…</div></div>' +
@@ -7987,7 +7989,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let paintBackdropSwatches = () => {};
 
     const sections = [
-      { id: 'providers', label: 'AI & MODELS', glyph: '⌁', desc: 'Connect an AI service, manage its saved credentials, and choose backup models and defaults for new agents.', build: frag(secProviders + secModels) },
+      { id: 'providers', label: 'AI & MODELS', glyph: '⌁', desc: 'Connect an AI service, manage its saved credentials, and choose fallback models and defaults for new agents.', build: frag(secProviders + secModels) },
       // ONE WORD: AUTONOMY — the dial and what it did while you were away are one section (the old NIGHT SHIFT
       // section folded in; openTerm maps its id here so an old deep link still lands).
       { id: 'autonomy', label: 'AUTONOMY', glyph: '◈', desc: 'Choose when agents work on their own, where that work goes, and see what they did while you were away.', build: frag(secAutonomy + secAwayActivity) },

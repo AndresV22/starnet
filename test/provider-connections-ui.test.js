@@ -72,10 +72,18 @@ ok(/const\s+health\s*=\s*providerHealth\[k\.provider\]/.test(station) &&
   'the API-key rows also reserve ACTIVE for probe-proven runnability instead of selection alone');
 ok(!/connected\s*\?\s*connLabel[\s\S]{0,160}p\.id\s*===\s*'ollama'\s*\?\s*'[^']*LOCAL'/.test(station), 'Ollama does not fall through the generic credential status copy');
 
-// GitHub #113 (confirmed live 2026-10-13): a CUSTOM endpoint is added with its URL — both add forms carry the field, the key
-// is optional, and the add copy no longer claims a ChatGPT sign-in on stations that have none
-ok(/customEndpointInputHtml\('base-in-new'\)/.test(station) && /customEndpointInputHtml\('prov-base-in-custom'\)/.test(station), 'both CUSTOM add forms take the endpoint URL');
-ok(/if \(act === 'add' && \(b\.dataset\.provider \|\| activeProv\(\)\) === 'custom'\) \{\s*saveCustomEndpoint\(/.test(station) && /if \(provider === 'custom'\) return saveCustomEndpoint\(/.test(station), 'both CUSTOM saves store the endpoint before any key');
+// GitHub #113 (confirmed live 2026-10-13): a CUSTOM endpoint is added with its URL, the key is optional, and the add copy no
+// longer claims a ChatGPT sign-in on stations that have none. org P04: ONE key box per provider — the CUSTOM card's ＋ ADD KEY
+// is the only CUSTOM add form (the API KEYS twin is gone), and the list-side add row only renders for a provider whose card
+// offers no ＋ ADD KEY / ⏼ SIGN IN of its own.
+ok(/customEndpointInputHtml\('prov-base-in-custom'\)/.test(station) && !/customEndpointInputHtml\('base-in-new'\)/.test(station), 'the CUSTOM card is the one CUSTOM add form, and it takes the endpoint URL');
+ok(/if \(provider === 'custom'\) return saveCustomEndpoint\(/.test(station), 'the CUSTOM save stores the endpoint before any key');
+ok(/if \(provider === 'custom'\) return '<div class="key-empty"><p>' \+ ADD_ON_CARD/.test(station), 'API KEYS never renders a second CUSTOM add form');
+ok(/!hasAddProvider && !cardOffersAdd\(addProvider\)\) rows\.push\(addKeyHtml/.test(station), 'the API KEYS add row is dropped when the provider card offers ＋ ADD KEY / ⏼ SIGN IN');
+ok(/const ADD_ON_CARD = 'Add a key on a provider card above\.'/.test(station) && /if \(!keys\.length\) return \(cardOffersAdd\(addProvider\)/.test(station), 'the empty API KEYS state is one line pointing at the cards');
+ok(/>✎ ENDPOINT URL<\/button>/.test(station) && !/✎ STATION LINK/.test(station), 'the saved CUSTOM row edits its address under ✎ ENDPOINT URL');
+ok(/↻ SPARE KEYS/.test(station) && !/↻ BACKUPS/.test(station), 'the key pool reads ↻ SPARE KEYS, not BACKUPS (STATION BACKUP is a different thing)');
+ok(/retry ✎ ENDPOINT URL before running/.test(harness), 'the desktop endpoint error names the ✎ ENDPOINT URL key');
 ok(!/while keeping your ChatGPT sign-in connected/.test(station), 'the add-key copy never claims a ChatGPT sign-in');
 {
   const src = station.slice(station.indexOf('  function normEndpoint(raw) {'), station.indexOf('  function addKeyHtml('));
