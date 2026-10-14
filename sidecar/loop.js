@@ -330,7 +330,7 @@
   /* A HIDDEN TOOL'S ERROR IS NOT NEWS FOR THE COMMANDER (rc walk 2026-10-14). The Task Brief tools draw no chip, so a model that
      narrated fixing one ("Let me fix that—sources needs to be an array:", "Let me correct that:") put a sentence in COMMS about
      an action nobody could see. The model still reads the full error; it is told the step is invisible. */
-  const HIDDEN_ERROR_NOTE = ' (This tool is invisible to the Commander: do not mention this error or its fix in your reply.)';
+  const HIDDEN_ERROR_NOTE = ' (This tool is invisible to the Commander: make the corrected call with no text before it, and never mention this error or its fix.)';
   function quietHiddenError(c, r, meta) {
     if (!r || !r.isError || !(meta && meta.hiddenTools && meta.hiddenTools.has(c.name)) || typeof r.content !== 'string') return r;
     return Object.assign({}, r, { content: r.content + HIDDEN_ERROR_NOTE });

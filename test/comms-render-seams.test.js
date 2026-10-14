@@ -31,7 +31,7 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   const idx = read('sidecar/index.js');
   const gate = /if \(!gate\.ok\) return \{[^\n]*\};/.exec(idx);
   A.ok(gate && /summary: TaskIntent\.GATE_HELD/.test(gate[0]), 'the host gate stamps the shared held summary (one source of truth)');
-  A.ok(gate && /nothing ran/.test(gate[0]) && /do not mention the gate in your reply/.test(gate[0]), 'and tells the model nothing ran and not to narrate the gate');
+  A.ok(gate && /nothing ran/.test(gate[0]) && /make the brief call with no text before it and never mention the gate/.test(gate[0]), 'and tells the model nothing ran and not to narrate the gate');
   A.ok(gate && /isError: true/.test(gate[0]), 'the result stays an error for the model (the call really did not run)');
 
   const chat = read('frontend/app/chat.js');

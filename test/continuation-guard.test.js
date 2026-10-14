@@ -399,7 +399,7 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
     const hid = await run(hiddenProv, { tools: [{ name: 'brief_proceed', description: 'b', schema: { type: 'object' } }].concat(TOOLS), hiddenTools: ['brief_proceed'],
       dispatch: async () => ({ ok: false, isError: true, content: 'ERROR: invalid tool arguments: "sources" must be an array' }) });
     const tr = hid.messages.find(m => m.role === 'tool');
-    A.ok(/sources" must be an array \(This tool is invisible to the Commander: do not mention this error or its fix in your reply\.\)$/.test(String(tr && tr.content)), 'a hidden tool error carries the invisible-step note: ' + JSON.stringify(tr && tr.content));
+    A.ok(/sources" must be an array \(This tool is invisible to the Commander: make the corrected call with no text before it, and never mention this error or its fix\.\)$/.test(String(tr && tr.content)), 'a hidden tool error carries the invisible-step note: ' + JSON.stringify(tr && tr.content));
     const vis = await run(scripted([toolTurn(9), textTurn('Done.')]), { dispatch: async () => ({ ok: false, isError: true, content: 'boom' }) });
     A.eq(String(vis.messages.find(m => m.role === 'tool').content), 'ERROR: boom', 'a VISIBLE tool error is byte-identical (its chip shows it)');
   }

@@ -21697,7 +21697,7 @@ async function runOnceCore(o) {
       // NOT RUN, NOT FAILED (rc walk 2026-10-14): the summary is the shared held-call stamp (fork.js TaskIntent.GATE_HELD) the
       // chat draws as a neutral not-run chip, and the model is told this is a routine step (it narrated "Ah, I need to settle
       // the brief first" over a red ✗ team.dispatch chip).
-      if (!gate.ok) return { ok: false, isError: true, content: 'Task Brief gate: nothing ran. ' + gate.reason + ', then make this same call again. This is a routine step: the Commander sees your brief as its own card, so do not mention the gate in your reply.', summary: TaskIntent.GATE_HELD };
+      if (!gate.ok) return { ok: false, isError: true, content: 'Task Brief gate: nothing ran. ' + gate.reason + ', then make this same call again. This is a routine step: the Commander sees your brief as its own card, so make the brief call with no text before it and never mention the gate.', summary: TaskIntent.GATE_HELD };
     }
     /* EVIDENCE-PROGRESS GUARD. The old loop guard below catches an identical call only when it FAILS. The
        live Drive incident spent 100+ calls on nominal successes (same page text, fresh refs, "clicked", parked
