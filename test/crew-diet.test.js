@@ -36,7 +36,7 @@ A.ok(/const crewless = CrewDiet\.isCrewlessLead\(\{[^}]*tools: resolved\.tools[^
 A.ok(index.indexOf('crewless ? CrewDiet.CREW_KIT_DEFERRED : []') >= 0, 'index.js: a crewless lead defers exactly CREW_KIT_DEFERRED');
 // every deferred name has a reveal producer, so none needs a search after the action that makes it useful
 const orch = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'tools', 'builtin', 'orchestration.js'), 'utf8');
-A.ok(/control: \{ revealTools: \['team\.dispatch'\] \}/.test(orch), 'team.summon\'s result reveals team.dispatch');
+A.ok(/control: \{ revealTools: \['team\.dispatch', 'station\.control'\] \}/.test(orch), 'team.summon\'s result reveals team.dispatch (and station.control, which seats the new hire in this chat)');
 A.eq((orch.match(/control: \{ revealTools: BACKGROUND_CONTROLS\.slice\(\) \}/g) || []).length, 2, 'background team.dispatch and team.spawn results reveal the controls');
 const bg = (orch.match(/BACKGROUND_CONTROLS = Object\.freeze\(\[([^\]]*)\]\)/) || [])[1] || '';
 A.eq(bg.replace(/['\s]/g, '').split(',').sort().join(','), CREW_KIT_DEFERRED.filter(n => n !== 'team.dispatch').slice().sort().join(','),

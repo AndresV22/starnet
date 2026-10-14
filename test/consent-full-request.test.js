@@ -14,7 +14,7 @@ const group = fs.readFileSync(require.resolve('../frontend/app/group-chat.js'), 
 function extract(src, start, end) { const i = src.indexOf(start); assert.ok(i >= 0, 'missing ' + start); return src.slice(i, src.indexOf(end, i)); }
 
 const sidecar = { redact: require('../sidecar/context.js').redact };
-vm.createContext(sidecar); vm.runInContext(extract(backend, 'function consentSummary(call)', 'function throttleSearch'), sidecar);
+vm.createContext(sidecar); vm.runInContext(extract(backend, 'function consentSummary(call, where)', 'function throttleSearch'), sidecar);
 const card = {};
 vm.createContext(card); vm.runInContext(extract(chat, 'function glance(', '  function clarifyRow('), card);
 
@@ -63,6 +63,29 @@ test('the desk card: a glance line in the phrase, the whole request in INSPECT',
   assert.equal(card.actionPhrase({ tool: 'team.dispatch', argsSummary: '{"background":true,"workers":[{"agentId":"researcher","prompt":"a"},{"agentId":"writer","prompt":"b"},{"agentId":"designer","pro' }),
     'hand work to researcher, writer and designer (in the background)');
   assert.equal(card.actionPhrase({ tool: 'team.dispatch', argsSummary: '{"background":false}' }), 'hand work to the crew');
+  /* THE CARD SAYS WHO GETS WHAT (rc walk 10-14: "NOVA wants to hand work to COPY and STRATEGY", the tasks raw JSON under
+     Inspect). On the card itself each worker's task rides beside its name; every other surface keeps the short line. */
+  const launch = { tool: 'team.dispatch', argsSummary: JSON.stringify({ background: true, workers: [
+    { agentId: 'copywriter', prompt: 'Write a launch post for StarNet 0.13.5, a local-first AI agent station with a pixel-art UI. Keep it under 120 words.' },
+    { agentId: 'strategist', prompt: 'Critique the positioning.\nName the one claim to cut.' }] }, null, 2) };
+  assert.equal(card.actionPhrase(launch, true), 'hand copywriter “Write a launch post for StarNet 0.13.5, a local-first AI agent…” and strategist “Critique the positioning” (in the background)');
+  assert.equal(card.actionPhrase(launch), 'hand work to copywriter and strategist (in the background)', 'toasts, the bell and NEEDS YOU keep the short line');
+  const four = { tool: 'team.dispatch', argsSummary: JSON.stringify({ workers: ['a', 'b', 'c', 'd'].map(id => ({ agentId: id, prompt: 'Task for ' + id + ' with a fairly long description that keeps going' })) }) };
+  const many = card.actionPhrase(four, true);
+  assert.match(many, /^hand a “Task for a with a fairly long description…”, b “[^”]+”, c “[^”]+” and 1 more$/, 'four workers: three tasks and a count, never a wall: ' + many);
+  assert.equal(card.actionPhrase({ tool: 'team.dispatch', argsSummary: '{"background":true,"workers":[{"agentId":"researcher","prompt":"a"},{"agentId":"wri' }, true),
+    'hand work to researcher (in the background)', 'a capped summary falls back to the names it can read');
+  assert.equal(card.actionPhrase({ tool: 'team.spawn', argsSummary: JSON.stringify({ tasks: [{ prompt: 'Check the API docs.' }, { prompt: 'Check the SDK.' }] }) }, true),
+    'run 2 copies of itself on “Check the API docs” and “Check the SDK”', 'a spawn is copies of the lead, never "the crew"');
+  // the file a task names is its deliverable: a cut keeps it, losing the middle instead (review 10-14: "…into a file called…")
+  const tagline = { tool: 'team.dispatch', argsSummary: JSON.stringify({ background: true, workers: [
+    { agentId: 'copywriter', prompt: 'Write a 2-line launch tagline for StarNet 0.13.5 into a file called tagline.md.' },
+    { agentId: 'strategist', prompt: 'Review the positioning of the StarNet 0.13.5 launch and name the one claim to cut.' }] }) };
+  assert.equal(card.actionPhrase(tagline, true), 'hand copywriter “Write a 2-line launch tagline for StarNet 0.13.5 into a … tagline.md” and strategist “Review the positioning of the StarNet 0.13.5 launch and name the one…” (in the background)');
+  assert.doesNotMatch(card.actionPhrase({ tool: 'team.dispatch', argsSummary: JSON.stringify({ workers: [{ agentId: 'a', prompt: 'Compare version 0.13.5 against 0.13.2 and list every regression you can find in the notes' }] }) }, true), / … 0\.13/, 'a version number is not a file');
+  // a goal loop says what it repeats toward (it read "use loop create: …")
+  assert.equal(card.actionPhrase({ tool: 'loop.create', argsSummary: JSON.stringify({ objective: 'Write and refine the final 2-sentence launch post', exitOn: 'never' }) }),
+    'start a goal loop: Write and refine the final 2-sentence launch post');
 });
 
 test('cards the sidecar words itself, and a short bare value, get no panel; file changes keep theirs', () => {
@@ -403,4 +426,13 @@ test('a conversation question declined elsewhere says declined, never answered',
   const g = clarificationFixture('conversation');
   g.listeners.get('permission.response')({ promptId: 'q1', decision: 'once', via: 'voice' });
   assert.deepEqual(g.settledWith, ['Answered by voice']);
+});
+
+// the tool row above a dispatch card reads WHO it hands work to, never the capped JSON (review 10-14)
+test('a team.dispatch tool row names the workers', () => {
+  const rail = { App: { agentName: id => ({ copywriter: 'COPY', strategist: 'STRATEGY' })[id] || '' } };
+  vm.createContext(rail); vm.runInContext(extract(chat, '  function brief(s)', '\n  // NOTIFICATIONS THAT MEAN SOMETHING') + '\n' + extract(chat, '  let toolRail = null;', '  function ensureToolRail()'), rail);
+  assert.equal(rail.argDigest('{"background":true,"workers":[{"agentId":"copywriter","prompt":"Write a 2-line launch tagline for StarNet 0.13.5 into a file called ta', 'team_dispatch'), 'COPY … · background', 'a capped summary marks the cut, without inventing more workers');
+  assert.equal(rail.argDigest('{"workers":[{"agentId":"copywriter","prompt":"a"},{"agentId":"strategist","prompt":"b"}]}', 'team.dispatch'), 'COPY, STRATEGY');
+  assert.equal(rail.argDigest('{"path":"src/app.js","content":"x', 'fs_write'), 'src/app.js', 'every other tool keeps its salient argument');
 });

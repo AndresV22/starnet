@@ -67,7 +67,8 @@
       freshConsent: def.freshConsent === true,
       // never held behind an unsettled Task Brief (taskbrief-policy canMutate) — station setup such as team.summon. Dropped here
       // until 2026-10-14, so the gate read the REGISTERED tool and still refused every hire (live proof, final-rc-seams lane)
-      // A function is an action-aware exemption: (args) => exempt? (station.control's setup actions only)
+      // A function is an action-aware exemption: (args) => exempt? (station.control's setup actions only — seating crew in this
+      // chat, a rename, the look, an e-stop — while its other actions still wait for the brief)
       briefExempt: typeof def.briefExempt === 'function' ? def.briefExempt : def.briefExempt === true,
       timeoutMs: def.timeoutMs || 0,
       preconditions: normalizePreconditions(def.preconditions),

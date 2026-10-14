@@ -2879,9 +2879,18 @@ const Chat = (() => {
     }
     return out;
   }
-  function argDigest(argsSummary) {
+  function argDigest(argsSummary, tool) {
     const raw = String(argsSummary == null ? '' : argsSummary).trim();
     if (!raw) return '';
+    // A HAND-OFF READS AS WHO (review 10-14: the team.dispatch row above the approval card showed
+    // '{"background":true,"workers":[{"agentId":"copywrit…'). Ids by pattern (the summary is capped), shown by name.
+    if (/^team\.dispatch$/.test(shortName(tool))) {
+      const ids = [...new Set([...raw.matchAll(/"agentId"\s*:\s*"([^"]+)"/g)].map(m => m[1]))];
+      // a capped summary may hold more workers than it shows: mark the cut ("LENS …") — never imply LENS was the only one,
+      // and never invent a second one either (", …" read as more workers on a one-worker hand-off, live 10-14)
+      let whole = true; try { JSON.parse(raw); } catch (_) { whole = false; }
+      if (ids.length) return brief(ids.map(id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id).join(', ') + (whole ? '' : ' …') + (/"background"\s*:\s*true/.test(raw) ? ' · background' : ''));
+    }
     const pairs = argPairs(raw);
     for (const k of ARG_KEYS) { const v = pairs.get(k); if (v) return brief(v); }
     if (pairs.size === 1) { const v = pairs.values().next().value; if (v) return brief(v); }
@@ -2925,7 +2934,7 @@ const Chat = (() => {
     const nm = document.createElement('span'); nm.className = 'tc-name'; nm.textContent = flav ? flav.label : shortName(ev.name);
     // for a flavored skill chip the human phrase already carries the skill name, so the raw args stay in the
     // expand detail only (kept below) — the chip head is clean.
-    const args = document.createElement('span'); args.className = 'tc-args'; args.textContent = flav ? '' : argDigest(ev.argsSummary);
+    const args = document.createElement('span'); args.className = 'tc-args'; args.textContent = flav ? '' : argDigest(ev.argsSummary, ev.name);
     const stat = document.createElement('span'); stat.className = 'tc-stat'; stat.textContent = '';   // filled by resolveChip
     const exp = document.createElement('span'); exp.className = 'tc-exp'; exp.setAttribute('aria-hidden', 'true'); exp.textContent = '▸';   // disclosure chevron (rotates when open)
     head.appendChild(glyph); head.appendChild(nm); if (args.textContent) head.appendChild(args); head.appendChild(stat); head.appendChild(exp);
@@ -3569,7 +3578,7 @@ const Chat = (() => {
       if (fig) host.appendChild(fig);
     }
   }
-  function actionPhrase(ev) {
+  function actionPhrase(ev, detail) {   // detail: the approval card itself (room for what each worker is handed)
     const t = ev.tool || 'act';
     // a PLUGIN tool (plugin__<id>__<tool>): say whose code it is before what it does — checked first, so a plugin
     // tool that happens to be named like a built-in (edit_*, *notebook*) can never borrow a built-in's phrasing
@@ -3642,9 +3651,39 @@ const Chat = (() => {
     // Read the ids by pattern: argsSummary may be clipped mid-object.
     if (/^team[._](?:dispatch|spawn)$/.test(t)) {
       const s = String(ev.argsSummary || ''), ids = [...new Set([...s.matchAll(/"agentId"\s*:\s*"([^"]+)"/g)].map(m => m[1]))];
-      const names = ids.map(id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id);
-      const who = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0] || 'the crew';
-      return 'hand work to ' + who + (/"background"\s*:\s*true/.test(s) ? ' (in the background)' : '');
+      const nameOf = id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
+      const and = list => list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list[0] || '';
+      const bg = /"background"\s*:\s*true/.test(s) ? ' (in the background)' : '';
+      /* THE CARD SAYS WHO GETS WHAT (rc walk 10-14: "NOVA wants to hand work to COPY and STRATEGY" — the tasks were raw JSON
+         under Inspect). On the card itself (`detail`) each worker's task rides beside its name, its first sentence at a
+         glance — the shorter the more workers; the toast, the bell and NEEDS YOU keep the short line. The whole request is
+         still one click away in INSPECT. A summary that does not parse (capped) falls back to the names. */
+      const o = detail ? requestArgs(s) : null;
+      const jobs = o ? (Array.isArray(o.workers) ? o.workers : Array.isArray(o.tasks) ? o.tasks : []).filter(w => w && typeof w.prompt === 'string' && w.prompt.trim()) : [];
+      if (jobs.length) {
+        const n = Math.max(36, Math.floor(140 / Math.min(jobs.length, 3)));
+        // its first sentence when that fits, else cut at a word (never "statio…")
+        // …and the file a task names is its deliverable: when the cut would lose it, the middle goes instead (review 10-14:
+        // "…into a file called…" lost tagline.md)
+        const FILE = /(?:[\w-]+[\\/])*[\w-][\w.-]*\.(?:md|markdown|txt|html?|css|m?js|cjs|tsx?|jsx|json|ya?ml|csv|tsv|py|rb|go|rs|java|sh|ps1|sql|xml|svg|png|jpe?g|gif|webp|pdf|docx?|xlsx?|pptx?|mp3|wav|mp4|zip)(?![\w-])/i;
+        const task = p => {
+          const one = p.replace(/\s+/g, ' ').trim(), cut = one.search(/[.!?](?:\s|$)/), s = cut > 12 && cut < n ? one.slice(0, cut) : one;
+          if (s.length <= n) return '“' + s + '”';
+          const file = (one.match(FILE) || [''])[0], room = file && file.length < n / 2 ? n - file.length - 2 : n;
+          const sp = s.lastIndexOf(' ', room - 1);
+          const head = s.slice(0, sp > room * 0.6 ? sp : room - 1).replace(/[\s,;:]+$/, '');
+          return '“' + head + (room < n && head.indexOf(file) < 0 ? ' … ' + file : '…') + '”';
+        };
+        const shown = jobs.slice(0, 3), more = jobs.length - shown.length;
+        if (/spawn$/.test(t)) return 'run ' + (jobs.length > 1 ? jobs.length + ' copies' : 'a copy') + ' of itself on ' + and(shown.map(w => task(w.prompt)).concat(more ? [more + ' more'] : [])) + bg;
+        return 'hand ' + and(shown.map(w => nameOf(String(w.agentId || 'the crew')) + ' ' + task(w.prompt)).concat(more ? [more + ' more'] : [])) + bg;
+      }
+      return 'hand work to ' + (and(ids.map(nameOf)) || 'the crew') + bg;
+    }
+    // A GOAL LOOP (rc walk 10-14: the card read "use loop create: Write and refine…"): what it repeats toward, in words
+    if (/^loop[._]create$/.test(t)) {
+      const o = requestArgs(ev.argsSummary) || {}, what = [o.objective, o.name].find(v => typeof v === 'string' && v.trim());
+      return 'start a goal loop' + (typeof o.agentId === 'string' && o.agentId.trim() ? ' for ' + ((typeof App !== 'undefined' && App.agentName && App.agentName(o.agentId)) || o.agentId) : '') + (what ? ': ' + glance(what, 90) : '');
     }
     // THE STATION BUILDER (2026-09-29): the card IS the plan — what gets built, where, who works each step. The sidecar
     // sends the plan's own summary (its dry run on a copy of the station), never the model's words.
@@ -4029,7 +4068,7 @@ const Chat = (() => {
       return null;
     }
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent'); r.d.dataset.liveAsk = '1';
-    r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p) + ' '));
+    r.body.appendChild(document.createTextNode('▣ ' + ((p && p.workerAgentId) ? askerName(p, ws) : name) + ' wants to ' + actionPhrase(p, true) + ' '));
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     let decided = false, submitting = false, received = null, applyElsewhere = null;
     async function decide(decision, doneLabel, isDeny) {

@@ -564,7 +564,8 @@ function makeGroupSessions(d) {
             const answer = await new Promise(resolve => {
               let timer;
               const finish = value => { clearTimeout(timer); pending.delete(promptId); ac.signal.removeEventListener('abort', onAbort); resolve(value); };
-              const onAbort = () => { stoppedFirst = true; finish('deny'); };
+              // a stopped turn withdraws its ask: 'cancelled' (the broker's withdrawn result), never the Commander's "no"
+              const onAbort = () => { stoppedFirst = true; finish('cancelled'); };
               pending.set(promptId, { id, turnId: t.id, finish, tool: fields.tool, argsFull: argsFull && typeof argsFull.text === 'string' ? argsFull : null });
               // nobody answered in 5 minutes: a TIMEOUT (the broker says "nobody answered in time"), never the Commander's "no"
               timer = setTimeout(() => finish('timeout'), 300000);

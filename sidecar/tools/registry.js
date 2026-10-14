@@ -498,6 +498,12 @@
         try { c = await ctx.consent(call, tool); } catch (e) { c = { allow: false, reason: 'consent error' }; }
         // a TIMED-OUT approval is not a refusal: name it as what happened, or the model reports "you declined"
         if (c && !c.allow && c.timedOut) return errResult('approval timed out for ' + call.name + ': the Commander did not answer the approval request in time, so it was NOT run. This was not a refusal — tell them it timed out and that they can ask again to retry. Do NOT retry it yourself.', 'denied');
+        /* the Commander's own No (reason 'denied', permissions.js): the model repeats a result's framing, and "consent denied"
+           came back to the Commander as "The Commander declined the dispatch" (rc walk 10-14) — they ARE the Commander. Say
+           who said no and how to say it to them; any other refusal (no channel, unattended, a hard line) keeps its reason. */
+        if (c && !c.allow && c.reason === 'denied') return errResult('consent denied for ' + call.name + ': the Commander said no on the approval card, so it was NOT run. Do NOT retry it or work around it; carry on without it. If you mention it, say it to them as "you" ("you declined …").', 'denied');
+        // withdrawn before anyone answered (the run stopped): never a No — the model must not say they declined
+        if (c && !c.allow && c.cancelled) return errResult('approval withdrawn for ' + call.name + ': the request ended before anyone answered it, so it was NOT run. Nobody said no; do NOT retry it yourself.', 'cancelled');
         if (!c || !c.allow) return errResult('consent denied for ' + call.name + (c && c.reason ? ': ' + c.reason : ''), 'denied');
       }
 

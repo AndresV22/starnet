@@ -236,6 +236,8 @@
       // nobody answered before the fail-closed timer (consentwait timeoutDecision): still NOT allowed, but marked so the
       // tool result says "timed out", never "the Commander declined" — the model used to tell users they had refused
       if (decision === 'timeout') return { allow: false, scope: scope, timedOut: true, reason: 'approval timed out — nobody answered in time' };
+      // the ask was withdrawn before anyone answered (its run stopped: consentwait abortDecision) — CLOSED, and not a No
+      if (decision === 'cancelled') return { allow: false, scope: scope, cancelled: true, reason: 'approval withdrawn — the request ended before anyone answered' };
       // a fresh-consent tool never leaves a standing grant behind: any yes approves this one call only
       if (tool && tool.freshConsent === true) {
         return /^(?:session|always|full)$/.test(String(decision)) ? { allow: true, scope: scope, reason: 'granted once' } : { allow: false, scope: scope, reason: 'denied' };
