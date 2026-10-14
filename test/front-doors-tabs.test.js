@@ -61,4 +61,7 @@ A.ok(/^\.thumb-down \.thumb-px \{ transform: rotate\(180deg\); \}/m.test(appCss)
   ctx.toggleFamily('automate');
   A.eq(ctx.opened.pop(), 'automate:workflows', 'a menu with no `first` still opens its first tab');
 }
+// org D9 (10-14): a door that moves an OPEN menu window to another section (AWAY WORK while SCHEDULES shows) lights that tab too
+A.ok(/if \(open\[key\]\) \{ if \(minimized\[key\]\) restoreTerm\(key\); if \(section\) \{ rerender\(key\); syncFamilyTabs\(open\[key\], key\); \} return; \}/.test(ui),
+  'openTerm on an open window re-syncs the menu tab strip after it re-renders the section');
 A.report('front-doors-tabs');

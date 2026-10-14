@@ -11785,7 +11785,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // optional section arg (Lane A error-door routing): land the console rail on a specific section — same
     // mechanism as the dossier's "jump to CONFIG" (consoleSection is what mountConsole reads at render).
     if (section) consoleSection[key] = section;
-    if (open[key]) { if (minimized[key]) restoreTerm(key); if (section) rerender(key); return; }   // minimized → restore, not duplicate
+    // minimized → restore, not duplicate. A door that moves an open menu window to another section (AWAY WORK while
+    // SCHEDULES shows) lights that section's tab too — the strip otherwise only followed clicks inside the window
+    if (open[key]) { if (minimized[key]) restoreTerm(key); if (section) { rerender(key); syncFamilyTabs(open[key], key); } return; }
     // ONE MENU: a link to a sibling of a menu window that is already showing (OUTBOX → DELIVERABLES, ABILITIES →
     // CHANNELS, a schedule draft while WORKFLOWS is up) switches that window's tab in place — never a second window
     const fam = familyOf(key);
