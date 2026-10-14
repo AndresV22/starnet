@@ -53,7 +53,7 @@ global.fetch=async(url,opts)=>{
   // a lift that saved a rung where nothing acts unattended (WAIT / SUGGEST) never promises away work (P06 review)
   global.StationUI.initiativeLabel=id=>({wait:'WAIT',propose:'SUGGEST'})[id]||id;
   notes.length=0;await S.setInitiative('wait');await S.applyPreset('suggest');
-  assert.deepEqual(notes,[['AUTOMATION RESUMED: schedules run again; away work stays off while ON ITS OWN is WAIT','good'],['AUTOMATION RESUMED: schedules run again; away work stays off while ON ITS OWN is SUGGEST','good']],'a lift at WAIT or SUGGEST says away work stays off');
+  assert.deepEqual(notes,[['SCHEDULES RESUMED: away work stays off while ON ITS OWN is WAIT','good'],['SCHEDULES RESUMED: away work stays off while ON ITS OWN is SUGGEST','good']],'a lift at WAIT or SUGGEST says away work stays off');
   global.fetch=plain;delete global.StationUI;
   // the route's haltLifted is TRUE only when this write cleared a standing halt (nightshift halted, or liftCronHalt() lifted one)
   const idx=require('fs').readFileSync(require('path').join(__dirname,'..','sidecar','index.js'),'utf8');
