@@ -8955,7 +8955,10 @@ const World = (() => {
     if (!Array.isArray(snap.runs) && !Array.isArray(snap.prompts)) return snap;
     const ts = +snap.ts || 0;
     const out = Object.assign({}, snap);
-    if (Array.isArray(snap.runs)) out.activeRuns = snap.runs.map(r => r && r.agentId ? {
+    // the harness's own SELF-TALK (a title, a session recommendation, a judge — row.internal) is never the agent at work:
+    // read as an orphan live run it sat NOVA at its desk WORKING with a RUN clock, and its leaked refcount kept NOVA working
+    // past a STOP of its real run until the next reconcile (live walk 2026-10-14). HUD mode skips these rows the same way.
+    if (Array.isArray(snap.runs)) out.activeRuns = snap.runs.filter(r => !(r && r.internal === true)).map(r => r && r.agentId ? {
       agentId: r.agentId,
       runId: r.runId || null,
       startedMsAgo: (ts && +r.startedAt) ? Math.max(0, ts - (+r.startedAt)) : 0

@@ -64,4 +64,17 @@ const fn = n => A.fnBody(src, 'function ' + n + '(');
   A.eq(c.y, a.y, 'a far-away desk\'s clock is not moved');
 }
 
+// ── 4. the station's own side prompts never light the hero as working (and so never hold it "working" after STOP) ──
+// Live (2026-10-14, isolated station): opening a new session fired the INTERNAL session-recommendations prompt; the 30 s
+// snapshot reconcile read that run as an orphan live run of NOVA, sat it at its desk WORKING with a RUN clock, and the
+// leaked refcount then kept NOVA working past a STOP of its real run until the next reconcile.
+{
+  const norm = Function(`${fn('normalizeSnapshot')}return normalizeSnapshot;`)();
+  const out = norm({ ts: 10000, runs: [
+    { runId: 'side', agentId: 'agent', startedAt: 9000, internal: true },
+    { runId: 'real', agentId: 'agent', startedAt: 8000 }
+  ], prompts: [] });
+  A.eq(out.activeRuns.map(r => r.runId), ['real'], 'a self-talk run (internal) is not a live run of the agent; the real one is');
+}
+
 A.report('world-await-tags.test');
