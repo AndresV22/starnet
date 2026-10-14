@@ -338,11 +338,23 @@ test('a phone answer graded "always" on a station.power card still settles as ap
 for (const decision of ['always', 'full']) test('a plugin.submit card offers only a yes and a no, and a "' + decision + '" answer settles as approved once', () => {
   const f = permissionFixture('plugin.submit');
   const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
-  assert.deepEqual(buttons.children.map(b => b.textContent), ['Approve once', 'Deny'], 'no Always, no Full access on a card the station answers once');
+  assert.deepEqual(buttons.children.map(b => b.textContent), ['Approve once', 'Deny'], 'no Always, no Never ask on a card the station answers once');
   f.listeners.get('permission.response')({ promptId: f.p.promptId, decision });
   const tag = f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent;
   assert.equal(tag, '✓ approved once from your phone');
-  assert.ok(!/always allowed|full access/.test(tag), 'the receipt claims no standing grant: ' + tag);
+  assert.ok(!/always allowed|never asks|full access/.test(tag), 'the receipt claims no standing grant: ' + tag);
+});
+
+/* ONE ACCESS (org pass 10-14, P08): the strongest key only sets approvalMode — the agent's reach is unchanged, so
+   SETTINGS › PERMISSIONS then reads CUSTOM. It is labelled for what it does, "Never ask", and settles "✓ never asks";
+   FULL POWER stays reserved for the answer that also sets reach. */
+test('a general approval card offers Never ask (not Full access) and settles in those words', () => {
+  const f = permissionFixture('fs.read');
+  const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
+  assert.deepEqual(buttons.children.map(b => b.textContent), ['Approve once', 'Always', 'Never ask', 'Deny'], 'the standing key reads Never ask');
+  assert.ok(!buttons.children.some(b => /full access|full power/i.test(String(b.textContent) + ' ' + String(b.title || ''))), 'no key or tip borrows the FULL POWER / full access name');
+  f.listeners.get('permission.response')({ promptId: f.p.promptId, decision: 'full' });
+  assert.equal(f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✓ never asks from your phone', 'the receipt names what was applied');
 });
 
 // THE COMPOSER ANSWERS THE QUESTION (live walkthrough 2026-10-13): a lead's open question registers an answerer, so

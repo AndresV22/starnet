@@ -183,7 +183,7 @@ const BUILTIN_COMMANDS = Object.freeze([
   Object.freeze({
     name: 'yolo',
     category: 'Configuration',
-    desc: 'toggle full-access approval mode',
+    desc: 'toggle never-ask',
     argsHint: '[on|off]',
     action: 'yolo'
   }),

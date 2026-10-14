@@ -70,6 +70,21 @@ ok(/function accessAnswerCard\(a\)/.test(src) && /agSkills\(a\.id\) \+ accessAns
 ok(/<details class="cf-access-more"[\s\S]{0,200}executionProfileCard\(a\) \+ approvalCard\(a\)/.test(src), 'the exact reach ladder + asking pair fold under MORE OPTIONS in the dossier');
 ok(/accWrap\.querySelectorAll\('\[data-access-posture\]'\)/.test(src) && /if \(P\.id === 'open'\) ArmConfirm\.wire\(chip/.test(src), 'dossier answers apply through the same paths with a two-press FULL POWER');
 
+// ONE ACCESS (org pass 10-14, P08): FULL POWER is reserved for the answer that ALSO sets reach. The folded asking
+// pair only sets approvalMode, so it reads ASKS FIRST / NEVER ASKS (two-press, whole-computer tip); /yolo is named
+// as its shortcut; and a posture notice names the ON ITS OWN rung it also set, by the dial's rendered label.
+{
+  const ap = /function approvalCard\(a\) \{[\s\S]*?\n  \}\n/.exec(src);
+  ok(!!ap, 'the dossier asking pair is still its own card');
+  ok(ap && /chip\('ask', 'ASKS FIRST'/.test(ap[0]) && /chip\('full', 'NEVER ASKS', '[^']*whole local computer/.test(ap[0]), 'the fold reads ASKS FIRST / NEVER ASKS, and NEVER ASKS warns it covers the whole computer');
+  ok(ap && !/ASK FOR APPROVAL|'FULL POWER'/.test(ap[0]), 'the fold never borrows the FULL POWER answer name');
+  ok(ap && /<code>\/yolo<\/code> is the never-ask shortcut/.test(ap[0]), 'the fold names /yolo as the never-ask shortcut');
+  ok(/chip\.textContent = 'NEVER ASKS — SURE\?'/.test(src), 'NEVER ASKS keeps its two-press confirm');
+  ok(/r\.levelSet && postureRung\(P\) \? ' — also set ON ITS OWN to ' \+ postureRung\(P\)/.test(src) && /levelSet: !!\(snap && snap\.level === P\.level\)/.test(src) &&/Permissions\.levelPlan\(P\.level\)/.test(src) && /initiativeLabel\(preset\.initiative\)/.test(src),
+    'a PERMISSIONS posture notice names the ON ITS OWN rung it set (level → preset → the dial label)');
+  ok(/accessPostures: \(\) => STATION_POSTURES\.map/.test(src), 'StationUI exports the ONE access table the create screen reads');
+}
+
 // ── the plain-language pass (2026-08-07) ──
 // AT A GLANCE: the pane opens with ONE ordinary sentence about the station's real posture, counted from
 // the same live records the rows render — never a fixed string, never a claim the roster can't back.

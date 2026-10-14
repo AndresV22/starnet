@@ -2100,8 +2100,9 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 .ov-req { color: var(--gold); font-size: 11px; letter-spacing: 1px; vertical-align: 1px; margin-left: 8px; }
 
 .ov-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-.ov-cards.ov-approve { grid-template-columns: 1fr 1fr; }
-.ov-approve .ov-card { padding: 11px 13px 10px; }
+/* HOW MUCH CAN IT DO? — the three access answers side by side (org pass 10-14: was a two-card ASK / FULL pair) */
+.ov-cards.ov-approve { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ov-approve .ov-card { padding: 10px 10px 9px; }
 .ov-approve .ov-card-ds { font-size: 12.5px; margin-top: 3px; }
 .ov-card {
   font: inherit; position: relative; border: 1px solid var(--ph-faint); border-radius: 6px;
@@ -2118,6 +2119,9 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 .ov-card-ds { color: var(--ph-dim); font-size: 12px; letter-spacing: .2px; line-height: 1.12; margin-top: 2px; }
 .ov-card-pick { position: absolute; top: 6px; right: 8px; color: var(--gold); font-size: 13px; opacity: 0; }
 .ov-card.sel .ov-card-pick { opacity: 1; }
+/* FULL POWER's two-press arm on the create screen: the warn face the armed chips wear, until the second press */
+.ov-card.armed { border-color: var(--warn); box-shadow: inset 0 1px 0 rgba(var(--ph-rgb),.1), 0 0 10px color-mix(in srgb, var(--warn) 40%, transparent), 0 1px 0 rgba(0,0,0,.35); }
+.ov-card.armed .ov-card-nm, .ov-card.armed .ov-card-ic { color: var(--warn); }
 .ov-crewnote { margin-top: 8px; color: var(--ph-dim); font-size: 12px; letter-spacing: .3px; }
 .ov-crewnote b { color: var(--ph); }
 
@@ -2252,6 +2256,9 @@ input.field-locked { opacity: .55; filter: none; cursor: not-allowed; background
   .ov-hero { border-right: none; border-bottom: 1px solid var(--ph-faint); }
   .ov-col-brain { border-top: none; }
   .ov-cards { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 520px) {
+  .ov-cards.ov-approve { grid-template-columns: 1fr; }   /* phone width: the three answers stack, each still readable */
 }
 .skin-picker {
   flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px;

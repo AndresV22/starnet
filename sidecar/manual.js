@@ -84,7 +84,7 @@ const NAV_REST =
   'class), or use the ＋ BUILD A CUSTOM CLASS tile to define their own. The new agent materializes on ' +
   'the floor.\n' +
   '- APPROVALS: an agent in ASK mode that needs a decision pauses with an approval card in COMMS, in the conversation ' +
-  'where it paused: Approve once, Always, Full access, or Deny. NOTIFICATIONS › NEEDS YOU lists every one still waiting.\n';
+  'where it paused: Approve once, Always, Never ask, or Deny. NOTIFICATIONS › NEEDS YOU lists every one still waiting.\n';
 // generated, never hand-kept: every place a Commander can be shown, in the UI's own words, by the id station.show takes
 const NAV_PLACES = 'EVERY PLACE (the id station.show takes → the UI\'s words — what it is for):\n'
   + Places.PLACES.map(p => '- ' + p.id + ' → ' + p.words + ' — ' + p.about + '\n').join('');
@@ -193,7 +193,7 @@ const CONCEPTS =
   '- ACCESS (one setting, three answers): CHECK WITH ME (asks first, only placed gear), LET IT WORK (asks first, works in approved ' +
   'project folders), FULL POWER (never asks, the whole computer). Set station-wide or per agent in SETTINGS › PERMISSIONS ' +
   '[settings-permissions]; per agent also in dossier CONFIG [agent-config]. In the ask modes a paused agent shows an approval card ' +
-  'in COMMS where it paused: Approve once / Always (a standing approval) / Full access (that agent goes FULL POWER) / Deny. ' +
+  'in COMMS where it paused: Approve once / Always (a standing approval) / Never ask (that agent stops asking for approval) / Deny. ' +
   'NOTIFICATIONS › NEEDS YOU lists every card waiting. You: station.control to narrow access, station.power to widen it. Trap: you ' +
   'can never answer an approval card yourself.\n' +
   '- AUTONOMY [settings-autonomy]: how much agents do ON THEIR OWN (WAIT / SUGGEST / BUILD / FREE) while the Commander is away; ' +

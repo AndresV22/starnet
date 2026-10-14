@@ -3530,7 +3530,7 @@ const Chat = (() => {
     }
     // NS-5 conversational path trust: a file was referenced OUTSIDE the agent's workspace — "Always" blesses
     // the whole project folder for future reads (revocable in Permissions); argsSummary is the proposed root.
-    if (t === 'path.trust') return 'work with files in ' + (ev.argsSummary || 'a project folder') + ' (reads; "Always" or "Full access" trusts it for later)';
+    if (t === 'path.trust') return 'work with files in ' + (ev.argsSummary || 'a project folder') + ' (reads; "Always" or "Never ask" trusts it for later)';
     // ATTENDED BROWSER LOGIN: two-phase takeover. Phase 1 asks to open a visible Chrome window the COMMANDER
     // drives; phase 2 holds the run until they click Done. Password honesty is part of the card copy.
     if (t === 'browser.login') return 'open a browser window so YOU can log in to ' + (ev.argsSummary || 'a website') + ' (you type your password in that window — the agent never sees it)';
@@ -3878,7 +3878,7 @@ const Chat = (() => {
   // the login window) grants this one call whatever grade another surface sent, so it settles in its own yes/no words
   function settledLabel(resp, own) {
     if (resp.decision === 'deny') return ((own && own.deny) || '✕ denied') + settledWhere(resp);
-    const words = { always: '✓ always allowed', session: '✓ approved for this session', full: '✓ full access' };
+    const words = { always: '✓ always allowed', session: '✓ approved for this session', full: '✓ never asks' };
     const grade = own ? own[resp.decision] || (resp.decision === 'session' && own.always ? words.session : own.once) : words[resp.decision];
     return (grade || '✓ approved once') + settledWhere(resp);
   }
@@ -3899,7 +3899,7 @@ const Chat = (() => {
     // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
     // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
     try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision, via: via || 'desk' }); } catch (_) {}
-    // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
+    // NS conversational anchor: "Always" — and now "Never ask" — on a path.trust card IS the project bless
     // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
     // with the SAME proposed root so the PROJECTS rail lists this session under its project — the identical
     // anchor "Work here" stamps. Both standing grades, never "once" (it grants nothing standing, so there is
@@ -3973,7 +3973,7 @@ const Chat = (() => {
       }
       submitting = false; decided = true;
       if (received && applyElsewhere) applyElsewhere(received);
-      if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full access was not saved'; isDeny = true; }
+      if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ never ask was not saved'; isDeny = true; }
       else if (decision !== 'full' && res.appliedDecision === 'deny' && decision !== 'deny') { doneLabel = '✕ approval was not applied'; isDeny = true; }
       btns.remove(); keepFocus(r.d); releaseCard(r.d);
       const tag = document.createElement('span');
@@ -3992,7 +3992,7 @@ const Chat = (() => {
       b.onclick = () => decide(decision, doneLabel, isDeny);
       btns.appendChild(b); return b;
     };
-    // ATTENDED BROWSER LOGIN cards get purpose-built buttons: "Always"/"Full access" make no sense for a
+    // ATTENDED BROWSER LOGIN cards get purpose-built buttons: "Always"/"Never ask" make no sense for a
     // one-shot window open, and the done-wait card is a completion signal, not a permission grade.
     if (p.tool === 'browser.login') {
       mk('Open login window', 'once', 'primary', '✓ window opened', false);
@@ -4002,14 +4002,14 @@ const Chat = (() => {
       mk('Cancel', 'deny', 'deny', '✕ cancelled', true);
     } else if (p.tool === 'station.power' || p.tool === 'plugin.submit') {
       // widening the station's leash and installing a plugin are answered fresh every time (freshConsent tools,
-      // permissions.js tier 1.5): the station grants any yes once, so no Always and no Full access
+      // permissions.js tier 1.5): the station grants any yes once, so no Always and no Never ask
       mk('Approve once', 'once', 'primary', '✓ approved once', false);
       mk('Deny', 'deny', 'deny', '✕ denied', true);
     } else {
       const agentName = (p && p.workerAgentId) ? askerName(p, ws) : name;
       mk('Approve once', 'once', 'primary', '✓ approved once', false, 'Allow just this one');
       mk('Always', 'always', '', '✓ always allowed', false, 'Allow this kind of action from now on, without asking');
-      mk('Full access', 'full', 'danger', '✓ full access', false, 'Give ' + agentName + ' full access: it stops asking before most actions, until you change it back');
+      mk('Never ask', 'full', 'danger', '✓ never asks', false, agentName + ' stops asking before most actions, until you change it back');
       mk('Deny', 'deny', 'deny', '✕ denied', true);
     }
     appendConsentDetails(r.body, p, 'plan');   // a station build's steps and drawing are read before deciding
@@ -8393,7 +8393,7 @@ const Chat = (() => {
     Object.freeze({ name: 'subgoal', desc: 'add a criterion the goal loop must also satisfy', argsHint: '[text|remove N|clear]', action: 'subgoal' }),
     Object.freeze({ name: 'model', desc: 'show or set the active model', argsHint: '[model-id]', action: 'model' }),
     Object.freeze({ name: 'personality', desc: 'show or set the active personality', argsHint: '[personality]', action: 'personality' }),
-    Object.freeze({ name: 'yolo', desc: 'toggle full-access approval mode', argsHint: '[on|off]', action: 'yolo' }),
+    Object.freeze({ name: 'yolo', desc: 'toggle never-ask', argsHint: '[on|off]', action: 'yolo' }),
     Object.freeze({ name: 'reasoning', desc: 'show or set how hard the model thinks before answering', argsHint: '[none|minimal|low|medium|high|xhigh]', action: 'reasoning' }),
     Object.freeze({ name: 'fast', desc: 'drop reasoning effort to minimal for quicker, cheaper replies', action: 'fast' }),
     Object.freeze({ name: 'voice', desc: 'show or toggle spoken replies', argsHint: '[on|off|handsfree|status]', action: 'voice' }),
