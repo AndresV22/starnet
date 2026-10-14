@@ -432,7 +432,7 @@ test('a conversation question declined elsewhere says declined, never answered',
 test('a team.dispatch tool row names the workers', () => {
   const rail = { App: { agentName: id => ({ copywriter: 'COPY', strategist: 'STRATEGY' })[id] || '' } };
   vm.createContext(rail); vm.runInContext(extract(chat, '  function brief(s)', '\n  // NOTIFICATIONS THAT MEAN SOMETHING') + '\n' + extract(chat, '  let toolRail = null;', '  function ensureToolRail()'), rail);
-  assert.equal(rail.argDigest('{"background":true,"workers":[{"agentId":"copywriter","prompt":"Write a 2-line launch tagline for StarNet 0.13.5 into a file called ta', 'team_dispatch'), 'COPY · background');
+  assert.equal(rail.argDigest('{"background":true,"workers":[{"agentId":"copywriter","prompt":"Write a 2-line launch tagline for StarNet 0.13.5 into a file called ta', 'team_dispatch'), 'COPY, … · background', 'a capped summary says more may follow');
   assert.equal(rail.argDigest('{"workers":[{"agentId":"copywriter","prompt":"a"},{"agentId":"strategist","prompt":"b"}]}', 'team.dispatch'), 'COPY, STRATEGY');
   assert.equal(rail.argDigest('{"path":"src/app.js","content":"x', 'fs_write'), 'src/app.js', 'every other tool keeps its salient argument');
 });

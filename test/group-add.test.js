@@ -177,7 +177,7 @@ const { makeStationControlTools, cardFor, ACTIONS } = require('../sidecar/tools/
     b.busy.delete('general-home'); b.ws.get('general-home').lastRunOk = true;
     await b.GC.drainAfterRun('general-home', 'run_b', { stopped: false }); await settle();
     const create = b.sent.find(s => s.body && s.body.op === 'create');
-    A.ok(create && / The Commander already answered: What are we launching\? → StarNet 0\.13\.5; Who is it for\? → developers Never ask those again\.$/.test(create.body.kickoff), 'the lead starts from them: ' + (create && create.body.kickoff));
+    A.ok(create && / The Commander already answered: What are we launching\? → StarNet 0\.13\.5; Who is it for\? → developers\. Never ask those again\.$/.test(create.body.kickoff), 'the lead starts from them: ' + (create && create.body.kickoff));
     A.ok(create.body.kickoff.length <= 1000, 'inside the kickoff cap (group-sessions.js text(b.kickoff, 1000))');
   }
   // a stopped reply drops the join and SAYS so in the chat (saved), never a silent no-op

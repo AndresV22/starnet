@@ -910,7 +910,7 @@ const GroupChat = (() => {
         + (ids.length > 1 ? 'each of them their part' : 'them their part') + ' (group.handoff) and do your own.'
         // …starting from what the Commander already answered (review 10-14: from General the new group re-asked "What are
         // we launching?" seconds after they had answered it there)
-        + (job.brief ? ' The Commander already answered: ' + job.brief + ' Never ask those again.' : '');
+        + (job.brief ? ' The Commander already answered: ' + String(job.brief).replace(/[\s.;,]+$/, '') + '. Never ask those again.' : '');
       const out = ws.conversationMode === 'group' ? await addAgents(ws, ids, null) : await startGroup(ws, ids, { kickoff });
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(agentNames(ids) + (ids.length > 1 ? ' joined ' : ' joined ') + (out && out.title ? '"' + out.title + '"' : 'the chat'), 'good');
       return out;

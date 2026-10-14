@@ -2853,7 +2853,9 @@ const Chat = (() => {
     // '{"background":true,"workers":[{"agentId":"copywrit…'). Ids by pattern (the summary is capped), shown by name.
     if (/^team\.dispatch$/.test(shortName(tool))) {
       const ids = [...new Set([...raw.matchAll(/"agentId"\s*:\s*"([^"]+)"/g)].map(m => m[1]))];
-      if (ids.length) return brief(ids.map(id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id).join(', ') + (/"background"\s*:\s*true/.test(raw) ? ' · background' : ''));
+      // a capped summary may hold more workers than it shows: say so ("LENS, …"), never imply LENS was the only one
+      let whole = true; try { JSON.parse(raw); } catch (_) { whole = false; }
+      if (ids.length) return brief(ids.map(id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id).join(', ') + (whole ? '' : ', …') + (/"background"\s*:\s*true/.test(raw) ? ' · background' : ''));
     }
     const pairs = argPairs(raw);
     for (const k of ARG_KEYS) { const v = pairs.get(k); if (v) return brief(v); }
