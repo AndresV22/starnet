@@ -4229,6 +4229,7 @@ const App = (() => {
   function renderRail() {
     const ul = el('workstreams');
     if (!ul || typeof Workstreams === 'undefined') return;
+    if (typeof Chat !== 'undefined' && Chat.paintTitle) Chat.paintTitle();   // ORG P26: a rename / auto-title / group change renames the COMMS title too
     const activeId = Workstreams.activeId();
     const oldFocus = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.ws-row[data-id]') : null;
     const restoreFocus = !!(oldFocus && ul.contains(oldFocus));

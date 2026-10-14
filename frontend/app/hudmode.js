@@ -945,7 +945,12 @@
     if (small) worldStart(true); else { worldStop(); S.followId = ''; }
     if (S.els && S.els.title) {
       if (act) { if (S.titleWas == null) S.titleWas = S.els.title.textContent; }
-      else if (S.titleWas != null) { S.els.title.textContent = S.titleWas; S.titleWas = null; }
+      else if (S.titleWas != null) {
+        S.els.title.textContent = S.titleWas; S.titleWas = null;
+        // ORG P26: the session may have changed under ▮ ACTIVITY — the one title writer repaints the open session's name
+        S.els.title.removeAttribute('data-session');
+        if (typeof Chat !== 'undefined' && Chat.paintTitle) Chat.paintTitle();
+      }
     }
   }
 

@@ -3,7 +3,8 @@
      P23 — PURPOSE and the house-rules card say they are THIS agent's only; standing orders say every agent follows them.
      P20 — the crew row's DOSSIER key is always shown at every crew size; the manual stops claiming a row click focuses.
      P21 — the AGENT DOSSIER says where each per-agent setting lives, and station-wide switches say they are for every agent.
-     P22 — RECRUIT speaks one language: RECRUIT a new agent from a CLASS, RE-SPEC an existing one. */
+     P22 — RECRUIT speaks one language: RECRUIT a new agent from a CLASS, RE-SPEC an existing one.
+     P26 — the COMMS title names the open session ('COMMS · <session>'), with one writer. */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('fs');
@@ -63,5 +64,54 @@ A.ok(!/Same as the orchestrator|Inherits your orchestrator/.test(MKT) && !/inher
   'P22: the model copy says an unpinned recruit copies the on-the-line agent\'s model (it does not track the station default)');
 A.ok(/model:\s*\(pin && pin\.model\)\s*\|\|\s*agent\.model/.test(read('frontend/app/app.js')), 'P22: …which stays true: summonAgent copies the focused agent\'s model');
 A.ok(read('frontend/index.html').includes('grow the crew — recruit a class, or re-spec your agent') && /Recruitment Bay and RECRUIT one/.test(MAN), 'P22: the dock subtitle and the manual say RECRUIT');
+
+/* ---------- P26: name the open session in the COMMS title (behaviour, run in a vm against the shipped functions) ---------- */
+const CHAT = read('frontend/app/chat.js');
+const from = CHAT.indexOf('  function sessionTitleText(ws) {'), to = CHAT.indexOf('  function load(ws) {', from);
+A.ok(from > 0 && to > from, 'P26: chat.js has the one COMMS title writer');
+const vm = require('vm');
+function titleFor(ws, opts) {
+  opts = opts || {};
+  const kids = [];
+  const title = {
+    dataset: {}, attrs: {}, _text: 'COMMS',
+    get textContent() { return this._text + kids.map(k => k.textContent).join(''); },
+    set textContent(v) { this._text = String(v); kids.length = 0; },
+    appendChild(k) { kids.push(k); }, querySelector(sel) { return sel === '.comms-session' ? kids[0] || null : null; },
+    setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; }
+  };
+  const ctx = {
+    el: id => id === 'comms-title' ? title : null,
+    document: { body: { classList: { contains: c => c === 'hud-view-activity' && !!opts.hudActivity } }, createElement: () => ({ className: '', textContent: '' }) },
+    activeWs: ws, Workstreams: { active: () => ws, titleOf: w => w.title || (w.id === 'general' ? 'General' : 'New session') },
+    streamLabel: w => w.title || (w.id === 'general' ? 'General' : 'New session'),
+    GroupChat: { membersOf: () => opts.members || null },
+    App: { agentName: id => ({ agent: 'ULTRON', cy: 'CYPHER', a3: 'NOVA', a4: 'IRIS', a5: 'ECHO' })[id] || null },
+    ProjectHome: { owns: () => !!opts.project }
+  };
+  vm.createContext(ctx);
+  vm.runInContext(CHAT.slice(from, to) + '\nthis.paintTitle = paintTitle;', ctx);
+  ctx.paintTitle();
+  return { text: title.textContent, tip: title.attrs['data-tip'] };
+}
+A.eq(titleFor({ id: 'general' }).text, 'COMMS · General', 'P26: General reads COMMS · General');
+A.eq(titleFor({ id: 's1', title: 'Fix the login bug' }).text, 'COMMS · Fix the login bug', 'P26: a titled session is named');
+A.eq(titleFor({ id: 's2' }).text, 'COMMS · New session', 'P26: an untitled session reads New session (Workstreams.titleOf)');
+A.eq(titleFor({ id: 'g1', agentId: 'agent', conversationMode: 'group' }, { members: ['agent', 'cy', 'a3', 'a4', 'a5'] }).text, 'COMMS · ULTRON, CYPHER +3',
+  'P26: an untitled group follows the rail grammar (lead first, +N), never a GROUP chip');
+A.eq(titleFor({ id: 'g2', title: 'Launch plan', agentId: 'agent', conversationMode: 'group' }, { members: ['agent', 'cy'] }).text, 'COMMS · Launch plan', 'P26: a titled group keeps its title');
+A.eq(titleFor({ id: 's1', title: 'Fix it' }, { project: true }).text, 'COMMS', 'P26: a shown project home owns the title (the writer steps aside)');
+A.eq(titleFor({ id: 's1', title: 'Fix it' }, { hudActivity: true }).text, 'COMMS', 'P26: the HUD ▮ ACTIVITY view owns the title');
+A.eq(titleFor({ id: 's1', title: 'Fix it' }).tip, 'This conversation: Fix it', 'P26: the full name rides a data-tip when the panel clamps it');
+A.ok(/activeWs = nextWs;\n    paintTitle\(\);/.test(CHAT) && /return \{ init, load, paintTitle,/.test(CHAT), 'P26: Chat.load paints the title and Chat exports the writer');
+A.ok(/if \(typeof Chat !== 'undefined' && Chat\.paintTitle\) Chat\.paintTitle\(\);   \/\/ ORG P26/.test(read('frontend/app/app.js')), 'P26: the rail repaint (rename / auto-title) repaints the title');
+const PH = read('frontend/app/project-home.js'), HUD = read('frontend/app/hudmode.js');
+A.ok(/owns: \(\) => !!root/.test(PH) && /if \(typeof Chat !== 'undefined' && Chat\.paintTitle\) Chat\.paintTitle\(\); else title\.textContent = 'COMMS';/.test(PH), 'P26: leaving a project home restores the session title');
+A.ok(/S\.titleWas = null;[\s\S]{0,400}Chat\.paintTitle\(\)/.test(HUD) && /if \(S\.titleWas == null\) S\.titleWas = S\.els\.title\.textContent;/.test(HUD), 'P26: the HUD keeps its titleWas save/restore and repaints the open session after');
+const APPCSS = read('frontend/css/app.css');
+A.ok(/#chat-panel h3 #comms-title \{ flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/.test(APPCSS) && /#chat-panel h3 \.h3-right \{[^}]*flex: 0 0 auto;/.test(APPCSS),
+  'P26: the title clamps to one line and a fault in #chat-status keeps its width first');
+const HTML = read('frontend/index.html');
+A.ok(!/class="comms-agent-wrap" title=/.test(HTML) && /class="comms-agent-wrap" data-tip="[^"]*switches to its latest session/.test(HTML), 'P26: the ON THE LINE tip is a data-tip, never a native title');
 
 A.report();

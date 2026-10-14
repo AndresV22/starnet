@@ -1925,6 +1925,39 @@ const Chat = (() => {
     if (typeof Channels !== 'undefined') Channels.setComposeTarget(ws.id);
     updateControls(); autoGrowInput();
   }
+  /* ORG P26 — THE OPEN SESSION IN THE COMMS TITLE ('COMMS · <session>'). ONE writer for #comms-title: Chat.load and the
+     rail's repaint (renames, a first message's auto-title, group membership) call paintTitle. Two owners borrow it and
+     hand it back: a PROJECT HOME (project-home.js) while it is shown, and the HUD's ACTIVITY view (hudmode.js titleWas)
+     — on exit each calls paintTitle again. A title names WHICH conversation, never run state (comms-header-no-run-state).
+     An untitled group reads like its rail row ('ULTRON, CYPHER +3'); every other name is Workstreams.titleOf. */
+  function sessionTitleText(ws) {
+    if (!ws) return '';
+    if (!ws.title && ws.conversationMode === 'group' && typeof GroupChat !== 'undefined' && GroupChat.membersOf) {
+      const members = GroupChat.membersOf(ws.id) || [];
+      if (members.length >= 2) {
+        const ids = [ws.agentId].concat(members.filter(id => id !== ws.agentId)).filter(id => members.includes(id));
+        const nm = id => (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
+        const more = ids.length - 2;
+        return ids.slice(0, 2).map(nm).join(', ') + (more > 0 ? ' +' + more : '');
+      }
+    }
+    return streamLabel(ws);
+  }
+  function paintTitle() {
+    const t = el('comms-title'); if (!t) return;
+    if (typeof ProjectHome !== 'undefined' && ProjectHome.owns && ProjectHome.owns()) return;   // the project home names the panel while shown
+    if (document.body && document.body.classList.contains('hud-view-activity')) return;          // the HUD's ▮ ACTIVITY view owns it
+    const ws = activeWs || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
+    const name = ws ? sessionTitleText(ws) : '';
+    const painted = name ? (t.dataset.session === name && !!t.querySelector('.comms-session')) : t.textContent === 'COMMS';
+    if (painted) return;
+    t.dataset.session = name;
+    if (!name) { t.textContent = 'COMMS'; t.removeAttribute('data-tip'); return; }
+    t.textContent = 'COMMS';
+    const s = document.createElement('span'); s.className = 'comms-session'; s.textContent = ' · ' + name;
+    t.appendChild(s);
+    t.setAttribute('data-tip', 'This conversation: ' + name);   // the whole name when the panel clamps it
+  }
   function load(ws) {
     const historyPin = ++historyPinSeq;
     historyPinPending = historyPin;
@@ -1932,6 +1965,7 @@ const Chat = (() => {
     const nextWs = ws || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
     if (activeWs?.id !== nextWs?.id) focusVersion++;
     activeWs = nextWs;
+    paintTitle();
     noteContinuity(activeWs, 'session-selected');
     heldCard = null; heldQueue.length = 0;
     if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
@@ -10743,7 +10777,7 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl,
+  return { init, load, paintTitle, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl,
     // the COMMS '▤ saved' row's folder / copy-path keys and their path resolver, shared with MY WORK › DELIVERABLES' FILES rows (org pass 10-14, P24)
     folderButton, copyPathButton, fullSavedPath: absoluteArtifactPath };
 })();

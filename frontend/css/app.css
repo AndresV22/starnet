@@ -3289,7 +3289,10 @@ body:not(.rows-inbox) #workstreams .ws-row.attn:not(.renaming):has(> .ws-agent-g
 .ws-menu-item.danger.armed .ws-menu-glyph { color: var(--ink); }
 .ws-menu-sep { height: 1px; margin: 3px 6px; background: var(--ph-dim); opacity: .5; }
 
-#chat-panel h3 .h3-right { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+#chat-panel h3 .h3-right { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; flex: 0 0 auto; max-width: 70%; overflow: hidden; }
+/* ORG P26: 'COMMS · <session>' — one line, ellipsized; a fault in #chat-status keeps its width first (.h3-right never shrinks) */
+#chat-panel h3 #comms-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#chat-panel h3 #comms-title .comms-session { letter-spacing: .5px; text-transform: none; opacity: .78; }
 #chat-panel h3 #chat-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* Idle "online" is noise in the COMMS header (Andrew 09-28): only run-state and link faults show. */
 #chat-panel h3 #chat-status.status-idle { display: none; }
