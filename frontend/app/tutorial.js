@@ -713,7 +713,7 @@ const Tutorial = (() => {
   function beatWork() {
     if (!active) return;
     say([
-      seg('three doors you’ll actually use, all in the bottom bar. ☑ MY WORK holds TASKS — everything i’m doing — what i finished, and RECIPES, ready-made work to launch.', 42, 360),
+      seg('three doors you’ll actually use, all in the bottom bar. ☑ MY WORK holds TASKS — planned work you track — what i finished, and RECIPES, ready-made work to launch.', 42, 360),
       seg('  ∞ AUTOMATE puts any job on a schedule or down a line of agents. and ⇄ CONNECT gives me tools — and its CHANNELS put me in your pocket, on telegram or slack like anyone else.', 42, 0)
     ], beatHandoff);
   }

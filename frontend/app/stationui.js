@@ -1076,8 +1076,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      name — the name the manual, the agents and every error door already use. Never a merged card grid: each
      tab stays its own distinct surface (the August ABILITIES lesson). */
   const FAMILIES = {
-    mywork: { label: 'MY WORK', tabs: [
-      { id: 'tasks', k: 'tasks', label: 'TASKS', tip: 'Planned work on the task board — chats and routines live in COMMS' },
+    mywork: { label: 'MY WORK', first: 'deliverables', tabs: [
+      { id: 'tasks', k: 'tasks', label: 'TASKS', tip: 'Planned work you track — chats and routines live in COMMS' },
       { id: 'deliverables', k: 'deliverables', label: 'DELIVERABLES', tip: 'Everything your crew finished, with its files' },
       { id: 'recipes', k: 'marketplace', label: 'RECIPES', tip: 'Ready-made jobs to start',
         is: () => typeof Marketplace !== 'undefined' && Marketplace.currentTab && Marketplace.currentTab() === 'recipes',
@@ -1197,7 +1197,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (k && open[k] && termPos[fromKey]) { carry(k); placeTerm(open[k], k); }
     }
   }
-  // the dock button of a menu: open its last-used tab — or, like every dock button, raise / close what is showing
+  // the dock button of a menu: open its last-used tab — or, like every dock button, raise / close what is showing.
+  // A menu's FIRST open lands on its `first` tab when it names one (MY WORK opens on DELIVERABLES: the TASKS board
+  // stays empty after plain COMMS work, org pass 10-14 #45/#46); the tab ORDER, aliases and deep links never change.
   function toggleFamily(famId) {
     const fam = FAMILIES[famId]; if (!fam) return;
     const showing = Object.keys(open).filter(k => open[k] && !minimized[k] && familyOf(k) === famId);
@@ -1210,7 +1212,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const min = Object.keys(open).find(k => open[k] && minimized[k] && familyOf(k) === famId);
     if (min) { restoreTerm(min); return; }
     const last = store.famLast && store.famLast[famId];
-    openFamilyTab(famId, fam.tabs.find(t => t.id === last) || fam.tabs[0]);
+    openFamilyTab(famId, fam.tabs.find(t => t.id === last) || (fam.first && fam.tabs.find(t => t.id === fam.first)) || fam.tabs[0]);
   }
 
   function toggleTerm(key, title, builder, opts) {
@@ -4654,7 +4656,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      TO DO -> IN PROGRESS the instant a real run fires (Workstreams.appendRun); SHIPPED is only ever a
      deliberate human turn-in (the ✓ SHIP button). The General chat home isn't a project, so it shows
      in the rail but never on this board. App owns persistence + the rail; we drive both via sync(). */
-  const COLS = [['todo', 'TO DO'], ['active', 'IN PROGRESS / REVIEW'], ['shipped', 'COMPLETED']];
+  const COLS = [['todo', 'TO DO'], ['active', 'IN PROGRESS'], ['shipped', 'COMPLETED']];
   const WS = () => (typeof Workstreams === 'object' && Workstreams) ? Workstreams : null;
   function boardStreams() {
     const w = WS(); if (!w) return [];
@@ -4788,7 +4790,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // chat.js's in-band error branch. null (no outcome recorded — legacy save / delegated run) keeps
       // the DONE chip: we only claim FAILED when the failure is provable, never by inference.
       if (s.lastRunOk === false) return '<div class="kb-state failed">✗ RUN FAILED — REVIEW</div>';
-      return '<div class="kb-state done">FINISHED — REVIEW RESULT</div>';
+      return '<div class="kb-state done">FINISHED — RESULT READY</div>';
     }
     return '';
   }
@@ -4802,7 +4804,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const parts = [];
     if (running) parts.push(running + ' RUNNING');
     if (failed) parts.push(failed + ' FAILED');
-    if (ready) parts.push(ready + ' READY TO REVIEW');
+    if (ready) parts.push(ready + ' READY');
     return parts.length ? '<small class="kb-col-state">' + parts.join(' · ') + '</small>' : '';
   }
   // the card's bound-agent chip: the workstream's OWN agent (s.agentId) resolved to a name + color from the live
@@ -4876,7 +4878,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const streams = boardStreams();
     const openMenus = live ? Array.from(body.querySelectorAll('.kb-more[open]')).map(d => d.closest('.kb-card').dataset.id) : [];
     body.innerHTML =
-      '<div class="kb-heading"><header class="kb-header"><h2>Your tasks</h2><p>Plan, start, and review your work.</p></header></div>' +   // OUTBOX / DELIVERABLES are this window's MY WORK tabs now (FAMILIES) — no second pair of doors here
+      '<div class="kb-heading"><header class="kb-header"><h2>TASKS</h2><p>Plan, start, and review your work.</p></header></div>' +   // OUTBOX / DELIVERABLES are this window's MY WORK tabs now (FAMILIES) — no second pair of doors here
       '<div class="kb-add"><input id="kb-in" data-draft aria-label="New task" maxlength="80" placeholder="What would you like to get done?" autocomplete="off">' +
       '<button class="bb sm" id="kb-add">ADD TASK</button></div><p class="kb-add-note">Adding saves your plan. Start sends the task to its agent.</p>' +
       '<div class="kb-cols">' +
@@ -4884,7 +4886,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const items = streams.filter(s => s.lane === lane);
         return '<div class="kb-col"><h4>' + label + ' <i>' + items.length + '</i>' +
           (lane === 'active' ? activeAggregate(items) : '') + '</h4>' +
-          '<p class="kb-lane-note">' + ({todo:'Planned tasks, ready when you are.',active:'Ongoing work and results to review.',shipped:'Tasks you marked complete.'}[lane]) + '</p>' +
+          '<p class="kb-lane-note">' + ({todo:'Planned tasks, ready when you are.',active:'Ongoing work and results to open.',shipped:'Tasks you marked complete.'}[lane]) + '</p>' +
           (items.length ? items.map(card).join('') : kbEmpty(lane)) + '</div>';
       }).join('') +
       '</div>' +
