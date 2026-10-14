@@ -388,7 +388,8 @@ A.eq(Policy.canMutate({ status: 'executing' }, { scope: 'execute' }).ok, true, '
     A.eq(Fork.strip('x\nFORK: q? || a | b\nFORK: r? || c | d'), 'x', 'Fork.strip removes every FORK line');
     const chatSrcT = fs.readFileSync(path.join(__dirname, '../frontend/app/chat.js'), 'utf8');
     A.ok(/const forkAsked = [^\n]*Fork\.parse\(replyText\)/.test(chatSrcT) && chatSrcT.indexOf('const forkAsked') < chatSrcT.indexOf('replyText = shown;'), 'the FORK is parsed from the raw reply before the markers are stripped');
-    A.ok(/renderProse\(r\.body, shownText\)/.test(chatSrcT) && /const shownText = [^\n]*Fork\.stripMarkers\(m\.content\)/.test(chatSrcT), 'history re-renders strip markers from server-synced rows');
+    // (the stripped text may be split around folded [steering] lines first — every prose part still comes from shownText)
+    A.ok((/renderProse\(r\.body, shownText\)/.test(chatSrcT) || (/renderProse\(r\.body, parts\[pi\]\)/.test(chatSrcT) && /const parts = [^\n]*shownText\.split\(/.test(chatSrcT))) && /const shownText = [^\n]*Fork\.stripMarkers\(m\.content\)/.test(chatSrcT), 'history re-renders strip markers from server-synced rows');
   }
 
   const cx = CommanderContext.compose({ brief: resumed, dossier: 'COMMANDER DOSSIER\n- Goals: ship', existingSystem: '', patterns: s2.patterns(5) });
