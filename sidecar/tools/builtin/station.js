@@ -531,14 +531,14 @@
         /* Every line the build laid or touched counts (review): the one ready-made line, or each of r.lines (a custom shape, a room
            of lines, a refit's or a restaff's lines as they now stand), each named; machines left on no line are still to do too. */
         const lines = r.line ? [{ name: r.line.label || r.line.name, ready: !!r.ready, blocking: r.blocking || [] }] : (Array.isArray(r.lines) ? r.lines : []).filter(Boolean);
-        const named = l => lines.length > 1 && (l.name || l.label) ? (l.name || l.label) + ': ' : '';
+        const named = l => lines.length > 1 && (l.label || l.name) ? (l.label || l.name) + ': ' : '';
         const left = [].concat(...lines.map(l => (l.blocking || []).filter(Boolean).map(b => named(l) + String(b))));
         if (!r.line) for (const b of (r.blocking || []).filter(Boolean).map(String)) if (!lines.some(l => (l.blocking || []).indexOf(b) >= 0)) left.push(b);
         for (const m of r.loose || []) left.push(String(m) + ' stands on no line yet');
         /* only crew is missing (the third live re-run staffed a built line through guessed ids, a map, a plan and a second card):
            the one form that staffs a line by its own name and step numbers, for when the Commander said who works them */
-        const short = lines.filter(l => (l.blocking || []).length), crewOnly = left.length && short.length && !(r.loose || []).length && short.every(l => (l.name || l.label) && l.blocking.every(b => /needs an agent/i.test(b)));
-        const staff = crewOnly ? ' If the Commander said who works those steps, staff ' + (short.length > 1 ? 'each line in its own plan' : 'them in one plan') + ': station.plan { "staff": { "line": ' + JSON.stringify(String(short[0].name || short[0].label)) + ', "steps": [ { "step": 1, "agent": "a crew name" } ] } }, then station.build; otherwise tell the Commander exactly that, and stop.' : '';
+        const short = lines.filter(l => (l.blocking || []).length), crewOnly = left.length && short.length && !(r.loose || []).length && short.every(l => (l.label || l.name) && l.blocking.every(b => /needs an agent/i.test(b)));
+        const staff = crewOnly ? ' If the Commander said who works those steps, staff ' + (short.length > 1 ? 'each line in its own plan' : 'them in one plan') + ': station.plan { "staff": { "line": ' + JSON.stringify(String(short[0].label || short[0].name)) + ', "steps": [ { "step": 1, "agent": "a crew name" } ] } }, then station.build; otherwise tell the Commander exactly that, and stop.' : '';
         // a refit that laid the line by hand fixes what it left; a design laid by hand keeps its one look (the planner's LOOK at your work)
         const fix = r.kind === 'refit' ? ' Fix that with one more refit plan and build it; if you cannot, tell the Commander exactly what is left, and stop.' : ' Tell the Commander exactly that, and stop: build nothing else for this unless they ask.';
         const look = r.handLaid ? 'You laid pieces by hand: look at the room once (station.map { look: the room }) and fix only what is wrong; then tell the Commander what was built in a sentence or two, and stop.'

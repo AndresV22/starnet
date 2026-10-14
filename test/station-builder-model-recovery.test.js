@@ -276,6 +276,7 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
     A.ok(/· 2 to do$/.test(b1.summary), 'its chip counts what is left: ' + b1.summary);
     // …and the staff form it names is one that plans and builds the line ready
     const lineName = (/"line": "([^"]+)"/.exec(b1.next) || [])[1];
+    A.eq(lineName, 'Launch Post', 'the staff form names the line by its own name (the live page said "LINE LAUNCH POST", the plate word, before)');
     const staff = SB.planEdit(st.serialize(), { staff: { line: lineName, steps: [{ step: 1, agent: 'COPY' }, { step: 2, agent: 'STRATEGY' }] } }, env);
     A.ok(staff.ok, 'the named staff form plans: ' + (staff.error || ''));
     if (staff.ok) {
