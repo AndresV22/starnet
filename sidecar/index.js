@@ -21694,7 +21694,7 @@ async function runOnceCore(o) {
       if (!execution.consumeToolCall(o.maxToolCalls)) return { ok: false, isError: true, summary: 'tool-budget', content: 'This worker reached its task-specific tool-call budget. Finish now with the evidence already collected.' };
     }
     if (taskBriefState && !internalBriefControl) {
-      const gate = TaskBriefPolicy.canMutate(taskBriefState.brief, liveTool);
+      const gate = TaskBriefPolicy.canMutate(taskBriefState.brief, liveTool, c);
       if (!gate.ok) return { ok: false, isError: true, content: 'Task Brief gate: ' + gate.reason, summary: 'paused — settling the task first' };
     }
     /* EVIDENCE-PROGRESS GUARD. The old loop guard below catches an identical call only when it FAILS. The

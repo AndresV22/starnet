@@ -76,6 +76,23 @@ A.ok(/name: 'team\.summon'[^\n]*\n\s*briefExempt: true/.test(require('fs').readF
   A.eq([hire.briefExempt, write.briefExempt], [true, false], 'only a tool that opts in is exempt');
   A.eq(Policy.canMutate({ status: 'ready' }, reg.get('fs.write')).ok, false, 'a registered write still waits for brief_proceed');
 }
+/* SEATING CREW IS SETUP TOO (rc walk 10-14, Haiku 4.5): "bring two crew in to help me write a launch post" picked
+   station.control group.add and the gate refused it until a brief interview finished. The registered station.control
+   exempts group.add by its args — every other station change, and station.power, still waits. */
+{
+  const { makeRegistry } = require('../sidecar/tools/registry.js');
+  const { makeStationControlTools } = require('../sidecar/tools/builtin/station-control.js');
+  const reg = makeRegistry();
+  makeStationControlTools({}).register(reg);
+  const control = reg.get('station.control'), power = reg.get('station.power');
+  const ready = { status: 'ready' };
+  A.eq(Policy.canMutate(ready, control, { name: 'station.control', args: { action: 'group.add', args: { agents: ['COPY', 'STRATEGY'] } } }).ok, true, 'group.add passes an unsettled brief');
+  A.eq(Policy.canMutate(ready, control, { name: 'station.control', args: { setting: 'group.add', agents: 'COPY' } }).ok, true, 'however the model spells the call (readCall)');
+  A.eq(Policy.canMutate(ready, control, { name: 'station.control', args: { action: 'session.delete' } }).ok, false, 'any other station change still waits');
+  A.eq(Policy.canMutate(ready, control).ok, false, 'no call, no exemption (fail closed)');
+  A.eq(Policy.canMutate(ready, power, { name: 'station.power', args: { action: 'group.add' } }).ok, false, 'station.power never qualifies');
+  A.ok(/const gate = TaskBriefPolicy\.canMutate\(taskBriefState\.brief, liveTool, c\);/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8')), 'the host gate hands the call to the policy');
+}
 
 // RECOMMENDATION MATCHING — a formatting slip must not silently cost the Commander the ★ suggestion, and a
 // rescue must never resolve to the WRONG chip. Every accepted form returns the CANONICAL option text.

@@ -167,12 +167,16 @@ function validateProceed(candidate) {
   return { ok: true, brief: out };
 }
 
-function canMutate(brief, tool) {
+function canMutate(brief, tool, call) {
   if (!brief || !tool) return { ok: true };
   // SETUP, NOT THE DELIVERABLE: hiring a crew member (team.summon) shapes the station, not the work the brief settles,
   // and it has its own approval card. "Get me a researcher and a copywriter, then…" used to be refused outright
   // until the brief was settled (live walkthrough 2026-10-13). A tool opts in with briefExempt:true.
   if (tool.briefExempt === true) return { ok: true };
+  // …and seating crew in this chat (station.control group.add) is the same kind of setup: "bring two crew in to help me
+  // write a launch post" picked group.add and was refused until a brief interview finished (rc walk 10-14, Haiku 4.5) —
+  // the Commander answered questions before the crew they asked for could join. An action-aware tool exempts by its args.
+  if (typeof tool.briefExempt === 'function' && tool.briefExempt(call && call.args) === true) return { ok: true };
   // Built-in reads are non-consequential, but MCP tools are deliberately `external-unknown` even when an
   // untrusted server advertises readOnlyHint. That annotation may shape grants; it cannot bypass the brief gate.
   if (tool.scope === 'read' && tool.impact !== 'external-unknown') return { ok: true };
