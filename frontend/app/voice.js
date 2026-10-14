@@ -1924,7 +1924,8 @@ const Voice = (() => {
     if (!speakReplies) { muteStopSpeaking(); if (interruptionMessage) showInterruption(''); }   // speaker off: a note about speech is moot
     else prewarmVoice();   // turning ON → quietly warm the stock lines so mutters/samples play instantly
     reflectToggle();
-    if (typeof SFX !== 'undefined') SFX.click();
+    // the COMMS speaker key sounds like every other COMMS key (and the bottom docks): press(), not the Click_02 tick
+    if (typeof SFX !== 'undefined') (SFX.press || SFX.click)();
   }
   function setSpeakReplies(on) {
     const want = on !== false;

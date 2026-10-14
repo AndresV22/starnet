@@ -962,7 +962,9 @@ const App = (() => {
           : sel.reason === 'effort'
             ? 'REASONING: ' + effortLabel(effort)
             : 'MODEL: ' + providerLabel(provider) + ' / ' + shortModelLabel(model) + ' / ' + effortLabel(effort);
-      StationUI.notify(msg, 'good');
+      // a dock pick ('model'/'effort') is the user's own press — silent receipt; a catalog-driven change keeps its bell
+      const userPick = sel.reason === 'model' || sel.reason === 'effort';
+      StationUI.notify(msg, 'good', undefined, userPick ? { silent: true } : undefined);
     }
   }
   // the persisted shape of a crew member (systemPrompt is derived, recomposed on rehydrate).
@@ -4146,8 +4148,8 @@ const App = (() => {
     if (Workstreams.unread(w)) return { dot: 'ws-dot unseen', meta: railRelTime(w.lastActiveAt), busy: false, attn: false, status: 'unread activity' };
     return { dot: 'ws-dot seen', meta: railRelTime(w.lastActiveAt), busy: false, attn: false, status: 'read' };
   }
-  /* ---------- INBOX row extras (SESSION ROWS = inbox) ----------
-     Both lines are rendered ALWAYS and hidden by CSS in COMPACT, so the setting is a pure repaint —
+  /* ---------- INBOX row extras (SESSION ROWS = inbox) + shared group identity ----------
+     Both spans are rendered ALWAYS; CSS keeps group identity visible in every row layout, so switching is a pure repaint —
      no re-render, no lost rail focus/scroll, and updateRailLive keeps working untouched.
      Every value is a read of state that already exists; nothing here is derived or guessed. */
   function railAgentName(w) {

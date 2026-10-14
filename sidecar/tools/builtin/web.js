@@ -39,6 +39,7 @@
                      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
   const FETCH_MAX_CHARS   = 6000;   // web_fetch truncation
   const net = require('node:net');
+  const responseProvenance = require('../response-provenance.js');
   /* RAW-BODY CEILING, applied BEFORE anything parses the response.
      htmlToText is a chain of lazy `[\s\S]*?` replaces — quadratic in the input — and the clamp to
      FETCH_MAX_CHARS ran AFTER it. Measured on a page of repeated "<script>": 64KB -> 55ms, 256KB -> 880ms,
@@ -1200,7 +1201,7 @@
         const originOf = (x) => x.protocol + '//' + hostOf(x) + ':' + (x.port || (x.protocol === 'https:' ? '443' : '80'));
         const firstOrigin = originOf(u);
         const isCredential = (k) => secretHeaders.has(k.toLowerCase()) || /^(authorization|cookie|x-api-key)$/i.test(k);
-        let target = u, res = null;
+        let target = u, res = null, responseUrl = null;
         for (let hop = 0; hop < 5; hop++) {
           const sendHeaders = hop === 0 || originOf(target) === firstOrigin
             ? headers
@@ -1208,6 +1209,8 @@
           res = await withTimeout(signal => fetchPinned(target, {
             method, headers: sendHeaders, body: hasBody ? bodyPayload : undefined, redirect: 'manual', signal
           }), FETCH_TIMEOUT_MS, ctx && ctx.signal);
+          // Capture the URL that actually answered, before a redirect advances target (even on the last hop).
+          responseUrl = target.href;
           if (res.status >= 300 && res.status < 400 && res.loc) {
             const next = assertSafeUrl(new URL(res.loc, target.href).href);
             await assertResolvedSafe(next, doLookup);
@@ -1248,12 +1251,12 @@
           }
         }
         const fenced = fenceExternal(bodyText || '(empty response body)', label);
-        if (shown === bodyText) return { content: (note ? '[' + note + ']\n' : '') + fenced, summary: method + ' ' + hostOf(u) + ' ' + res.status };
-        return {
+        if (shown === bodyText) return responseProvenance.stamp({ content: (note ? '[' + note + ']\n' : '') + fenced, summary: method + ' ' + hostOf(u) + ' ' + res.status }, responseUrl);
+        return responseProvenance.stamp({
           content: '[' + note + ']\n' + fenceExternal(shown, label + ' (selected fields)'),
           fullContent: fenced,   // the registry parks this whole body and names the file in the result
           summary: method + ' ' + hostOf(u) + ' ' + res.status + ' (select)'
-        };
+        }, responseUrl);
       }
     };
 

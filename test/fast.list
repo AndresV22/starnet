@@ -32,6 +32,7 @@ test/consent-full-request.test.js
 test/outbound-failure-diagnosability.test.js
 test/reflect.test.js
 test/memory-corrections.test.js
+test/project-memory-boundary.test.js
 test/memory-truth.test.js
 test/memcore.test.js
 test/cost.test.js
@@ -280,6 +281,7 @@ test/browser-view.test.js
 test/browser-profile-fallback.test.js
 test/browser-station-window.test.js
 test/browser-dead-browser.test.js
+test/browser-close-cleanup.test.js
 test/browser-single-launch.test.js
 test/browser-held-profile.test.js
 test/browser-install.test.js
@@ -394,6 +396,7 @@ test/web.pinned-dispatcher.test.js
 test/browser.test.js
 test/browser-upload.test.js
 test/browser-proxy.test.js
+test/browser-proxy-cleanup.test.js
 test/browser-orphans.test.js
 test/browser.desktop-login-journey.test.js
 test/browser.login-seed.test.js
@@ -654,6 +657,7 @@ test/cron.run-now.test.js
 test/tool-withheld-message.test.js
 test/cron-guard.test.js
 test/untrusted-taint.test.js
+test/api-continuation-boundary.test.js
 test/taint-lineage.test.js
 test/taint-refusal-copy.test.js
 test/taint-entry-origin.test.js
@@ -1174,3 +1178,7 @@ test/group-add.test.js
 test/group-kickoff.test.js
 
 test/ask-cards-readable.test.js
+
+test/desktop-custom-truth.test.js
+
+test/comms-press-sound.test.js

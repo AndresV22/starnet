@@ -325,7 +325,9 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   A.ok(/terminalGrant: \(call, tool\) => !execution\.taintedBy\(\)/.test(src), 'the terminal standing grant never survives taint');
   A.ok(/connectorGrant: \(call, tool\) => !execution\.taintedBy\(\)/.test(src), 'the connector standing grant never survives taint');
   // enforcement must run BEFORE the tool executes
-  A.ok(src.indexOf('let postTaint = revokedByTaint.boundary') < src.indexOf('r = await registry.dispatch(c, dctx)'),
+  const gateAt = src.indexOf('let postTaint = sameOriginApi ?');
+  const dispatchAt = src.indexOf('r = await registry.dispatch(c, dctx)');
+  A.ok(gateAt >= 0 && dispatchAt > gateAt,
     'the lockout is checked BEFORE dispatch, so a revoked power never executes');
 }
 
@@ -350,7 +352,7 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   const call = (url, extra) => ({ name: 'web_request', args: Object.assign({ url }, extra || {}) });
   const P = 'https://api.printify.com/v1/shops/1/products/5de6593ebff03b5313567d22.json';
   const key = { headers: { Authorization: 'Bearer ${PRINTIFY_API_KEY}' } };
-  let s = taint.scopeAfterSource(null, wr, call(P, key), { wasTainted: false, runId: 'r1' });
+  let s = taint.scopeAfterSource(null, wr, call(P, key), { wasTainted: false, runId: 'r1', responseOrigin: 'https://api.printify.com' });
   A.eq(JSON.stringify(s), '{"origin":"https://api.printify.com","keys":["PRINTIFY_API_KEY"]}', 'the first API read scopes the run to that origin + key');
   A.ok(taint.sameOriginContinuation(s, wr, call(P, Object.assign({ method: 'PUT', body: '{}' }, key))), 'a PUT back to the same API with the same key continues without a card');
   A.ok(taint.sameOriginContinuation(s, wr, call('https://api.printify.com/v1/uploads/images.json', Object.assign({ method: 'POST' }, key))), 'any path on the same origin');
@@ -366,16 +368,18 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   A.eq(taint.scopeAfterSource(s, fsRead, { name: 'fs.read', args: { path: '.output/untrusted-web_request-r1-0.txt' } }, { wasTainted: true, runId: 'r1' }), s, 'reading this run\'s own park keeps the scope');
   A.ok(taint.scopeAfterSource(s, fsRead, { name: 'fs.read', args: { path: '.output/untrusted-web_fetch-OTHERRUN-0.txt' } }, { wasTainted: true, runId: 'r1' }).broad, 'another run\'s park broadens');
   A.ok(taint.scopeAfterSource(s, { name: 'web_fetch', capability: 'web' }, { name: 'web_fetch', args: { url: 'https://blog.example' } }, { wasTainted: true }).broad, 'a web page broadens');
-  A.ok(taint.scopeAfterSource(s, wr, call('https://api.stripe.com/v1/x', key), { wasTainted: true }).broad, 'a second API origin broadens');
-  A.ok(taint.scopeAfterSource(s, wr, call(P, { headers: { Authorization: 'Bearer ${OTHER_API_KEY}' } }), { wasTainted: true }).broad, 'a new key on the same origin broadens');
+  A.ok(taint.scopeAfterSource(s, wr, call('https://api.stripe.com/v1/x', key), { wasTainted: true, responseOrigin: 'https://api.stripe.com' }).broad, 'a second API origin broadens');
+  A.ok(taint.scopeAfterSource(s, wr, call(P, { headers: { Authorization: 'Bearer ${OTHER_API_KEY}' } }), { wasTainted: true, responseOrigin: 'https://api.printify.com' }).broad, 'a new key on the same origin broadens');
   A.ok(taint.scopeAfterSource(null, wr, call(P, key), { wasTainted: true }).broad, 'a run tainted before its first API read (start/inherited/replay) is broad');
+  A.eq(taint.scopeAfterSource(s, wr, call(P, key), { wasTainted: true, responseOrigin: 'https://api.printify.com' }), s, 'another proven same-origin response with the same key retains scope');
+  A.ok(taint.scopeAfterSource(s, wr, call(P, key), { wasTainted: true }).broad, 'missing response proof broadens even an existing scope');
   const broad = { broad: true };
   A.eq(taint.scopeAfterSource(broad, wr, call(P, key), { wasTainted: true }), broad, 'broad never narrows again');
   A.ok(!taint.sameOriginContinuation(broad, wr, call(P, key)), 'a broad scope never continues');
   // wiring: one gate, before the boundary; the scope follows every source and relayed taint
   const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
   A.ok(/const sameOriginApi = !!taintSource && !inheritedTaint && taintSource === execution\.taintedBy\(\)\s*&& taintPolicy\.sameOriginContinuation\(taintScope, liveTool, c, \{ untrustedEntry: untrustedEntryRun \}\);\s*let postTaint = sameOriginApi \?/.test(idx), 'the dispatch gate consults the scope (never for an inherited taint)');
-  A.ok(/taintScope = taintPolicy\.scopeAfterSource\(taintScope, liveTool, c, \{ wasTainted: !!execution\.taintedBy\(\), runId \}\);/.test(idx), 'every untrusted result updates the scope, not only the first');
+  A.ok(/taintScope = taintPolicy\.scopeAfterSource\(taintScope, liveTool, c, \{ wasTainted: !!execution\.taintedBy\(\), runId, responseOrigin: responseProvenance\.originOf\(r\) \}\);/.test(idx), 'every untrusted result updates the scope, not only the first');
   A.ok(/if \(relayed\) \{ latchRunTaint\(relayed\); taintScope = \{ broad: true \}; \}/.test(idx), 'relayed worker taint makes the scope broad');
 }
 

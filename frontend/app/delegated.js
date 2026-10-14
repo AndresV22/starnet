@@ -133,9 +133,10 @@ const Delegated = (() => {
     }
     // elapsedOf needs NOW: without it the clock read NaN and painted "0:00" for the whole run (live walkthrough 2026-10-13)
     if (C && C.isBusy && C.isBusy(k.id)) {
-      // the worker's own clock as CREW shows it (approval waits excluded), else the thread's
-      const crewMs = (typeof CrewClock !== 'undefined' && CrewClock.elapsedOf && k.agentId) ? CrewClock.elapsedOf(k.agentId, Date.now()) : null;
-      return { cls: 'working', live: 'working', t: crewMs != null ? clock(crewMs) : (C.elapsedOf ? clock(C.elapsedOf(k.id, Date.now())) : '') };
+      // Only the current channel identifies this run; a historical run or the agent's oldest run may be its sibling.
+      const now = Date.now(), runId = C.runIdOf ? C.runIdOf(k.id) : null;
+      const runMs = runId && typeof CrewClock !== 'undefined' && CrewClock.elapsedForRun ? CrewClock.elapsedForRun(runId, now) : null;
+      return { cls: 'working', live: 'working', t: Number.isFinite(runMs) ? clock(runMs) : (C.elapsedOf ? clock(C.elapsedOf(k.id, now)) : '') };
     }
     const reason = String((w && w.reason) || k.lastRunReason || '');
     if (reason === 'budget' || reason === 'max_iters') return { cls: 'stopped', live: reason === 'budget' ? 'budget limit reached' : 'step limit reached', t: '' };

@@ -134,28 +134,28 @@ test('a chat message (Telegram/Discord) fits the whole request or says it had to
 });
 
 // Parallel workers can ask on the same lead channel. Answering one question must leave all other asks waiting.
-function clarificationFixture(mode) {
+function clarificationFixture(mode, extra) {
   const Channels = require('../frontend/app/channels.js'); Channels.reset();
-  const nodes = [], listeners = new Map();
+  const nodes = [], listeners = new Map(), emitted = [], settledWith = [], answeredRuns = [];
   const element = () => ({ children: [], querySelectorAll() { return this.children.filter(n => n.className && n.className.includes('consent-')); }, dataset: {}, classList: { add() {}, remove() {} }, appendChild(n) { this.children.push(n); },
     addEventListener() {}, setAttribute() {}, remove() { this.removed = true; }, focus() {} });
   const ws = { id: 'parallel-asks' };
   Channels.begin(ws.id, 1); Channels.setRunId(ws.id, 'lead');
-  const q = { promptId: 'q1', tool: 'brief.ask', argsSummary: JSON.stringify({ question: 'Which color?', options: ['Blue', 'Green'], mode }) };
+  const q = Object.assign({ promptId: 'q1', tool: 'brief.ask', argsSummary: JSON.stringify({ question: 'Which color?', options: ['Blue', 'Green'], mode }) }, extra || {});
   const other = { promptId: 'p2', tool: 'fs.write' };
   Channels.setPending(ws.id, q, 1); Channels.setPending(ws.id, other, 2);
   let conversationAnswer = null;
   const ctx = { Channels, JSON, Date, name: 'NOVA', input: null, settlePromptNotice() {}, askerName: () => 'NOVA',
     document: { createElement: element, createTextNode: textContent => ({ textContent }) },
     row: () => { const r = { d: element(), body: element() }; nodes.push(r); return r; },
-    Harness: { consentAnswer: () => Promise.resolve({ ok: true }) },
-    TaskConversation: { mount: (el, question, cb) => { conversationAnswer = cb; } },
-    U: { bus: { emit() {}, on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } } },
+    Harness: { consentAnswer: (rid) => { answeredRuns.push(rid); return Promise.resolve({ ok: true }); } },
+    TaskConversation: { mount: (el, question, cb) => { conversationAnswer = cb; return { settle: text => { settledWith.push(text); return true; } }; } },
+    U: { bus: { emit: (name, data) => emitted.push({ name, data }), on: (name, fn) => listeners.set(name, fn), off: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name); } } },
     isActiveWs: () => false, renderPresence() {}, syncStatus() {}, status() {}, autoscroll() {}, revealCard() {}, releaseCard() {}, keepFocus() {}, fitWhole() {}, announcedPrompt: () => true,
     askAnswerers: new Map(), glance: (t) => String(t) };
   vm.createContext(ctx); vm.runInContext(extract(chat, '  function settledWhere(resp)', '  async function answerConsent('), ctx); vm.runInContext(extract(chat, '  function clarifyRow(', '  // p = a consent payload'), ctx);
   ctx.clarifyRow(q, ws);
-  return { Channels, ws, q, nodes, listeners, conversationAnswer, ctx };
+  return { Channels, ws, q, nodes, listeners, emitted, settledWith, answeredRuns, conversationAnswer, ctx };
 }
 test('a choice answer preserves a parallel worker approval and its paused clock', async () => {
   const f = clarificationFixture('choice');
@@ -374,4 +374,33 @@ test('the end of a run retires its open approval card — no live key answers a 
   assert.ok(tag && /the run ended before an answer/.test(tag.textContent), 'the card says the run ended and nothing was approved');
   assert.ok(body.children.length >= before, 'the card stays as history');
   assert.equal(f.listeners.has('permission.response'), false, 'and it no longer listens for an answer');
+});
+
+// A confirmed local answer names its surface: any other card for the same prompt must not read it as a phone answer.
+for (const mode of ['choice', 'conversation']) test(mode + ' confirmed local question answer identifies the desk surface', async () => {
+  const f = clarificationFixture(mode);
+  if (mode === 'conversation') await f.conversationAnswer('Use blue.');
+  else await f.nodes[0].body.children.find(n => n.className === 'consent-btns').children[0].onclick();
+  const responses = f.emitted.filter(e => e.name === 'permission.response');
+  assert.equal(responses.length, 1);
+  assert.equal(responses[0].data.promptId, f.q.promptId);
+  assert.equal(responses[0].data.via, 'desk');
+  assert.equal(f.ctx.settledWhere(responses[0].data), '', 'another local card must not attribute this answer to a phone');
+  assert.equal(f.ctx.settledWhere({ promptId: f.q.promptId, decision: 'once' }), ' from your phone', 'legacy remote provenance is unchanged');
+});
+test('a conversation question answers the run that asked it, like the choice and approval cards', async () => {
+  const f = clarificationFixture('conversation', { runId: 'worker-run' });
+  await f.conversationAnswer('Use blue.');
+  assert.deepEqual(f.answeredRuns, ['worker-run'], 'the prompt run id wins over the channel run');
+  const g = clarificationFixture('conversation');
+  await g.conversationAnswer('Use blue.');
+  assert.deepEqual(g.answeredRuns, ['lead'], 'an unstamped prompt still answers the channel run');
+});
+test('a conversation question declined elsewhere says declined, never answered', () => {
+  const f = clarificationFixture('conversation');
+  f.listeners.get('permission.response')({ promptId: 'q1', decision: 'deny' });
+  assert.deepEqual(f.settledWith, ['Declined from your phone']);
+  const g = clarificationFixture('conversation');
+  g.listeners.get('permission.response')({ promptId: 'q1', decision: 'once', via: 'voice' });
+  assert.deepEqual(g.settledWith, ['Answered by voice']);
 });

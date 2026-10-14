@@ -26,6 +26,7 @@
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (schema, toolMod, contextMod) {
   'use strict';
+  const responseProvenance = typeof require === 'function' ? require('./response-provenance.js') : null;
   // failopen.note — the tagged SYNC swallow (per-tag count + throttled warn): a fail-open catch must never be invisible.
   const { note: failNote } = (typeof require === 'function') ? require('../failopen.js') : { note: function (tag, e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); } };
 
@@ -590,6 +591,8 @@
         // RELAYED TAINT (additive): a tool that hands back ANOTHER run's text (team.dispatch / team.subagents …)
         // reports that run's host-proven taint; the run host latches it on the ingesting run (see taint.relayedTaint).
         if (shaped && typeof out.taintedBy === 'string' && out.taintedBy) done.taintedBy = out.taintedBy.slice(0, 200);
+        // Only host-minted provenance survives shaping; body text and ordinary metadata fields are not proof.
+        if (shaped && responseProvenance) responseProvenance.carry(out, done);
         return await notifyPost(done, elapsed());
       } catch (e) {
         /* A TIMEOUT IS NOT A NO-OP (h1 audit 2026-09-22). "timed out" read like "nothing happened", the failure-recovery

@@ -314,6 +314,51 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
     const tools = [{ name: 'group_handoff', schema: { type: 'object' } }, { name: 'thing', schema: { type: 'object' } }];
     const handed = await run(scripted([handoffTurn, textTurn(wait)]), { tools, dispatch: async () => ({ ok: true, isError: false, content: 'Queued research.' }) });
     A.eq(handed.reason, 'done', 'after a real hand-off the honest wait ends the turn done (the hand-offs then run)');
+    // A queued peer never excuses a separate unperformed promise, in either order or clause layout.
+    const mixed = [
+      'I will summarize when they report. I will read main.js now.',
+      'I will read main.js now. I will summarize when they report.',
+      'I will summarize when they report; I will read main.js now.',
+      'I will read main.js now; I will summarize when they report.',
+      'I will summarize when they report, and I will read main.js now.',
+      'I will read main.js now, but I will summarize when they report.',
+      'I will read main.js now and summarize when they report.',
+      'I will summarize when they report and read main.js now.',
+      'I will summarize when they report, then I will read main.js now.',
+      'I will read main.js now, then I will summarize when they report.',
+      'I will summarize when they report, then read main.js now.',
+      'I will read main.js now, then summarize when they report.',
+      'I will read main.js now; MIRA is researching; ROOK is drafting; both are on their tasks.',
+      "I'll wait for ROOK to finish and then read main.js now.",
+      "I'll wait for ROOK to finish; I will read main.js now."
+    ];
+    for (const phrase of mixed) {
+      const provider = scripted([handoffTurn, textTurn(phrase), toolTurn(42), textTurn('The local check is complete.')]);
+      const dispatched = [];
+      const result = await run(provider, { tools, dispatch: async call => {
+        dispatched.push(call.name); return { ok: true, isError: false, content: 'ok' };
+      } });
+      A.eq(provider.callCount(), 4, 'mixed promise continues into actual work: ' + phrase);
+      A.eq(dispatched, ['group_handoff', 'thing'], 'handoff then independent action execute in order: ' + phrase);
+      A.eq(result.messages.filter(m => m.role === 'system' && /<continuation>/.test(m.content)).length, 1, 'one continuation nudge: ' + phrase);
+      A.eq(result.reason, 'done', 'delivery after real independent action: ' + phrase);
+      const stuck = await run(scripted([handoffTurn, textTurn(phrase)]), { tools, dispatch: okDispatch });
+      A.eq(stuck.reason, 'error', 'repeated mixed promise cannot finish done: ' + phrase);
+      A.eq(stuck.failureCode, 'incomplete_work', 'mixed promise retains bounded failure: ' + phrase);
+    }
+    for (const phrase of [wait, 'I will summarize when they report.', 'I will merge both drafts once MIRA and ROOK finish.', 'When they report, I will read main.js and summarize.', 'When they report, I will read main.js and run tests.', 'When they report, I will run tests and read main.js.',
+      // What follows an explicit wait in sequence is the same dependent plan (a regression the clause split once
+      // brought back: the lead's turn failed and its queued hand-offs were stopped).
+      "I'll wait for ROOK to finish and then review his draft.",
+      "I'll wait for their reports and then put together the final plan.",
+      "Handed off to MIRA. I'll wait for her report and then build the plan.",
+      "I'll wait for ROOK to finish, then review his draft and merge it."]) {
+      const provider = scripted([handoffTurn, textTurn(phrase)]);
+      const result = await run(provider, { tools, dispatch: okDispatch });
+      A.eq(result.reason, 'done', 'pure successful peer wait stays allowed: ' + phrase);
+      A.eq(provider.callCount(), 2, 'pure wait has no continuation turn: ' + phrase);
+      A.eq(result.messages.filter(m => m.role === 'system' && /<continuation>/.test(m.content)).length, 0, 'pure wait has no nudge: ' + phrase);
+    }
     const refused = await run(scripted([handoffTurn, textTurn(wait)]), { tools, dispatch: async () => ({ ok: false, isError: true, content: 'Unknown participant' }) });
     A.ok(refused.reason !== 'done', 'a hand-off that FAILED earns no wait: still an unkept promise (' + refused.reason + ')');
     const none = await run(scripted([textTurn(wait)]), { tools });

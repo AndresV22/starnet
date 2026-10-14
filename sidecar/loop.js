@@ -737,7 +737,42 @@
   // The announcement must be how the reply ENDS: within its last three sentences, or followed only by the plan's list
   // items ("I'll build it with:\n- a hero\n- pricing…"). A first-person intro to content delivered in this same reply
   // ("I'll show the config:" + a code block) is not a stop. Waiting/offer/lesson sentences never count (CG_WAITS).
-  function announcesIntent(text) {
+  // Split only explicit action coordination for the peer exemption. Keep the outer sentence list intact:
+  // semicolons must not move a promise out of the existing last-three-sentences window.
+  const CG_PEER_ACTION = '(?:' + CG_VERBS + '|summari[sz]e|merge)\\b';
+  const CG_PEER_SPLIT = new RegExp(';\\s*|,?\\s+(?:(?:and|but)(?:\\s+then)?|then)\\s+(?=(?:' + CG_SUBJ + '|let\\s+me|now|' + CG_PEER_ACTION + ')\\b)', 'gi');
+  const CG_PEER_ACTION_HEAD = new RegExp('^' + CG_PEER_ACTION, 'i');
+  const CG_OWN_SUBJECT = new RegExp('^(?:' + CG_SUBJ + '|let\\s+me)\\b', 'i');
+  // "I'll wait for ROOK to finish" names the wait itself: the run handed work on and is now waiting for it.
+  const CG_WAIT_VERB = /\bwait(?:ing)?\s+(?:for|on|until)\b/i;
+  function peerClauseWaits(clause) {
+    return CG_WAITS.some(re => re.test(clause)) || waitsOnPeers(clause) || CG_WAIT_VERB.test(clause);
+  }
+  function hasIndependentPeerIntent(sentence) {
+    const subject = sentence.match(new RegExp('\\b(' + CG_SUBJ + '|let\\s+me)\\s+', 'i'));
+    const clauses = [];
+    let last = 0, joint = '';
+    for (const m of sentence.matchAll(CG_PEER_SPLIT)) {
+      clauses.push({ clause: sentence.slice(last, m.index), joint });
+      joint = m[0]; last = m.index + m[0].length;
+    }
+    clauses.push({ clause: sentence.slice(last), joint });
+    let waiting = false;
+    return clauses.some(({ clause, joint }, index) => {
+      // What follows a wait in sequence ("…wait for ROOK to finish and then review his draft") happens after that wait:
+      // it is the same dependent plan, not a second promise. A clause that restates its own subject or says "now" is
+      // independent again ("…when they report, then I will read main.js now"). A semicolon or "but" never chains.
+      const chained = index > 0 && waiting && !/;|\bbut\b/i.test(joint);
+      if (chained && !CG_OWN_SUBJECT.test(clause) && !/\bnow\b/i.test(clause)) return false;
+      // "I will read now and summarize when they report" has two actions sharing "I will".
+      // Carry that subject to a bare coordinated action so it is checked by the same intent patterns.
+      const c = index && subject && CG_PEER_ACTION_HEAD.test(clause)
+        ? subject[1] + ' ' + clause : clause;
+      waiting = peerClauseWaits(c);
+      return CG_PATTERNS.some(re => re.test(c)) && !waiting;
+    });
+  }
+  function announcesIntent(text, allowPeerWait = false) {
     const t = String(text == null ? '' : text).trim();
     if (!t) return false;
     const sents = cgSentences(t);
@@ -746,8 +781,10 @@
     for (let i = 0; i < sents.length; i++) {
       if (sents[i] === CG_CODE) continue;
       const s = sents[i].replace(/^[^a-z0-9'"]+/i, '');
-      if (!CG_PATTERNS.some(re => re.test(s))) continue;
+      // Preserve sentence-wide leading conditions before splitting coordinated dependent actions.
+      // "When they report, I will read main.js and run tests" remains one conditional wait.
       if (CG_WAITS.some(re => re.test(s))) continue;
+      if (allowPeerWait ? !hasIndependentPeerIntent(s) : !CG_PATTERNS.some(re => re.test(s))) continue;
       const rest = sents.slice(i + 1);
       if (/:\s*$/.test(s) && rest[0] === CG_CODE) continue;
       if (rest.length <= 2 || rest.every(r => CG_LIST_ITEM.test(r))) return true;
@@ -2236,7 +2273,7 @@
         // is a premature stop, not a delivery — nudge the model back to work instead of ending 'done' mid-task.
         // Never fires on a grace turn (that turn is CONTRACTED to be tool-free) and never past CG_MAX, so a
         // model that narrates forever still terminates through the normal end below.
-        if (!empty && CG_MAX > 0 && tools.length > 0 && announcesIntent(text) && !(peerHandoffs > 0 && waitsOnPeers(text))) {
+        if (!empty && CG_MAX > 0 && tools.length > 0 && announcesIntent(text, peerHandoffs > 0)) {
           if (graceUsed || cgUsed >= CG_MAX) {
             const explanation = 'Work is incomplete: the model kept announcing another action without making the tool call. The automatic continuation attempts have ended; no background work was started by these promises.';
             assistant.content = text + '\n\n' + explanation;
