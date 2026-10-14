@@ -23103,7 +23103,9 @@ async function handleConsent(req, res) {
   const pend = pendingByRun.get(body.runId);
   const finish = pend && pend.get(body.promptId);
   const meta = finish ? runsMeta.get(body.runId) : null;
-  const agentId = meta && meta.agentId;
+  // a background worker's ask outlives its lead's turn (askHuman): once that run's meta is gone, the ask row still names
+  // the lead whose broker it rides — the same agent a "full" answer would have granted while the lead was live
+  const agentId = (meta && meta.agentId) || (finish && finish.detached && finish.askRow && finish.askRow.agentId) || undefined;
   let persisted = true;
   // a fresh-consent card (station.power, plugin.submit) answers THIS call only: the broker grants any yes once, so a
   // standing answer (full, always, session) is applied and echoed as 'once', and no surface confirms a grant never made

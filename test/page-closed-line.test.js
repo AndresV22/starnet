@@ -83,6 +83,9 @@ const row = (id, role, content, ts) => ({ streamId: 'ws_a', agentId: 'agent', ro
   A.ok(/pageClosed: pageClosedRuns\.get\(runId\) \|\| null \}\);/.test(src), 'runOnce writes the note into the run record');
   const note = src.slice(src.indexOf('function notePageClosed('), src.indexOf('function notePageClosed(') + 900);
   A.ok(/f\.detached/.test(note) && /brief\.ask/.test(note), 'a background worker\'s ask and a question are not counted (they outlive / restore on their own)');
+  // a background worker's ask answered after its lead's turn ended: "full" still names the lead whose broker it rides
+  A.ok(/const agentId = \(meta && meta\.agentId\) \|\| \(finish && finish\.detached && finish\.askRow && finish\.askRow\.agentId\) \|\| undefined;/.test(src),
+    'POST /api/consent resolves the agent for a background ask whose lead run already ended');
 }
 
 A.report('page-closed-line.test');
