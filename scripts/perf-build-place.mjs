@@ -22,7 +22,7 @@
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdirSync, rmSync, cpSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > -1 ? process.argv[i + 1] : d; };
@@ -111,25 +111,44 @@ const SPOTS = `(() => {
 const VERIFY = `(() => {
   const T = Build.__test__, st = T.station(), SB = StationBake;
   const geoOf = () => st.projectGeometry();
+  // mismatched pixels; 'inner' counts only those 4+ px inside the chunk (a stale or wrong region shows up there, while a
+  // chunk bake's own edge seam — which a whole-station bake does not have — stays at the rim)
+  let inner = 0;
   const diff = (a, b) => {
     if (!a || !b || a.width !== b.width || a.height !== b.height) return -1;
     const A = a.getContext('2d').getImageData(0, 0, a.width, a.height).data, B = b.getContext('2d').getImageData(0, 0, b.width, b.height).data;
-    let n = 0; for (let i = 0; i < A.length; i += 4) if (A[i] !== B[i] || A[i+1] !== B[i+1] || A[i+2] !== B[i+2] || A[i+3] !== B[i+3]) n++;
+    let n = 0; for (let i = 0; i < A.length; i += 4) if (A[i] !== B[i] || A[i+1] !== B[i+1] || A[i+2] !== B[i+2] || A[i+3] !== B[i+3]) {
+      n++; const p = i >> 2, x = p % a.width, y = (p / a.width) | 0;
+      if (Math.min(x, y, a.width - 1 - x, a.height - 1 - y) >= 4) inner++;
+    }
     return n;
   };
+  // the dense art plate a chunk draws (IndustrialTextures keeps it beside the base canvas): mismatched pixels + worst channel delta
+  const plate = cv => (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.baseLayers ? IndustrialTextures.baseLayers(cv)[0] : null) || null;
+  const plateDiff = (a, b) => {
+    if (!a && !b) return [0, 0];
+    if (!a || !b || a.width !== b.width || a.height !== b.height) return [1e9, 255];
+    const A = a.getContext('2d').getImageData(0, 0, a.width, a.height).data, B = b.getContext('2d').getImageData(0, 0, b.width, b.height).data;
+    let n = 0, worst = 0; for (let i = 0; i < A.length; i++) { const d = Math.abs(A[i] - B[i]); if (d) { if (d > worst) worst = d; if ((i & 3) === 0 || true) n++; } }
+    return [n, worst];
+  };
   const compare = (cache, geo) => {
-    const fresh = SB.bakeIncremental(geo, null, null), out = { chunks: fresh.chunkMap.size, missing: 0, sizeOff: 0, base: 0, light: 0, lamps: [cache.lamps.length, fresh.lamps.length] };
+    if (!cache.chunked) return { chunks: 0, missing: 0, sizeOff: 0, base: 0, light: 0, plate: 0, plateWorst: 0, extra: 0, lamps: [cache.lamps.length, cache.lamps.length], whole: true };
+    inner = 0;
+    const fresh = SB.bakeIncremental(geo, null, null), out = { chunks: fresh.chunkMap.size, missing: 0, sizeOff: 0, base: 0, light: 0, plate: 0, plateWorst: 0, lamps: [cache.lamps.length, fresh.lamps.length] };
     for (const [k, f] of fresh.chunkMap) {
       const c = cache.chunkMap.get(k);
       if (!c) { out.missing++; continue; }
       if (c.x !== f.x || c.y !== f.y || c.w !== f.w || c.h !== f.h) { out.sizeOff++; continue; }
-      const b = diff(c.baseCv, f.baseCv), l = diff(c.lightCv, f.lightCv);
-      out.base += b < 0 ? 1e9 : b; out.light += l < 0 ? 1e9 : l;
+      const b = diff(c.baseCv, f.baseCv), l = diff(c.lightCv, f.lightCv), [pn, pw] = plateDiff(plate(c.baseCv), plate(f.baseCv));
+      out.base += b < 0 ? 1e9 : b; out.light += l < 0 ? 1e9 : l; out.plate += pn; out.plateWorst = Math.max(out.plateWorst, pw);
     }
     out.extra = [...cache.chunkMap.keys()].filter(k => !fresh.chunkMap.has(k)).length;
+    out.inner = inner;
     return out;
   };
-  let geo = geoOf(), cache = SB.bakeIncremental(geo, null, null), last = null;
+  // start where BUILD MODE starts: the live world's WHOLE-station bake (the entry handoff), never a chunked one
+  let geo = geoOf(), cache = SB.bake(geo), last = null;
   const unsub = st.onChange(p => { last = p; });
   const rows = [];
   const step = (label, fn) => {
@@ -138,7 +157,7 @@ const VERIFY = `(() => {
     let rebaked = 0, t = 0;
     if (p && (!p.staticBakeUnchanged || p.global)) { const t0 = performance.now(); cache = SB.bakeIncremental(geo, cache, p.global ? null : p.dirtyRects); t = Math.round(performance.now() - t0); rebaked = cache.stats.rebakedChunks; }
     const cmp = compare(cache, geo);
-    rows.push({ label, ok: !!(r && r.ok), static: !!(p && p.staticBakeUnchanged), global: !!(p && p.global), rects: p ? p.dirtyRects.length : null, rebaked, ms: t, ...cmp });
+    rows.push({ label, ok: !!(r && r.ok), static: !!(p && p.staticBakeUnchanged), global: !!(p && p.global), rects: p ? p.dirtyRects.length : null, rebaked, ms: t, reset: !!(cache.stats && cache.stats.fullReset), ...cmp });
   };
   const rooms = st.rooms(); let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
   for (const r of rooms) for (const q of r.rects) { minX=Math.min(minX,q.x1); minY=Math.min(minY,q.y1); maxX=Math.max(maxX,q.x2); maxY=Math.max(maxY,q.y2); }
@@ -153,6 +172,11 @@ const VERIFY = `(() => {
   let belt = null;
   for (let y = maxY; y >= minY && !belt; y--) for (let x = minX; x <= maxX - 6 && !belt; x++) if (st.canPlaceBeltRun({ tx: x, ty: y }, { tx: x + 5, ty: y }).ok) belt = [x, y];
   if (belt) { step('lay belt run', () => st.placeBeltRun({ tx: belt[0], ty: belt[1] }, { tx: belt[0] + 5, ty: belt[1] })); step('undo belt', () => st.undo()); }
+  const rid0 = st.rooms()[0].id;   // the first edit the bake sees, in the same frame: chunks cut from the whole-station bake
+  if (window.__verifyFirst !== 'south') {
+    step('rename room (first)', () => st.renameRoom(rid0, 'PERF-' + Date.now().toString(36).slice(-4)));
+    step('undo rename (first)', () => st.undo());
+  }
   const south = freeRoom(maxY + 1, maxY + 5, minX, maxX);
   if (south) { step('room past south edge', () => st.addRoom({ kind: 'hab', rects: [south] })); step('undo south room', () => st.undo()); step('redo south room', () => st.redo()); }
   const east = (() => { for (let y = minY; y <= maxY; y++) { const r = { x1: maxX + 1, y1: y, x2: maxX + 6, y2: y + 4 }; if (st.canPlaceRoom([r], 'hab').ok) return r; } return null; })();
@@ -275,6 +299,25 @@ try {
       await edit('undo rename', `(${T}.key('z', { ctrlKey: true }), ${T}.station().rooms()[0].name)`);
     }
   }
+  // --zoom-shots "tx,ty;tx,ty": wheel-zoom (real mouseWheel input, --zoom-steps notches) onto each world tile and capture it
+  if (shots && arg('--zoom-shots')) {
+    for (const spec of arg('--zoom-shots').split(';')) {
+      const [tx, ty] = spec.split(',').map(Number);
+      const steps = Number(arg('--zoom-steps', '18'));
+      for (let i = 0; i < steps; i++) {
+        const e = await evalJS(cdp, `(() => { const e = Build.__test__._tileEvent([${tx}, ${ty}]); return { x: e.clientX, y: e.clientY }; })()`);
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: e.x, y: e.y, deltaX: 0, deltaY: -50 });
+      }
+      await sleep(1500);   // any chunk the zoom brought into view bakes on the next frames
+      const cam = await evalJS(cdp, `Build.__test__.camera()`);
+      console.log('zoom shot', spec, 'zoom', cam.zoom.toFixed(2), (await capture(cdp, shots, 'zoom-' + tx + '_' + ty)).path);
+      for (let i = 0; i < steps; i++) {
+        const e = await evalJS(cdp, `(() => { const e = Build.__test__._tileEvent([${tx}, ${ty}]); return { x: e.clientX, y: e.clientY }; })()`);
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: e.x, y: e.y, deltaX: 0, deltaY: 50 });
+      }
+      await sleep(800);
+    }
+  }
   out0.idle.push(await idle('after the edits'));
   for (let s = 1; s <= Number(arg('--settle', '0')); s++) { await sleep(4000); out0.idle.push(await idle('+' + (s * 6) + ' s later')); }
   if (flag('--esc')) {   // diagnosis only: does putting the armed tool down change the idle cost?
@@ -300,9 +343,10 @@ try {
   const out = { station, opened, spots, rows, idle: out0.idle, errors: errors.slice(0, 20) };
   if (flag('--verify')) {
     console.log('\n-- verify: kept chunked bake vs a fresh chunked bake, after every edit (base/light = mismatched pixels)');
+    await evalJS(cdp, `(window.__verifyFirst = ${JSON.stringify(arg('--verify-first', 'rename'))}, 1)`);
     const v = await evalJS(cdp, VERIFY);
     out.verify = v;
-    for (const r of v) console.log(`${r.label.padEnd(22)} ok ${r.ok} · static ${r.static} · global ${r.global} · rects ${r.rects} · re-baked ${r.rebaked} chunks in ${r.ms} ms · of ${r.chunks} · missing ${r.missing} · extra ${r.extra} · size-off ${r.sizeOff} · base ${r.base} · light ${r.light} · lamps ${r.lamps.join('/')}`);
+    for (const r of v) console.log(`${r.label.padEnd(22)} ok ${r.ok} · static ${r.static} · global ${r.global} · rects ${r.rects} · re-baked ${r.rebaked} chunks in ${r.ms} ms · of ${r.chunks} · missing ${r.missing} · extra ${r.extra} · size-off ${r.sizeOff} · base ${r.base} · light ${r.light} (inside the rim ${r.inner || 0}) · plate ${r.plate} (worst Δ${r.plateWorst}) · lamps ${r.lamps.join('/')}${r.reset ? ' · FULL RESET' : ''}${r.whole ? ' · (still the whole-station bake)' : ''}`);
   }
   console.log('\npage exceptions:', errors.length ? errors.slice(0, 8).join(' | ') : 'none');
   if (arg('--json')) writeFileSync(resolve(arg('--json')), JSON.stringify(out, null, 1));
@@ -310,6 +354,9 @@ try {
 } catch (e) { console.error('FAILED', e && e.stack || e); process.exitCode = 1; }
 finally {
   // stop only what this run started, by its own handle
-  try { if (chrome) chrome.kill(); } catch (e) { console.warn('chrome kill:', e.message); }
-  try { side.kill(); } catch (e) { console.warn('sidecar kill:', e.message); }
+  // Chrome's renderer/GPU/utility children outlive a killed browser process on Windows: end the whole tree, by its own pid
+  try { if (chrome) { if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(chrome.pid), '/T', '/F'], { stdio: 'ignore' }); else chrome.kill(); } }
+  catch (e) { console.warn('chrome kill:', e.message); }
+  try { if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(side.pid), '/T', '/F'], { stdio: 'ignore' }); else side.kill(); }
+  catch (e) { console.warn('sidecar kill:', e.message); }
 }
