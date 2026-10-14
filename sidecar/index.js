@@ -24030,6 +24030,12 @@ function awayBriefingState(raw) {
   return { through: Math.max(0, Number(s.through) || 0), last: (s.last && typeof s.last === 'object') ? s.last : null };
 }
 function readAwayBriefingState() { try { return awayBriefingState(awayBriefingStore.get('briefing')); } catch (_) { return awayBriefingState(null); } }
+// the OPEN consent prompts awaiting the Commander right now (the same pendingByRun /api/state/snapshot lists)
+function openAskCount() {
+  let n = 0;
+  try { for (const pending of pendingByRun.values()) n += (pending && pending.size) || 0; } catch (e) { failNote('away-briefing.asks', e); }
+  return n;
+}
 async function awayBriefingInputs(since, now, tzOffsetMin) {
   let runs = []; try { runs = runStore.list(null, { limit: 500, since: Math.max(0, since - 1) }) || []; } catch (_) { runs = []; }
   // the run row keeps deliveryText only for session-scoped runs; a routine/loop's own words live in its durable
@@ -24090,7 +24096,11 @@ async function handleAwayBriefingDeliver(req, res) {
     let out = null;
     await awayBriefingStore.update('briefing', async (raw) => {
       const st = awayBriefingState(raw), now = Date.now();
-      const since = st.through || (now - AWAY_BRIEFING_FIRST_WINDOW_MS);
+      // THE ABSENCE (live walk 10-14): { seen:true } is the page stamping the Commander's presence; minAwayMs is the
+      // page's own away threshold — a stamp fresher than it is a reload or a restart, never a "While you were away"
+      const gap = AwayBriefing.absence({ through: st.through, now, seen: body.seen === true, minAwayMs: Number(body.minAwayMs) || 0, firstWindowMs: AWAY_BRIEFING_FIRST_WINDOW_MS });
+      if (!gap.brief) { out = { delivered: false, why: gap.why }; return { through: gap.through, last: st.last }; }
+      const since = gap.since;
       const inputs = await awayBriefingInputs(since, now, tz);
       const b = AwayBriefing.compose(inputs);
       if (b.empty) { out = { delivered: false, counts: b.counts }; return { through: now, last: st.last }; }
@@ -24099,7 +24109,10 @@ async function handleAwayBriefingDeliver(req, res) {
       const quoted = (inputs.runs || []).find(r => r && r.taintedBy && (Number(r.endedAt) || Number(r.ts) || 0) > since);
       transcriptStore.append({ streamId: AwayBriefing.STREAM_ID, agentId: AWAY_BRIEFING_AGENT, role: 'assistant', taint: quoted ? 'away briefing quoting ' + String(quoted.taintedBy).slice(0, 80) : null, content: b.text });
       const last = { at: now, since: b.since, items: b.items, counts: b.counts };
-      out = { delivered: true, at: now, text: b.text, items: b.items, counts: b.counts };
+      // asksWaiting: open approvals/questions on the station right now. A waiting ask outranks the report — the page keeps
+      // the Commander on the conversation that needs them instead of jumping to the briefing (a reloaded page may not
+      // have refiled a background worker's ask yet; the station's own list is the truth)
+      out = { delivered: true, at: now, text: b.text, items: b.items, counts: b.counts, asksWaiting: openAskCount() };
       return { through: now, last };
     });
     json(200, Object.assign({ ok: true, streamId: AwayBriefing.STREAM_ID, agentId: AWAY_BRIEFING_AGENT, title: AwayBriefing.TITLE }, out || { delivered: false }));

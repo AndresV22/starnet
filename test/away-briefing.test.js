@@ -70,6 +70,39 @@ A.eq(b.items.find(i => i.kind === 'build').open, 'workshop-b-new', 'build item o
 // ---- excerpt + context block ----
 A.eq(B.excerptOf('## Title\n\n- **bold** thing'), 'Title', 'heading text is a fine first line');
 A.eq(B.excerptOf('---\n\n* item `x`'), 'item x', 'rules skipped, markdown stripped');
+// A LEAD-IN IS NOT AN OUTCOME (live walk 10-14: the briefing read "Latest: COPY's draft is in the context at the top. Let
+// me analyze it now." — the worker's opening line, quoted as if it were what the job produced). Structure decides, not
+// words: an opening paragraph that hands over to a rule or heading, or that ends in a colon, introduces the answer.
+const STRAT = "COPY's draft is in the context at the top. Let me analyze it now.\n\n---\n\n## EVALUATION OF COPY'S LAUNCH POST\n\n**The verdict:** Pixel-art UI is the weakest angle.";
+A.eq(B.excerptOf(STRAT), "EVALUATION OF COPY'S LAUNCH POST", 'an opening paragraph that hands over to a rule is a lead-in, never the outcome');
+A.eq(B.excerptOf('I read both drafts.\n\n## Verdict\nShip the second one.'), 'Verdict', 'an opening paragraph that hands over to a heading is a lead-in');
+A.eq(B.excerptOf('Here is what I found:\n\n- Two competitors undercut us.'), 'Two competitors undercut us.', 'an opening paragraph ending in a colon introduces the outcome');
+A.eq(B.excerptOf('Done. Tagline saved to tagline.md.'), 'Done. Tagline saved to tagline.md.', 'a whole short answer is its own outcome');
+A.eq(B.excerptOf('Two competitors undercut us.\n\nBoth cut prices in May.\n\n## Sources\n- a.com'), 'Two competitors undercut us.', 'an answer paragraph followed by more prose keeps its place (a late heading is not a hand-over)');
+A.eq(B.excerptOf('Let me check.\n\n---'), 'Let me check.', 'a lead-in with nothing after it is all the text there is');
+{
+  const threads = [{ id: 'home', title: 'Write Launch Post' }, { id: 'k9', parentStreamId: 'home', title: 'Evaluate' }];
+  const d = B.compose({ since: SINCE, now: NOW, threads, runs: [run({ streamId: 'k9', parentRunId: 'lead', delegatedBy: 'agent', dispatchDelivery: { state: 'final', reason: 'done', text: STRAT } })] });
+  A.ok(d.text.indexOf('Let me analyze') === -1 && /Latest: EVALUATION OF COPY'S LAUNCH POST/.test(d.text), 'the briefing names the answer, not its lead-in: ' + d.text);
+}
+
+// ---- THE ABSENCE (live walk 10-14): a reload is not an absence, and presence moves the stamp ----
+{
+  const H = 60000, AWAY = 30 * H, NOW = 1.8e12;   // a real epoch: the window maths must not clamp at zero
+  let a = B.absence({ through: NOW - 5 * H, now: NOW, minAwayMs: AWAY, firstWindowMs: 24 * 60 * H });
+  A.ok(!a.brief && a.through === NOW, 'the Commander was here 5 minutes ago (a reload, a restart): no briefing, the stamp moves to now');
+  a = B.absence({ through: NOW - 2 * 60 * H, now: NOW, minAwayMs: AWAY, firstWindowMs: 24 * 60 * H });
+  A.ok(a.brief && a.since === NOW - 2 * 60 * H && a.through === NOW, 'two hours gone → brief exactly the absence');
+  a = B.absence({ through: NOW - 5 * H, now: NOW, seen: true });
+  A.ok(!a.brief && a.through === NOW, 'a presence stamp moves the stamp and never briefs');
+  a = B.absence({ through: NOW + H, now: NOW, seen: true });
+  A.eq(a.through, NOW + H, 'the stamp never moves backwards');
+  a = B.absence({ through: 0, now: NOW, minAwayMs: AWAY, firstWindowMs: 10 * H });
+  A.ok(a.brief && a.since === NOW - 10 * H, 'a first-ever delivery looks back the first window');
+  a = B.absence({ through: NOW - 5 * H, now: NOW });
+  A.ok(a.brief && a.since === NOW - 5 * H, 'no threshold named → the old contract (brief whatever ended since the stamp)');
+}
+
 const ctx = B.contextBlock(b);
 A.ok(ctx.indexOf('workshop/b-new/') !== -1 && ctx.indexOf('job news') !== -1, 'context block tells the agent where each briefed thing lives');
 A.eq(B.contextBlock({ items: [] }), '', 'no items → no context block');

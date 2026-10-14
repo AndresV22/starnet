@@ -30,9 +30,27 @@ function clip(s, max) {
   return t.length > max ? t.slice(0, max - 1).trimEnd() + '…' : t;
 }
 
-// the first readable line of a run's delivered text: skip headings/rules/the routine banner, strip markdown marks.
-function excerptOf(text) {
-  const lines = str(text).split(/\r?\n/);
+const RULE_LINE = /^[-*_]{3,}$/;
+const HEADING_LINE = /^#{1,6}\s/;
+/* A LEAD-IN IS NOT AN OUTCOME (live walk 10-14: "Latest: COPY's draft is in the context at the top. Let me analyze it
+   now." — a worker's opening line, quoted as what the job produced). Decided by the text's STRUCTURE, never by its
+   words: the opening paragraph is a lead-in when the next block is a rule or a heading (the answer starts there), or
+   when it ends in a colon (it introduces what follows). Only the FIRST paragraph, and only when something follows. */
+function afterLeadIn(lines) {
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  const first = lines[i] == null ? '' : lines[i].trim();
+  if (!first || HEADING_LINE.test(first) || RULE_LINE.test(first) || /^✦\s/.test(first)) return lines;
+  let end = i;
+  while (end < lines.length && lines[end].trim()) end++;   // end = the first blank line after the opening paragraph
+  let next = end;
+  while (next < lines.length && !lines[next].trim()) next++;
+  if (next >= lines.length || next === end) return lines;   // nothing follows it: the paragraph is all there is
+  const after = lines[next].trim();
+  const handsOver = RULE_LINE.test(after) || HEADING_LINE.test(after) || /:$/.test(lines[end - 1].trim());
+  return handsOver ? lines.slice(next) : lines;
+}
+function firstReadable(lines) {
   for (const raw of lines) {
     let l = raw.trim();
     if (!l) continue;
@@ -41,6 +59,12 @@ function excerptOf(text) {
     if (l) return clip(l, EXCERPT_MAX);
   }
   return '';
+}
+// the first readable line of a run's delivered text: skip a lead-in, headings/rules/the routine banner, strip markdown
+// marks. A lead-in with nothing readable after it is all the text there is, so it stays.
+function excerptOf(text) {
+  const lines = str(text).split(/\r?\n/);
+  return firstReadable(afterLeadIn(lines)) || firstReadable(lines);
 }
 function isSilent(text) { return str(text).trim() === '[SILENT]'; }
 
@@ -218,6 +242,24 @@ function compose(input) {
   return { empty: false, since, through: now, items, counts, text: L.join('\n') };
 }
 
+/* absence({ through, now, seen, minAwayMs, firstWindowMs }) -> { brief, since?, through }
+   THE ABSENCE (live walk 10-14). `through` is the moment the Commander was last told OR last seen present. A page that
+   reloaded mid-session briefed everything that had ended since the PREVIOUS briefing — work the Commander had watched
+   land — as a new "While you were away", took the screen off the conversation whose approval was still waiting, and a
+   restart twelve minutes later appended a second one. Now the page stamps its presence (seen:true) while the Commander
+   is here, and a delivery names the page's own away threshold (minAwayMs): a stamp fresher than that is a reload or a
+   restart, not an absence — nothing is briefed and the stamp moves to now. The stamp never moves backwards.
+   No threshold named → the original contract (brief whatever ended since the stamp). */
+function absence(o) {
+  o = o || {};
+  const through = Math.max(0, num(o.through)), now = Math.max(0, num(o.now));
+  const next = Math.max(through, now);
+  if (o.seen === true) return { brief: false, why: 'seen', through: next };
+  const min = Math.max(0, Math.min(24 * 3600 * 1000, num(o.minAwayMs)));
+  if (min > 0 && through > 0 && now - through < min) return { brief: false, why: 'present', through: next };
+  return { brief: true, why: 'away', since: through || Math.max(0, now - Math.max(0, num(o.firstWindowMs))), through: now };
+}
+
 /* contextBlock(items) — the agent-facing reference for a run in the briefing session: WHERE each briefed thing
    actually lives, so "apply that build to the game" / "redo the news routine" starts from the work, not from
    scratch. Facts only (ids + jail paths the agent can read with its own tools). Bounded. */
@@ -237,4 +279,4 @@ function contextBlock(briefing) {
   return L.join('\n');
 }
 
-module.exports = { compose, contextBlock, kindOf, excerptOf, whenLabel, STREAM_ID, TITLE };
+module.exports = { compose, contextBlock, kindOf, excerptOf, absence, whenLabel, STREAM_ID, TITLE };
