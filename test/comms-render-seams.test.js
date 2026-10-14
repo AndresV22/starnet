@@ -52,4 +52,26 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   A.eq(Policy.canMutate({ status: 'ready' }, reg.get('station.power')).ok, false, 'station.power (an escalation) still waits for brief_proceed');
 }
 
+/* ---------- B. *italic* renders as italics in COMMS and group replies (one renderer: Chat.renderProse) ---------- */
+{
+  const src = read('frontend/app/chat.js');
+  const extract = name => { const m = new RegExp('(  function ' + name + '\\([\\s\\S]*?\\n  \\})').exec(src); A.ok(m, 'chat.js defines ' + name + '()'); return m[1]; };
+  const esc = /const HTML_ESC = \{[^}]*\};/.exec(src);
+  // eslint-disable-next-line no-new-func
+  const reportInline = new Function(esc[0] + '\n' + extract('escapeHtml') + '\n' + extract('linkify') + '\n' + extract('hostOf') + '\n'
+    + extract('linkHostNote') + '\n' + extract('reportInline') + '\nreturn reportInline;')();
+  A.eq(reportInline('- Lean on *speed* first'), '- Lean on <span class="md-i">speed</span> first', 'a single-asterisk word is italic, not raw');
+  A.eq(reportInline('what a developer actually *does* with it'), 'what a developer actually <span class="md-i">does</span> with it', 'the walk\'s "*does*" renders italic');
+  A.eq(reportInline('*Run* it twice'), '<span class="md-i">Run</span> it twice', 'italic at the start of a line');
+  A.eq(reportInline('a *two word* phrase'), 'a <span class="md-i">two word</span> phrase', 'an italic phrase');
+  A.ok(reportInline('**bold** and *soft*').includes('<span class="md-b">bold</span> and <span class="md-i">soft</span>'), 'bold and italic side by side');
+  A.eq(reportInline('2*3*4 = 24'), '2*3*4 = 24', 'arithmetic keeps its asterisks (no word may open an italic)');
+  A.eq(reportInline('5 * 3 * 2'), '5 * 3 * 2', 'spaced asterisks are not italics');
+  A.eq(reportInline('glob *.js and *.md'), 'glob *.js and *.md', 'a glob is not italic (its close is followed by a word or nothing closes it)');
+  A.eq(reportInline('*<b>x</b>*'), '<span class="md-i">&lt;b&gt;x&lt;/b&gt;</span>', 'italic text stays HTML-escaped');
+  A.ok(/\\\*\[\^\\s\*\]\[\^\*\\n\]\*\\\*/.test(/const MD_MARKERS = (\/.*\/m);/.exec(src)[1]), 'the fast path sees *italic* (a reply with only italics still takes the markdown pass)');
+  A.ok(/\.cmsg \.body \.md-i \{ font-style: italic; \}/.test(read('frontend/css/comms.css')), 'the italic span slants');
+  A.ok(/Chat\.renderProse\(body, content/.test(read('frontend/app/group-chat.js')), 'group replies render through the same Chat.renderProse');
+}
+
 A.report('comms-render-seams.test');
