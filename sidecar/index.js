@@ -12676,10 +12676,14 @@ async function runSampleJob(readArgs) {
       // (wave 2 repair) a stop the station's own fault containment made is said as that fault, never as the Commander's stop
       (stopped && sampleInFlight.stopCause === 'fault') ? { error: 'stopped — the station hit an internal fault and stopped this job before it reached the OUTBOX', stoppedBy: 'fault' } : null));
     }
+    /* COUNTED IN SHIPPED? (rc walk #30): the job's own answer from the receipts the line's SHIPPED counts — a text-only answer
+       is delivered but never shipped, so the panel says so beside ✓ DELIVERED instead of leaving SHIPPED 0 to contradict it.
+       true / false / null (the receipt history cannot be read: unknown, never false). */
+    const shipped = lineShipments.jobShipped(entryLineId || line, runs.map(r => r.runId));
     return json(200, Object.assign({
       ok: true, sample: true, chatId: SAMPLE_CHAT, streamId: streamId,
       agentId: agentId || null, isTask: isTask, workitemId: workitemId || null,
-      replies: sampleReplies.slice(), runs: runs, delivered: delivered, totalUsd: totalUsd
+      replies: sampleReplies.slice(), runs: runs, delivered: delivered, totalUsd: totalUsd, shipped
     }, line ? { line: line } : null, jobId ? { jobId } : null, onward));
   } finally {
     // a job whose route threw after it went out is never left "running"
