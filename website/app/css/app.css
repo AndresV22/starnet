@@ -4350,6 +4350,10 @@ body.crew-rail-off #screen-game.active {
 /* MACHINES — three across, the prop tile: art, name, and the machine's wiring drawn small */
 .refit-machines { display: block; width: 100%; }
 .refit-machinegrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; width: 100%; margin-top: 6px; }
+/* (org D11 polish) a group of exactly four (BRANCH & COMBINE) sits four across, so FILTER never waits alone on a row of its own;
+   the art well may shrink with its narrower column but keeps its shape */
+.refit-machinegrid:has(> :nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.refit-machinegrid:has(> :nth-child(4):last-child) .refit-machinetile-cv { max-width: 100%; height: auto !important; aspect-ratio: 76 / 50; }
 .refit-machinetile {
   position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
   min-width: 0; min-height: 118px; padding: 8px 4px; cursor: pointer; font-family: inherit; color: var(--ph-dim);
@@ -5348,6 +5352,8 @@ select.fbc-sel:focus { border-color: var(--ph); box-shadow: inset 0 2px 5px rgba
 .set-sub[hidden], .key-list[hidden] { display: none !important; }   /* beats the scoped settings-pane display rules */
 .set-sub-k { color: var(--ph); letter-spacing: var(--ls-2); flex: 0 0 auto; }
 .set-sub-d { color: var(--ph-dim); letter-spacing: var(--ls-1); min-width: 0; }
+/* (org D10 polish) AUTOMATE's rail: ON ITS OWN sits over its rung (SUGGEST), never run together on one cramped line */
+.auto-init-head .set-sub { flex-direction: column; align-items: flex-start; gap: 3px; }
 
 /* ---------- SETTINGS ▸ NIGHT SHIFT — the live status GRID ----------
    Five readouts about ONE machine (state · mode · daily limit · last job · next job). They used to be

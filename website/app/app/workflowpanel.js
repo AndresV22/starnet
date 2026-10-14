@@ -1994,12 +1994,15 @@ const WorkflowPanel = (() => {
        a door there — never "in the OUTBOX" (the floor OUTBOX holds no verdict control). Once it is rated it no longer waits, so the
        ledger is read again (ReturnStore.pendingRows); a page with no ledger loaded keeps what the fold said. */
     const waits = !!mine.folded && (typeof ReturnStore === 'undefined' || !ReturnStore.pendingRows || ReturnStore.pendingRows().some(r => r && runs.some(x => x && x.runId === r.runId)));
+    /* (org D9 polish) where the job is (TO REVIEW, not counted in SHIPPED) is ONE unbreakable unit: when the row is too long it moves to
+       the next line whole, never stranding '· not counted in SHIPPED' alone under the stats */
+    const ns = notShippedNote(mine);
+    const where = (waits ? '<button type="button" class="wf-link" data-to-review data-tip="Opens DELIVERABLES at TO REVIEW, where finished work waits for your rating.">waiting in DELIVERABLES › TO REVIEW</button>' + ns : ns.replace(/^ · /, ''));
     return '<div class="wf-job' + (v.ok ? '' : ' problem') + '">'
       /* DELIVERED AND SHIPPED SAY ONE THING (rc walk #30: "✓ DELIVERED" sat under TODAY "SHIPPED 0"): a job the server says was not
          counted in SHIPPED says so here, with the rule as its tip (notShippedNote: the reason only when the server proved it). The
          server's own answer (true / false / unknown) — never guessed from the reply text. */
-      + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (waits ? ' · <button type="button" class="wf-link" data-to-review data-tip="Opens DELIVERABLES at TO REVIEW, where finished work waits for your rating.">waiting in DELIVERABLES › TO REVIEW</button>' : '')
-        + notShippedNote(mine) + '</div>'
+      + (v.ok ? '<div class="wf-job-h"><b>✓ DELIVERED</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + (where ? ' · <span class="wf-job-where">' + where + '</span>' : '') + '</div>'
         : '<div class="wf-job-h"><b class="warn">⚠ FINISHED WITH A PROBLEM</b> · ' + runs.length + ' step' + (runs.length === 1 ? '' : 's') + (v.usd != null ? ' · $' + v.usd.toFixed(4) : '') + '</div><div class="wf-warnline">' + esc(badLine) + '</div>')
       + onward
       + ln.notes.map(t => '<div class="wf-warnline">⚠ ' + esc(t) + '</div>').join('')
@@ -2183,7 +2186,7 @@ const WorkflowPanel = (() => {
       body = '<p class="wf-help">Your test job runs through the line for real, end to end: real agents, real cost, and the result lands in the <b>OUTBOX</b> and in <b>DELIVERABLES</b> like any job.' + onwardNote() + '</p>'
         + input
         + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="wf-real"' + (mine && mine.pending ? ' disabled' : '') + '>'
-        + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ SEND A REAL JOB · costs a run') + '</button>'
+        + (mine && mine.pending ? (mine.phase === 'post' ? 'POSTING LINE…' : 'THE JOB IS RIDING THE LINE…') : '▶ SEND A REAL JOB') + '</button>'   // (org D4 polish) the cost is the sentence above it ('real agents, real cost'), never a suffix on one key
         // ■ STOP (2026-09-29): a real job can be stopped while it rides — THIS job only (the station's E-STOP stops everything)
         + (mine && mine.pending && mine.phase === 'run' && H.stopSample ? '<button type="button" class="bb sm" id="wf-real-stop"' + (mine.stopping ? ' disabled' : '') + ' data-tip="stop this job: the running step is cut off and nothing more runs — what already ran is counted">' + (mine.stopping ? 'STOPPING…' : '■ STOP') + '</button>' : '')
         + '</div>'

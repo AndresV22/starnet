@@ -62,7 +62,7 @@ textarea.wfw-field { min-height: 76px; }
 .wfw-grow { flex: 1 1 auto; }
 .wfw .wf-pill { cursor: default; }
 .wfw-lead { margin: 10px 0 2px; font-size: 17px; color: var(--text); }
-.wfw-note { font-size: 15px; line-height: 1.35; color: var(--ph-dim); }
+.wfw-note { font-size: 15px; line-height: 1.35; color: var(--ph-dim); text-wrap: pretty; }   /* (org D5 polish) a wrapped note never strands one word */
 .wfw-bad { margin: 0; font-size: 16px; line-height: 1.4; color: var(--warn); }
 .wfw-okline { margin: 0; font-size: 16px; line-height: 1.4; color: var(--ok); }
 .wfw-why { margin: 0; font-size: 17px; line-height: 1.45; color: var(--text); }
@@ -103,6 +103,11 @@ textarea.wfw-field { min-height: 76px; }
 .wfw-tile:hover { border-color: rgba(var(--ph-rgb),.45); background: var(--wf-hover); }
 /* (org P18, D2) the Commander's FOR YOUR GOAL line leads the starters on a row of its own, so the four below stay a whole grid */
 .wfw-tile.wfw-goal { grid-column: 1 / -1; }
+/* (org D2 polish) the Build Library's own shelf headings: gold FOR YOUR GOAL over the lead tile says why it is wide and first, and
+   COMMON WORKFLOWS heads the four under it */
+.wfw-tgroup { grid-column: 1 / -1; margin: 6px 2px 0; font-size: 14px; letter-spacing: 1.2px; color: var(--ph-dim); text-transform: uppercase; }
+.wfw-tgroup:first-child { margin-top: 0; }
+.wfw-tgroup.wfw-goalhd { color: var(--gold); }
 .wfw-tile.on { border-color: var(--ph); background: var(--wf-on); box-shadow: var(--wf-light), inset 0 -2px 0 rgba(var(--ph-rgb),.65); }
 .wfw-tart { display: grid; place-items: center; width: 100%; height: 62px; border-radius: 8px; background: radial-gradient(ellipse 72% 70% at 50% 64%, rgba(130,170,150,.11), transparent 76%); }
 .wfw-tart img { display: block; max-width: 100%; max-height: 58px; image-rendering: pixelated; }

@@ -474,10 +474,10 @@
     function shapeCards() {
       const tpl = T(); if (!tpl) { shapesEl.innerHTML = '<div class="mc-detail">loop shapes unavailable</div>'; return; }
       shapesEl.innerHTML = tpl.list().map(t =>
-        '<button type="button" class="lp-shape' + (t.id === pickedId ? ' on' : '') + '" aria-pressed="' + (t.id === pickedId) + '" data-tpl="' + esc(t.id) + '">' +
+        // (org D10 polish) a picker tile is glyph + name + one short stat: what the loop does is its tip, never a sentence under the name
+        '<button type="button" class="lp-shape' + (t.id === pickedId ? ' on' : '') + '" aria-pressed="' + (t.id === pickedId) + '" data-tpl="' + esc(t.id) + '" data-tip="' + esc(t.tagline) + '" aria-description="' + esc(t.tagline) + '">' +
           '<span class="lp-shape-e">' + esc(t.emoji) + '</span>' +
           '<span class="lp-shape-n">' + esc(t.name) + '</span>' +
-          '<span class="lp-shape-t">' + esc(t.tagline) + '</span>' +
           // rigor is on the CARD, not buried — it is the difference between a proof and a convention.
           '<span class="lp-shape-r ' + (t.rigor === 'hard' ? 'hard' : 'soft') + '">' +
             (t.rigor === 'hard' ? '✓ ends on a real check' : '~ ends on its own report') + '</span>' +

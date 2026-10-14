@@ -546,8 +546,14 @@ const WorkflowsWindow = (() => {
       const bp = bpOf(id); if (!bp) return '';
       const roles = bayRoles(bp), art = lineArt(id), on = pk && pk.bp === id, isGoal = !!goal && goal.id === id, purpose = (words().purpose || {})[id] || '';
       const tip = (isGoal ? '“' + goal.quote + '” — ' + goal.why + '\n' : '') + (purpose ? purpose.charAt(0).toUpperCase() + purpose.slice(1) + '.' : plainName(id));
-      return '<button type="button" class="wfw-tile' + (on ? ' on' : '') + (isGoal ? ' wfw-goal' : '') + '" data-starter="' + esc(id) + '" aria-pressed="' + !!on + '" data-tip="' + esc(tip) + '">'
-        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + roles.length + ' step' + (roles.length === 1 ? '' : 's') + (bp.props.some(p => p.t === 'loop') ? ' · reviewed' : '') + '</span></button>';
+      // (org D2 polish) the stat names the line's shape, not only its count: a SPLITTER's two steps work side by side, so the goal
+      // tile no longer reads '2 steps' like Research + write while its picture draws two parallel bays
+      const shape = bp.props.some(p => p.t === 'loop') ? ' · reviewed' : bp.props.some(p => p.t === 'splitter') ? ' · side by side' : '';
+      return (isGoal ? '<div class="wfw-tgroup wfw-goalhd">FOR YOUR GOAL</div>' : '')
+        + '<button type="button" class="wfw-tile' + (on ? ' on' : '') + (isGoal ? ' wfw-goal' : '') + '" data-starter="' + esc(id) + '" aria-pressed="' + !!on + '" data-tip="' + esc(tip) + '">'
+        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + roles.length + ' step' + (roles.length === 1 ? '' : 's') + shape + '</span></button>'
+        // the four starters under the goal tile get the shelf's second heading, so FOR YOUR GOAL heads only its own tile
+        + (isGoal ? '<div class="wfw-tgroup">COMMON WORKFLOWS</div>' : '');
     }).join('');
     let h = '<header class="wfw-head">' + (first ? '' : '<button type="button" class="bb sm" data-act="back">‹ ALL WORKFLOWS</button>')
       + '<h2 class="wfw-title">' + (first ? 'Make your first workflow' : 'New workflow') + '</h2></header>'
@@ -555,11 +561,11 @@ const WorkflowsWindow = (() => {
       + '<section class="wfw-sec"><h3>What should it make?</h3>'
       + '<textarea id="wfw-describe" class="wfw-field" rows="2" maxlength="600" placeholder="e.g. a weekly digest of AI news for my newsletter">' + esc(S.draft.describe || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="draft"' + (dr && dr.state === 'asking' ? ' disabled' : '') + '>' + (dr && dr.state === 'asking' ? 'SETTING IT UP…' : '✦ SET IT UP FOR ME') + '</button>'
-      + '<span class="wfw-note">The station picks one of ' + catalogLines().length + ' ready-made workflows and writes each step’s instructions (one short model call).</span></div>'   // (org D11) this page's word, workflows
+      + '<span class="wfw-note">One short model call picks one of ' + catalogLines().length + ' ready-made workflows and writes its steps.</span></div>'   // (org D11) this page's word, workflows; (org D5 polish) short enough for one line
       + (dr && dr.state === 'error' ? '<p class="wfw-bad">✕ ' + esc(dr.error) + '</p>' : '')
       + '</section>'
       + '<section class="wfw-sec"><h3>Or pick one</h3><div class="wfw-tiles">' + tiles + '</div>'
-      + '<div class="wf-row"><button type="button" class="wf-link" data-act="more">More ready-made lines are in the Build Library ›</button></div></section>';
+      + '<div class="wf-row"><button type="button" class="wf-link" data-act="more">More ready-made workflows are in the Build Library ›</button></div></section>';
     if (pk) h += pickedHTML(pk);
     return h;
   }
@@ -580,7 +586,7 @@ const WorkflowsWindow = (() => {
       + '<label class="wfw-k" for="wfw-name">Name</label><input id="wfw-name" class="wfw-field" type="text" maxlength="40" value="' + esc(S.draft.name != null ? S.draft.name : pk.name) + '">'
       + '<div class="wfw-k">Who does each step?' + (one ? ' <span class="wfw-note">— one agent can do every step</span>' : '') + '</div>'
       + stepRows
-      + (crew.length > 1 && roles.length > 1 ? '<div class="wf-row"><span class="wfw-note">One agent can do every step:</span>' + crew.slice(0, 4).map(a => '<button type="button" class="bb sm" data-pick-all="' + esc(a.id) + '">' + esc(String(a.name || a.id).toUpperCase()) + ' DOES ALL</button>').join('') + '</div>' : '')
+      + (crew.length > 1 && roles.length > 1 ? '<div class="wf-row"><span class="wfw-note">One agent can do every step:</span>' + crew.slice(0, 4).map(a => '<button type="button" class="bb sm" data-pick-all="' + esc(a.id) + '">GIVE ' + esc(String(a.name || a.id).toUpperCase()) + ' EVERY STEP</button>').join('') + '</div>' : '')
       + (S.made && S.made.error ? '<p class="wfw-bad">✕ ' + esc(S.made.error) + ' Clear some space in Build Mode, then press CREATE again.</p><div class="wf-row"><button type="button" class="bb" data-act="more">OPEN BUILD MODE</button></div>' : '')
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="create"' + (crew.length ? '' : ' disabled') + '>✓ CREATE WORKFLOW</button><span class="wfw-note">It is placed on your floor, ready for jobs.</span></div></section>';
   }
@@ -620,7 +626,7 @@ const WorkflowsWindow = (() => {
     const handled = /needs an agent|needs a workstation/;
     for (const b of l.ready.blocking.filter(b => !handled.test(b.what))) items.push('<div class="wfw-fixrow"><div class="wfw-fixh">' + esc(b.what.charAt(0).toUpperCase() + b.what.slice(1)) + '</div><div class="wf-row"><button type="button" class="bb sm" data-act="edit">FIX IT IN THE EDITOR</button></div></div>');
     return '<section class="wfw-sec wfw-setup"><h3>Finish setting it up</h3><p class="wfw-note">' + (l.ready.blocking.length === 1 ? 'One thing' : l.ready.blocking.length + ' things') + ' before it can take a job:</p>'
-      + (missing.length > 1 && crew.length ? '<div class="wf-row">' + crew.slice(0, 4).map(a => '<button type="button" class="bb sm" data-assign-all="' + esc(a.id) + '">' + esc(String(a.name || a.id).toUpperCase()) + ' DOES EVERY STEP</button>').join('') + '</div>' : '')
+      + (missing.length > 1 && crew.length ? '<div class="wf-row">' + crew.slice(0, 4).map(a => '<button type="button" class="bb sm" data-assign-all="' + esc(a.id) + '">GIVE ' + esc(String(a.name || a.id).toUpperCase()) + ' EVERY STEP</button>').join('') + '</div>' : '')
       + items.join('') + '</section>';
   }
   function jobRows(l) {
@@ -643,7 +649,7 @@ const WorkflowsWindow = (() => {
     return '<section class="wfw-sec wfw-send"><h3>Send a job</h3>'
       + '<textarea id="wfw-job" class="wfw-field" rows="3" maxlength="2000" aria-label="The job for this workflow" placeholder="' + esc(exampleJob(l)) + '">' + esc(S.draft['job:' + l.key] || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="send"' + (busy ? ' disabled' : '') + '>▶ SEND A JOB</button>'
-      + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, and to the OUTBOX.' + ((l.sendNames || []).length ? ' Then it ' + (l.sendsAll ? 'rides on' : 'can ride on') + ' to ' + esc(l.sendNames.join(' / ')) + ' — its crew, at its cost.' : '')) + '</span></div>'
+      + '<span class="wfw-note">' + (other ? 'Another workflow (' + esc(busy.name || 'a line') + ') is working on a job — one job runs at a time.' : 'Real agents do the work, at real cost. The result comes back here, on the OUTBOX and in DELIVERABLES.' + ((l.sendNames || []).length ? ' Then it ' + (l.sendsAll ? 'rides on' : 'can ride on') + ' to ' + esc(l.sendNames.join(' / ')) + ' — its crew, at its cost.' : '')) + '</span></div>'
       + (S.msg ? '<p class="' + (S.msg.bad ? 'wfw-bad' : 'wfw-okline') + '">' + (S.msg.bad ? '✕ ' : '') + esc(S.msg.text) + '</p>' : '')
       + '</section>' + startsHTML(l) + '<section class="wfw-sec"><h3>Last jobs</h3>' + jobRows(l) + '</section>';
   }

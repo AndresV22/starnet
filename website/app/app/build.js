@@ -2994,7 +2994,7 @@ const Build = (() => {
       const ready = e.ready && rosterOK;
       const signature = JSON.stringify(station.serialize());
       const sr = finSampleRes?.key===e.key && finSampleRes?.exampleSignature===signature ? finSampleRes : null;
-      const status = e.issue ? e.issue : !rosterOK ? 'Choose an agent from your crew for each step.' : sr?.pending ? 'Job in progress…' : sr?.view?.ok ? 'Job delivered · the harness confirmed delivery to the outbox.' : 'Ready · send the job above.';   // (org D7) one word set with its ▶ SEND A REAL JOB key: a real job, never 'the sample'
+      const status = e.issue ? e.issue : !rosterOK ? 'Choose an agent from your crew for each step.' : sr?.pending ? 'Job in progress…' : sr?.view?.ok ? 'Job delivered · the harness confirmed delivery to the outbox.' : 'Ready · every step has an agent.';   // (org D7) one word set with its ▶ SEND A REAL JOB key: a real job, never 'the sample'; (org D4 polish) the status says the state, the key above names the act
       const canSummon = typeof App !== 'undefined' && !!App.summonAgent;
       const firstAid = e.roles[0] && e.roles[0].agentId;
       const offerAll = e.roles.length > 1 && !!firstAid && e.roles.some(r=>r.agentId!==firstAid);
@@ -3005,10 +3005,10 @@ const Build = (() => {
           '<div class="example-role-pick"><select class="refit-input" aria-label="'+esc(r.name)+' agent" data-example-agent="'+esc(r.propId)+'"'+(pending?' disabled':'')+'><option value="">Choose an agent</option>'+agents.map(a=>'<option value="'+esc(a.id)+'"'+(a.id===r.agentId?' selected':'')+'>'+esc(a.name||a.id)+'</option>').join('')+'</select>'+
           (canSummon && r.role ? '<button type="button" class="bb sm" data-example-recruit="'+esc(r.propId)+'"'+(pending?' disabled':'')+'>+ RECRUIT</button>' : '')+'</div>'+
           (needsPc(r) ? '<div class="example-role-fix"><span>This agent has no desk of its own here.</span><button type="button" class="bb sm" data-example-pc="'+esc(r.propId)+'"'+(pending?' disabled':'')+'>⊕ GIVE '+esc(String(agentLabelFor(r.agentId)).toUpperCase())+' A DESK</button></div>' : '')+'</div>').join('')+'</div>'+
-        (offerAll ? '<button type="button" class="bb sm example-all" data-example-all'+(pending?' disabled':'')+'>'+esc(String(agentLabelFor(firstAid)).toUpperCase())+' DOES EVERY STEP</button>' : '')+
+        (offerAll ? '<button type="button" class="bb sm example-all" data-example-all'+(pending?' disabled':'')+'>GIVE '+esc(String(agentLabelFor(firstAid)).toUpperCase())+' EVERY STEP</button>' : '')+
         '<p class="example-note">'+(agents.length ? 'One agent can work every step. ' : 'You have no agents yet. ')+(canSummon ? 'RECRUIT adds that step\'s specialist to your crew; it costs nothing until it works.' : '')+'</p>'+
         '<p class="example-note">Assignments save when selected. Each step\'s instructions live on its Bay; click the Bay to edit them.</p>'+
-        '<section class="example-sample"><h4>Send a real job</h4><p>'+esc(e.sample.replace(/^SAMPLE JOB: /,''))+'</p><p class="example-note">This is one real job: the agents you chose run it on their own models, and normal model costs apply.</p><button class="bb refit-primary" data-example-run'+(!ready||pending?' disabled':'')+'>'+(pending?'JOB IN PROGRESS…':sr?.view?.ok?'↻ SEND IT AGAIN':'▶ SEND A REAL JOB · costs a run')+'</button></section>'+
+        '<section class="example-sample"><h4>Send a real job</h4><p>'+esc(e.sample.replace(/^SAMPLE JOB: /,''))+'</p><p class="example-note">This is one real job: the agents you chose run it on their own models, and normal model costs apply.</p><button class="bb refit-primary" data-example-run'+(!ready||pending?' disabled':'')+'>'+(pending?'JOB IN PROGRESS…':sr?.view?.ok?'↻ SEND IT AGAIN':'▶ SEND A REAL JOB')+'</button></section>'+
         '<p class="example-status" role="status">'+esc(status)+'</p>'+
         (sr?.view ? '<div class="example-result">'+finSampleHTML(sr.view)+finOnwardHTML(sr)+(sr.output?'<details><summary>Read the finished result</summary><pre>'+esc(sr.output)+'</pre></details>':'')+'</div>' : '')+
         /* NEXT: USE IT FOR REAL — one click to the Inbox's own settings in the Workflow panel (what starts it; the working
@@ -3674,7 +3674,13 @@ const Build = (() => {
     const usd = (typeof r.totalUsd === 'number' && isFinite(r.totalUsd)) ? r.totalUsd : null;
     const replies = Array.isArray(r.replies) ? r.replies : [];
     const last = replies.length ? String(replies[replies.length - 1] || '') : '';
-    const clean = last.replace(/\s+/g, ' ').trim();
+    // (org D7 polish) SAID is a glance, not a renderer: the reply's markdown marks (## headings, **bold**, list bullets, code fences,
+    // [link](url)) are dropped and its lines joined with ' · ', so the card never shows '## This week in AI 1. **Open…'
+    const plain = last.replace(/```[^\n]*\n?/g, '').split('\n')
+      .map(s => s.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s*(?:[-*+]|>)\s+/, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/(\*\*|__)(\S(?:.*?\S)?)\1/g, '$2').replace(/`([^`]*)`/g, '$1').trim())
+      .filter(Boolean).join(' · ');
+    const clean = plain.replace(/\s+/g, ' ').trim();
     const reply = clean.length > 80 ? clean.slice(0, 80) + '…' : clean;
     const ok = !!r.ok && !!r.delivered;
     const reason = ok ? null : (r.error ? String(r.error) : ('sample refused (HTTP ' + (status == null ? '?' : status) + ')'));
@@ -4494,7 +4500,7 @@ const Build = (() => {
       <button type="button" class="bb fl-step" data-act="overview">EDIT STEPS & RESULT</button>
       <button type="button" class="bb fl-step${crewDone ? ' done' : ''}" data-act="crew"${crewDone ? ' disabled' : ''}>${esc(crewTxt)}</button>
       <button type="button" class="bb fl-step${st.feedDone ? ' done' : ''}" data-act="feed"${st.feedDone ? ' disabled' : ''}>${esc(feedTxt)}</button>
-      <button type="button" class="bb fl-step${sampleOn ? '' : ' off'}${sr && sr.view && sr.view.ok ? ' done' : ''}" data-act="sample" title="${esc(sampleTip)}">${esc(sampleTxt)}</button>
+      <button type="button" class="bb fl-step${sampleOn ? '' : ' off'}${sr && sr.view && sr.view.ok ? ' done' : ''}" data-act="sample" title="${esc(sampleTip)}">${esc(sampleTxt).replace('SEND ANOTHER', '<span class="fl-again">SEND ANOTHER</span>')}</button>
       ${sr && sr.view ? finSampleHTML(sr.view) + finOnwardHTML(sr) : onward ? '<div class="fl-result fl-onward"><span class="fl-result-k">SEND TO</span> ' + esc(onward) + '</div>' : ''}`;
     finCardEl.querySelector('.fl-x').onclick = () => { finMark(station, c.key, 'dis'); sfx('click'); renderFinCard(); };
     const example = currentPresetExample();
