@@ -438,6 +438,41 @@ const GroupChat = (() => {
     }
     if (gen === generation && active?.conversationMode === 'group') timer = setTimeout(() => poll(gen), 900);
   }
+  /* A REPLY'S FLOW (rc walk 2026-10-14). The group transcript glued the lead's streamed sentences together ("Let me configure
+     it:The steps are locked.") and showed none of its tool calls. A reply that made visible calls carries its flow from the
+     host (sidecar group-sessions.js: the prose as it streamed + each call's offset into it); it is drawn the way the
+     one-on-one chat draws a run — said → did → said — with the same chips (Chat.toolRailOf). `clean` is the finished
+     message's marker rule; a still-streaming draft (`live`) never shows a choice marker, complete or half-typed. */
+  function renderFlow(body, text, steps, files, clean, live) {
+    // a streaming draft re-renders on every token or poll: a chip the Commander opened stays open (keyed by its call id)
+    const opened = new Set(Array.from(body.querySelectorAll('.tool-chip.open')).map(c => c.dataset && c.dataset.callId).filter(Boolean));
+    body.replaceChildren();
+    const src = String(text == null ? '' : text);
+    const list = (Array.isArray(steps) ? steps : []).slice().sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+    const shownOf = s => (live && typeof Fork !== 'undefined' && Fork.liveText) ? Fork.liveText(s) : clean ? clean(s) : s;
+    const prose = s => {
+      const shown = String(shownOf(s) || '').trim();
+      if (!shown) return;
+      const seg = h('div', { class: 'gc-seg' });
+      if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(seg, shown, { files }); else seg.textContent = shown;
+      body.append(seg);
+    };
+    const offset = s => Math.max(0, Math.min(src.length, Number(s && s.at) || 0));
+    let from = 0, i = 0;
+    while (i < list.length) {
+      const at = Math.max(from, offset(list[i])), batch = [];
+      while (i < list.length && Math.max(from, offset(list[i])) === at) batch.push(list[i++]);
+      prose(src.slice(from, at));
+      if (typeof Chat !== 'undefined' && Chat.toolRailOf) body.append(Chat.toolRailOf(batch));
+      from = at;
+    }
+    prose(src.slice(from));
+    if (opened.size) for (const c of Array.from(body.querySelectorAll('.tool-chip'))) {
+      if (!(c.dataset && opened.has(c.dataset.callId))) continue;
+      c.classList.add('open');
+      const head = c.querySelector('.tc-head'); if (head) head.setAttribute('aria-expanded', 'true');
+    }
+  }
   // the turn's REAL recorded time (never the current clock for a message that carries none)
   function stampOf(at) { const d = new Date(at); return at && !isNaN(d.getTime()) ? d : null; }
   const clockLabel = d => typeof Chat !== 'undefined' && Chat.clockLabel ? Chat.clockLabel(d) : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -490,9 +525,10 @@ const GroupChat = (() => {
     };
     let prevAt = 0, prevAuthor = null, prevClock = '';
     for (const m of group.messages) {
-      // brief.ask's fallback marker belongs to the durable question card, not a chat bubble.
-      const content = (group.questions || []).some(q => q.turnId === m.turnId)
-        ? m.content.replace(/(?:^|\n)TASK_QUESTION:[^\n]*(?:\n|$)/g, '\n').trim() : m.content;
+      // brief.ask's fallback marker belongs to the durable question card, not a chat bubble. A marker no card claimed
+      // (a FORK, or a TASK_QUESTION the host never registered) reads as its question and options — never machine syntax.
+      const asks = (group.questions || []).some(q => q.turnId === m.turnId);
+      const content = (typeof Fork === 'undefined' || m.author === 'user') ? m.content : asks ? Fork.stripMarkers(m.content) : Fork.readable(m.content);
       if (!content) continue;
       const attachments = (m.artifactIds || []).map(id => group.artifacts.find(f => f.id === id)).filter(Boolean);
       // TIME BREAKS, the direct chat's rule: the first stamped turn, a new day, or 30 minutes of quiet
@@ -510,7 +546,9 @@ const GroupChat = (() => {
       const row = keep('m:' + m.id, rowKey, () => {
         const row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
         const body = h('div', { class: 'body' });
-        if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content, { files: fileRefs(group.id, m.author, m.id) }); else body.textContent = content;
+        if (m.author !== 'user' && m.flow && Array.isArray(m.flow.steps) && m.flow.steps.length && typeof Chat !== 'undefined' && Chat.toolRailOf)
+          renderFlow(body, m.flow.text, m.flow.steps, fileRefs(group.id, m.author, m.id), s => (typeof Fork === 'undefined' ? s : asks ? Fork.stripMarkers(s) : Fork.readable(s)), false);
+        else if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content, { files: fileRefs(group.id, m.author, m.id) }); else body.textContent = content;
         const color = colorOf(m.author); if (color) { row.style.setProperty('--gc-c', color); body.style.setProperty('--rail', color); }
         const who = group.members.includes(m.author) ? speaker(m.author, m.id) : h('span', { class: 'who' }, name(m.author).toUpperCase());
         // the answer to a question keeps its question (the card leaves the strip once answered)
@@ -544,14 +582,15 @@ const GroupChat = (() => {
         prevAuthor = null;
       }
     }
-    for (const t of group.turns) if (t.draft) {
-      // a streaming reply keeps its row; only its text moves
+    for (const t of group.turns) if (t.draft || (t.draftSteps && t.draftSteps.length)) {
+      // a streaming reply keeps its row; only its flow moves (prose + the calls it made so far, like the one-on-one chat)
       const n = keep('dr:' + t.id, name(t.agentId) + colorOf(t.agentId), () => {
         const row = h('article', { class: 'gc-message cmsg agent draft' }), body = h('div', { class: 'body' }); const color = colorOf(t.agentId);
         if (color) { row.style.setProperty('--gc-c', color); body.style.setProperty('--rail', color); }
         row.append(h('span', { class: 'who' }, name(t.agentId).toUpperCase()), body); row._gcBody = body; return row;
       });
-      if (n._gcBody && n._gcBody.textContent !== t.draft) n._gcBody.textContent = t.draft;
+      const draftSig = JSON.stringify([t.draft || '', t.draftSteps || []]);
+      if (n._gcBody && n._gcDraftSig !== draftSig) { n._gcDraftSig = draftSig; renderFlow(n._gcBody, t.draft || '', t.draftSteps || [], fileRefs(group.id, t.agentId, 'draft:' + t.id), null, true); }
     }
     for (let i = 0; i < nodes.length; i++) { const cur = log.children[i]; if (cur !== nodes[i]) log.insertBefore(nodes[i], cur || null); }
     while (log.children.length > nodes.length) log.lastElementChild.remove();

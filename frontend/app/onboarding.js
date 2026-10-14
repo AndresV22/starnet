@@ -446,7 +446,7 @@ const Onboarding = (() => {
     const choice = await Dialogue.node({
       lines: path.map((t, i) => seg((i ? '  ' : '') + (i + 1) + '. ' + t, 46, 200)),
       options: [{ label: 'Confirm the path', value: 'confirm' }, { label: 'Not now', value: 'other', skip: true }],
-      allowCustom: true, customLabel: '✎ edit the steps', customPlaceholder: 'your steps, separated by ; …'
+      allowCustom: true, customLabel: 'edit the steps', customPlaceholder: 'your steps, separated by ; …'   // Dialogue draws the ✎ itself (it read "✎✎")
     });
     if (!running) return;
     const decision = Goals.resolveConfirmChoice(choice, path);

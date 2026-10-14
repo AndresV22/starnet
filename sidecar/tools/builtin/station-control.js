@@ -337,6 +337,8 @@
      (a KNOWN action name only), and its args flat beside it instead of under `args`. The approval card, the tier check and
      the run all read the call HERE, so the card always names the change that will run. */
   const CALL_KEYS = ['action', 'setting', 'name'];
+  // the station.control actions that are setup, never held behind an unsettled Task Brief (makeChange briefExempt)
+  const BRIEF_SETUP = new Set(['group.add', 'group.configure', 'session.rename', 'session.pin', 'session.archive', 'look.set', 'estop.engage']);
   function readCall(input) {
     const i = (input && typeof input === 'object' && !Array.isArray(input)) ? input : {};
     let action = '', from = 'action';
@@ -487,6 +489,10 @@
     function makeChange(name, consentKey, isPower) {
       return {
         name, capability: 'orchestrator', consentKey, taintLocked: true, scope: 'write', requiresConsent: true, timeoutMs: 45000,
+        // station SETUP (bring crew into this chat, rename a session, the look, an e-stop) is not the deliverable a Task Brief
+        // settles — the team.summon rule (taskbrief-policy canMutate). It keeps its own approval card. Anything that deletes,
+        // wipes, rewinds or decides work (agent.delete, memory.reset, checkpoint.restore…) and every escalation still waits.
+        briefExempt: isPower ? false : (input) => BRIEF_SETUP.has(readCall(input).action),
         // in ASK an escalation is a card per call (no cached "always" approves it, none is left behind), and a Full Access
         // run that read outside content asks before it widens the leash (permissions.js, taint.js)
         freshConsent: isPower,

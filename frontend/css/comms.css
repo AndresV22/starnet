@@ -167,6 +167,7 @@ body.glass-demo :is(#chat-log, #gc-log) .cmsg.user  + .cmsg.user  > .cmsg-head {
 /* TERMINAL MARKDOWN — a small, restrained subset in the agent's prose (chat.js renderMarkdown). Phosphor tokens
    only; a header is BRIGHT text, never oversized web type. XSS is handled upstream (escape-then-wrap). */
 .cmsg .body .md-b { color: var(--ph-bright); font-weight: 400; text-shadow: none; }
+.cmsg .body .md-i { font-style: italic; }   /* *italic* in a reply (the face slants; no colour change) */
 .cmsg .body .md-h { color: var(--ph-bright); letter-spacing: .5px; }   /* display/margins: the block rule in the report-markdown section below */
 .cmsg .body .md-code {
   font-family: inherit; color: var(--ph-bright); background: rgba(var(--ph-rgb),.10);
@@ -249,6 +250,10 @@ body.glass-demo :is(#chat-log, #gc-log) .cmsg.user  + .cmsg.user  > .cmsg-head {
 .tool-chip.ok  .tc-glyph  { color: var(--ok); }
 .tool-chip.err .tc-glyph,
 .tool-chip.err .tc-stat   { color: var(--bad); }
+/* a call the Task Brief gate HELD (not run yet, not failed): the plain dim phosphor of a step that did not happen */
+.tool-chip.held .tc-glyph,
+.tool-chip.held .tc-stat   { color: var(--ph-dim); }
+.tool-chip .tc-d-res.held { color: var(--ph-dim); }
 /* no frame-level alarm on an errored chip (2026-07-31): the red glyph/stat/detail already carry the
    outcome. A red-bordered, red-tinted chip per failed probe turned an ordinary research run into a
    wall of alarm boxes — the chip stays in the normal phosphor frame like every other step. */

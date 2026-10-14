@@ -377,6 +377,7 @@ const { registerTaskBriefTools } = require('./taskbrief-tools.js'); // structure
 const CrewCall = require('./crew-call.js');   // names a crew member the Commander asked for at the END of the lead prompt
 const CrewDiet = require('./crew-diet.js');   // ZERO-CREW DIET: which crewless lead defers which part of the crew kit
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;    // shared TASK_QUESTION protocol + prompt doctrine
+const ForkMarkers = require('../frontend/app/fork.js');               // the one choice-marker grammar (parse / stripMarkers)
 const CommanderContext = require('./commander-context.js');    // bounded provenance-labelled task context
 const threadmine = require('./threadmine.js');                // NS-6: pure post-run thread-mining producer (reflect/study mold)
 const AuxGovernor = require('./auxgovernor.js');              // aux-budget lane: PURE joint ceiling over the post-run aux passes (priority + budget)
@@ -11223,9 +11224,10 @@ function remoteNotify(evt) {
     let last = '';
     try { const turns = transcriptStore.history(evt.streamId, { limit: 4 }) || []; for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === 'assistant' && typeof turns[i].content === 'string' && turns[i].content.trim()) { last = turns[i].content; break; } }
     catch (e) { failNote('remote.index.pushReply', e); }
-    const qm = /^\s*(?:TASK_QUESTION|FORK):\s*(.+?)\s*\|\|/m.exec(String(last));
-    if (qm && !evt.error) return remotePushSend({ title: remoteAgentName(evt.agentId) + ' has a question', body: qm[1].slice(0, 200), tag: 'run:' + evt.runId, url: '#thread=' + evt.streamId });
-    const line = String(last).replace(/[*#`>_]+/g, '').replace(/\s+/g, ' ').trim();
+    // the chat's own marker grammar (fork.js): a bold, numbered or mid-line marker is a question too, and never pushed raw
+    const asked = TaskIntent.parse(last) || ForkMarkers.parse(last);
+    if (asked && !evt.error) return remotePushSend({ title: remoteAgentName(evt.agentId) + ' has a question', body: asked.question.slice(0, 200), tag: 'run:' + evt.runId, url: '#thread=' + evt.streamId });
+    const line = String(ForkMarkers.stripMarkers(last)).replace(/[*#`>_]+/g, '').replace(/\s+/g, ' ').trim();
     remotePushSend({ title: remoteAgentName(evt.agentId) + (evt.error ? ' hit a problem' : ' finished'),
       body: (evt.error ? String(evt.error) : line || 'Tap to read the reply').slice(0, 200), tag: 'run:' + evt.runId, url: '#thread=' + evt.streamId });
   }
@@ -21733,8 +21735,11 @@ async function runOnceCore(o) {
       if (!execution.consumeToolCall(o.maxToolCalls)) return { ok: false, isError: true, summary: 'tool-budget', content: 'This worker reached its task-specific tool-call budget. Finish now with the evidence already collected.' };
     }
     if (taskBriefState && !internalBriefControl) {
-      const gate = TaskBriefPolicy.canMutate(taskBriefState.brief, liveTool);
-      if (!gate.ok) return { ok: false, isError: true, content: 'Task Brief gate: ' + gate.reason, summary: 'paused — settling the task first' };
+      const gate = TaskBriefPolicy.canMutate(taskBriefState.brief, liveTool, c);
+      // NOT RUN, NOT FAILED (rc walk 2026-10-14): the summary is the shared held-call stamp (fork.js TaskIntent.GATE_HELD) the
+      // chat draws as a neutral not-run chip, and the model is told this is a routine step (it narrated "Ah, I need to settle
+      // the brief first" over a red ✗ team.dispatch chip).
+      if (!gate.ok) return { ok: false, isError: true, content: TaskIntent.GATE_HELD_LEAD + ' ' + String(gate.reason).charAt(0).toUpperCase() + String(gate.reason).slice(1) + ', then make this same call again. This is a routine step: the Commander sees your brief as its own card, so make the brief call with no text before it and never mention the gate.', summary: TaskIntent.GATE_HELD, quietRepair: true };
     }
     /* EVIDENCE-PROGRESS GUARD. The old loop guard below catches an identical call only when it FAILS. The
        live Drive incident spent 100+ calls on nominal successes (same page text, fresh refs, "clicked", parked

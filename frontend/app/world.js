@@ -11056,7 +11056,7 @@ const World = (() => {
       if (!rec) return;                           // not a capability-prop tool (or no callId join) — nothing to surge
       surgeCall.delete(p.callId);
       const tgt = capPropFor(rec.cap, rec.agentId);   // the granting prop in the ACTING agent's OWN room (or none)
-      if (tgt) PropSprites.pulseProp(tgt.id, rec.cap, !p.isError);   // green on success, RED on error/denied
+      if (tgt && !p.held) PropSprites.pulseProp(tgt.id, rec.cap, !p.isError);   // green on success, RED on error/denied — none for a call the Task Brief held (it never ran)
     });
     // bound the correlation map: a run ending drops any of its still-open calls so a lost tool_result never leaks.
     U.bus.on('agent.run.end', () => { if (surgeCall.size > 64) surgeCall.clear(); });

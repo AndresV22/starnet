@@ -307,6 +307,21 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(rec.files.map(f => f.name + '@' + f.agentId).join(','), 'competitors.md@researcher', 'the files it saved, opened from the WORKER\'s workspace (a sent message is not a file)');
   A.eq(rec.ms + '|' + rec.cost, '41000|$0.03', 'its own time and cost');
   A.eq(L.foldReceipt({ ...row, unmetered: true }, []).cost, 'subscription', 'a subscription run never shows a fake price');
+  // a call the Task Brief HELD did not run (rc review 2026-10-14): the receipt lists it neither as done nor as failed — the
+  // worker makes the same call again once its brief settles, and that one is the step
+  {
+    global.TaskIntent = require('../frontend/app/fork.js').TaskIntent;
+    const heldTurns = [
+      { role: 'assistant', toolCalls: JSON.stringify([{ id: 'h1', function: { name: 'fs_write', arguments: JSON.stringify({ path: 'tagline.md', content: 'x' }) } }]) },
+      { role: 'tool', toolCallId: 'h1', content: 'ERROR: ' + global.TaskIntent.GATE_HELD_LEAD + ' Settle the Task Brief with brief_proceed, then make this same call again.' },
+      { role: 'assistant', toolCalls: JSON.stringify([{ id: 'h2', function: { name: 'fs_write', arguments: JSON.stringify({ path: 'tagline.md', content: 'x' }) } }]) },
+      { role: 'tool', toolCallId: 'h2', content: 'wrote 1 KB' }
+    ];
+    A.eq(L.foldReceipt(row, heldTurns).steps.map(s => s.verb + ':' + s.arg + ':' + s.ok).join(' | '), 'wrote:tagline.md:true', 'a held call is not a step in the receipt (only the write that ran)');
+    const traced = L.foldReceipt({ ...row, toolTrace: [{ name: 'fs_write', isError: true, ok: false, summary: global.TaskIntent.GATE_HELD }, { name: 'fs_write', isError: false, ok: true, summary: 'wrote' }] }, []);
+    A.eq(traced.steps.map(s => s.verb + ':' + s.ok).join(' | '), 'wrote:true', 'and the record-only fallback drops it too (never a failed step)');
+    delete global.TaskIntent;
+  }
   const provisional = L.foldReceipt({ ...row, deliveryText: 'invalid raw output', dispatchDelivery: { state: 'pending' } }, turns);
   A.eq(provisional.answer, '', 'receipt never promotes provisional execution text');
   A.eq(provisional.live, true, 'pending validation keeps an open receipt refreshing');
