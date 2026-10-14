@@ -2069,16 +2069,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // stating this plainly. (test/permissions-ui.test.js greps the SOURCE for the index form — so this comment
     // must not spell it out either; a locked grep is a contract on the text, not just on the behaviour.)
     const prof = executionProfileOf(executionProfileId(a));
+    // ORG P21: VOICE and SKILLS are per-agent settings that live OUTSIDE the dossier (SETTINGS › LOOK & SOUND's VOICE FOR,
+    // ABILITIES › AGENT SKILLS) — the strip is the index, so it names them too. Each row's tip says where its click lands.
+    let voice = '';
+    try { voice = (typeof Voice !== 'undefined' && Voice.voiceChoice && a && a.id) ? Voice.voiceChoice(a.id) : ''; } catch (_) { voice = ''; }
     const rows = [
-      { lbl: 'MODEL',     val: pin || 'station default', dim: !pin,                 go: 'ag-model-card' },
-      { lbl: 'PERSONALITY',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card' },
-      { lbl: 'ACCESS',    val: 'checking effective access…', dim: false, go: 'ag-approval-card' },
-      { lbl: 'PROFILE',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card' },
-      { lbl: 'AWAY WORK', val: (a && a.workshop) ? 'on'  : 'off', dim: !(a && a.workshop), go: 'ag-workshop-card' }
+      { lbl: 'MODEL',     val: pin || 'station default', dim: !pin,                 go: 'ag-model-card',     tip: 'change it in CONFIG › MODEL' },
+      { lbl: 'PERSONALITY',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card',   tip: 'change it in CONFIG › PERSONALITY' },
+      { lbl: 'ACCESS',    val: 'checking effective access…', dim: false, go: 'ag-approval-card',  tip: 'change it in CONFIG › ACCESS' },
+      { lbl: 'PROFILE',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card', tip: 'change it in CONFIG › ACCESS' },
+      { lbl: 'VOICE',     val: voice || 'station default', dim: !voice,             go: 'ag-voice',          tip: 'opens SETTINGS › LOOK & SOUND › VOICE FOR this agent' },
+      { lbl: 'SKILLS',    val: 'its own procedures',       dim: true,               go: 'ag-skills',         tip: 'opens ABILITIES › AGENT SKILLS for this agent' },
+      { lbl: 'AWAY WORK', val: (a && a.workshop) ? 'on'  : 'off', dim: !(a && a.workshop), go: 'ag-workshop-card',  tip: 'opens AUTOMATE › AWAY WORK' }
     ];
     return '<div class="ag-setup" role="group" aria-label="How this agent is set up">' +
       rows.map(r =>
-        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" title="change this in CONFIG">' +
+        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" data-tip="' + esc(r.tip) + '">' +
           '<span class="ag-setup-lbl">' + r.lbl + '</span>' +
           '<span class="ag-setup-val' + (r.dim ? ' dim' : '') + '">' + esc(r.val) + '</span>' +
           '<span class="ag-setup-go" aria-hidden="true">›</span></button>').join('') +
@@ -2334,7 +2340,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (!view || !view.authority || !Array.isArray(view.toolsets)) throw Error('Access unavailable');
         const authority = view.authority;
         const summary = body.querySelector('[data-goconfig="ag-approval-card"] .ag-setup-val');
-        if (summary) summary.textContent = authority.unrestricted ? 'Full Power · no prompts' : 'ASK · standing grants apply';
+        // ORG P21: the summary speaks the ONE ACCESS posture words. FULL POWER only when the live authority is unrestricted;
+        // otherwise the agent's saved posture if it is an asking one, else custom — never a posture the live answer contradicts.
+        const askingPosture = () => { const AP = agentPostureOf(a); return (AP && AP.approval === 'ask') ? AP.label : 'custom'; };
+        if (summary) summary.textContent = authority.unrestricted ? 'FULL POWER · no prompts' : askingPosture() + ' · standing grants apply';
         const reach = body.querySelector('#ag-execution-plain');
         if (reach) reach.textContent = authority.filesystemLabel + (authority.unrestricted ? '. Full Power overrides the saved profile below.' : '. The selected profile and standing grants apply.');
         const html = '<p><b>' + esc(authority.approvalLabel) + '</b><br>' + esc(authority.filesystemLabel) + ' · ' + esc(authority.profileLabel) + '</p>' +
@@ -2405,7 +2414,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // sidecar (station-wide, not per-agent — the reflect loop is a station engine). Plus a plain scope note.
       '<div class="gx-sec"><span class="gx-ref">◈</span><span class="gx-title">Reflection</span></div>' +
       '<div class="mc-note" id="mc-scope">How the station learns from finished work.</div>' +
-      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION ON <span class="dim">— propose memories after a completed task</span></label>' +
+      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION (all agents) <span class="dim">— propose memories after a completed task</span></label>' +
       '<div class="set-row"><label for="mc-cooldown">TIME BETWEEN SUGGESTIONS (MINUTES)</label><input id="mc-cooldown" class="key-input" type="number" min="0" max="60" step="1" style="max-width:90px" title="minimum gap between turn-in beats per agent"></div>' +
       '<div class="mc-acts"><button class="bb sm" id="mc-reflect-save">SAVE</button><span class="msg" id="mc-reflect-msg"></span></div></div>' +
       // AWAITING A VERDICT — the durable high-stakes deck. Runs that finish while nobody is watching (a routine, a
@@ -2664,7 +2673,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     U.bus.on('deliverable', p => {
       if (!p || p.kind !== 'skill') return;
       if (!open['connectors'] || !$('#sk-agent')) return;             // the AGENT SKILLS host lives in the ABILITIES console (skills lane)
-      const a = present[sel]; const shownId = (a && a.id) || 'agent';
+      const a = (skillsPick && present.find(x => x && x.id === skillsPick)) || present[sel]; const shownId = (a && a.id) || 'agent';
       if ((p.agentId || 'agent') !== shownId) return;                 // only refresh the agent the panel is actually showing
       clearTimeout(skillsRefreshTimer);
       skillsRefreshTimer = setTimeout(() => { if (open['connectors'] && $('#sk-agent')) loadAgentSkills(shownId); }, 400);
@@ -2708,7 +2717,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       CF_GROUPS.map((g, i) => {
         const key = a.id + ':' + g.id;
         return '<details class="cf-group" id="' + g.id + '" data-cf-group="' + esc(key) + '"' + (cfOpen.get(key) ? ' open' : '') + '><summary><span class="cf-group-title">' + g.label + '</span><span class="cf-group-summary">' + esc(summaries[i]) + '</span></summary><div class="cf-group-body">' + content[i] + '</div></details>';
-      }).join('') + '<div class="cf-card" id="ag-away-link"><button class="bb sm" data-away-open>WHILE I’M AWAY → AUTOMATE</button></div>' +
+      }).join('') + '<div class="cf-card" id="ag-away-link"><button class="bb sm" data-away-open data-tip="opens AUTOMATE › AWAY WORK">AWAY WORK ▸</button></div>' +
       agDeleteRow(a);
   }
 
@@ -3285,6 +3294,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        scrolled the minimum distance leaves the card you asked for hugging the bottom edge. */
     const jumpToConfig = (anchor) => {
       if (anchor === 'ag-workshop-card' && window.AutomationWindow) { window.AutomationWindow.openAway(a.id); return; }
+      // ORG P21: VOICE lands on SETTINGS › LOOK & SOUND with VOICE FOR already on this agent; SKILLS on ABILITIES ›
+      // AGENT SKILLS showing this agent. Both are the existing editors — the strip only routes.
+      if (anchor === 'ag-voice') { sfx('click'); openVoiceFor(a.id); return; }
+      if (anchor === 'ag-skills') { sfx('click'); skillsPick = a.id; openTerm('connectors', 'agent'); return; }
       consoleSection['agents'] = 'config'; sfx('click'); rerender('agents');
       if (!anchor || anchor === '1') return;
       requestAnimationFrame(() => {
@@ -3726,15 +3739,23 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      owns the whole "what agents can do" axis. Same two-part lane shape as windows/automation.js
      ({sections, wire}); wire() runs after the shared mountConsole call. */
   function abilitySkillsLane(body) {
-    const a = present[sel];
+    // ORG P21: AGENT SKILLS shows the agent picked here (or sent from its dossier's SKILLS row); otherwise the dossier's
+    // selected agent, as before. The intro names whose procedures these are.
+    const picked = skillsPick && present.find(x => x && x.id === skillsPick);
+    const a = picked || present[sel];
     const agentId = (a && a.id) || 'agent';
+    const agentPicker = present.length
+      ? '<label class="mc-hint" for="sk-agent-pick">Skills of</label><select id="sk-agent-pick" class="ab-agent-pick" aria-label="Show the skills of agent">' +
+        present.map(x => '<option value="' + esc(x.id) + '"' + (x.id === agentId ? ' selected' : '') + '>' + esc(x.name || x.id) + '</option>').join('') + '</select>'
+      : '';
     const secLibrary =
       // "recipes" here collided with the ❒ RECIPES dock feature (audit finding 2) — these are PROCEDURES: how-to
       // guides an agent follows mid-task, not launchable jobs.
       '<p class="sk-note sk-lib-intro">Enable skills for the whole station. Agents use them when relevant, with the tools and service access they already have.</p>' +
       '<div id="sk-lib" class="sk-lib"><div class="sk-loading"><span class="loading pulse">loading the skill library…</span></div></div>';
     const secAgent =
-      '<p class="sk-note sk-lib-intro">Reusable procedures this agent created or learned. These appear as a compact index in future runs; the agent loads the full body only when a task matches.</p>' +
+      agentPicker +
+      '<p class="sk-note sk-lib-intro" id="sk-agent-intro">' + skillsIntro(a) + '</p>' +
       '<div id="sk-agent" class="sk-lib"><div class="sk-loading">loading agent skills…</div></div>';
     const secExchange =
       '<p class="sk-note sk-lib-intro">Install a complete open skill package from a public HTTPS or GitHub <b>SKILL.md</b>. StarNet freezes the instructions and support files under one SHA-256 before review. Missing, oversized, unsafe, or partial packages are refused.</p>' +
@@ -3780,6 +3801,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       loadSkillMarket(agentId);
       loadSkillLibrary(agentId);
       loadAgentSkills(agentId);
+      const pick = document.getElementById('sk-agent-pick');
+      if (pick) pick.addEventListener('change', () => {
+        skillsPick = pick.value; sfx('click');
+        const shown = present.find(x => x && x.id === pick.value);
+        const intro = document.getElementById('sk-agent-intro'); if (intro) intro.innerHTML = skillsIntro(shown);
+        loadAgentSkills(pick.value);
+      });
       wireSkillExchange(agentId);
       wireSkillsLive();   // A3: keep the AGENT SKILLS list live while the panel is open (registers once)
     }
@@ -4305,6 +4333,25 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   let skillPanelLoad = 0;
+  // ORG P21: the agent AGENT SKILLS shows when it was picked there or sent from a dossier (null = the dossier's agent)
+  let skillsPick = null;
+  function skillsIntro(a) {
+    const n = '<b>' + esc((a && (a.name || a.id)) || 'this agent') + '</b>';
+    return 'Reusable procedures ' + n + ' created or learned. These appear as a compact index in ' + n + '’s future runs; it loads the full body only when a task matches.';
+  }
+  // ORG P21: open SETTINGS › LOOK & SOUND with VOICE FOR already on this agent (the existing picker, preselected)
+  function openVoiceFor(agentId) {
+    openTerm('settings', 'appearance');
+    const land = () => {
+      const w = open.settings; const pick = w && w.querySelector('#set-lv-agent');
+      if (!pick) return false;
+      if (Array.from(pick.options).some(o => o.value === agentId)) { pick.value = agentId; if (typeof pick.onchange === 'function') pick.onchange(); }
+      try { pick.scrollIntoView({ block: 'center' }); } catch (_) { /* older engines: the section is already showing */ }
+      pick.focus({ preventScroll: true });
+      return true;
+    };
+    requestAnimationFrame(() => { if (!land()) setTimeout(land, 120); });
+  }
   async function skillReviewPost(action, body, opts) {
     const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: (opts && opts.timeoutMs > 0) ? opts.timeoutMs : action === 'evaluate-candidate' ? 180000 : 60000 });
     if (!r.ok || !r.j || !r.j.ok) throw new Error((r.j && r.j.error) || 'The station refused this change.');

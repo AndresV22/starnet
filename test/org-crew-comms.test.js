@@ -1,7 +1,8 @@
 /* test/org-crew-comms.test.js — ORG PASS 10-14 (crew + COMMS lines). Source locks for the copy and wiring each line
    changed, so a later edit can't quietly undo what the user now reads:
      P23 — PURPOSE and the house-rules card say they are THIS agent's only; standing orders say every agent follows them.
-     P20 — the crew row's DOSSIER key is always shown at every crew size; the manual stops claiming a row click focuses. */
+     P20 — the crew row's DOSSIER key is always shown at every crew size; the manual stops claiming a row click focuses.
+     P21 — the AGENT DOSSIER says where each per-agent setting lives, and station-wide switches say they are for every agent. */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('fs');
@@ -27,5 +28,24 @@ A.ok(/#crew \.crew-row:has\(\.crew-dossier\) \.crew-step \{ padding-right: 66px;
 const MAN = require('../sidecar/manual.js').starnetManual();
 A.ok(!/focuses it/.test(MAN) && !/click the row to focus/.test(MAN) && !/intended agent is focused/.test(MAN), 'P20: the manual never says a crew-row click focuses an agent');
 A.ok(/None of these changes who COMMS talks to/.test(MAN) && /agent ON THE LINE/.test(MAN), 'P20: the manual says messages go to the agent ON THE LINE and a row click does not change that');
+
+/* ---------- P21: the dossier says where each per-agent setting lives ---------- */
+const CONN = read('frontend/app/windows/connectors.js');
+A.ok(!SUI.includes('title="change this in CONFIG"') && /data-goconfig="' \+ r\.go \+ '" data-tip="' \+ esc\(r\.tip\) \+ '"/.test(SUI), 'P21: each BRIEF setup row carries its own data-tip (no native title)');
+A.ok(SUI.includes("tip: 'opens AUTOMATE › AWAY WORK'"), 'P21: AWAY WORK says it opens AUTOMATE › AWAY WORK');
+A.ok(/lbl: 'VOICE',[^\n]*go: 'ag-voice'/.test(SUI) && /lbl: 'SKILLS',[^\n]*go: 'ag-skills'/.test(SUI), 'P21: the BRIEF strip has VOICE and SKILLS rows');
+A.ok(/if \(anchor === 'ag-voice'\) \{ sfx\('click'\); openVoiceFor\(a\.id\); return; \}/.test(SUI) && /openTerm\('settings', 'appearance'\);/.test(SUI) && /pick\.value = agentId; if \(typeof pick\.onchange === 'function'\) pick\.onchange\(\);/.test(SUI),
+  'P21: VOICE opens LOOK & SOUND with VOICE FOR preselected on this agent (and refreshes its voice list)');
+A.ok(/if \(anchor === 'ag-skills'\) \{ sfx\('click'\); skillsPick = a\.id; openTerm\('connectors', 'agent'\); return; \}/.test(SUI), 'P21: SKILLS opens ABILITIES › AGENT SKILLS for this agent');
+A.ok(SUI.includes('AWAY WORK ▸</button>') && !SUI.includes('WHILE I’M AWAY → AUTOMATE'), 'P21: CONFIG\'s away door reads AWAY WORK ▸');
+A.ok(SUI.includes('REFLECTION (all agents)') && !SUI.includes('> REFLECTION ON <'), 'P21: the MEMORY reflection switch says it is station-wide');
+A.ok(/function workshopCard\(a\)/.test(SUI) && /H\.workshopCard\(/.test(read('frontend/app/windows/automation.js')), 'P21: workshopCard stays — AUTOMATE › AWAY WORK renders with it');
+A.ok(/'Reusable procedures ' \+ n \+ ' created or learned\./.test(SUI) && SUI.includes('id="sk-agent-pick" class="ab-agent-pick"'), 'P21: AGENT SKILLS names the agent shown and has an agent picker');
+A.ok(/const a = \(skillsPick && present\.find\(x => x && x\.id === skillsPick\)\) \|\| present\[sel\]; const shownId/.test(SUI), 'P21: the live skills refresh follows the picked agent');
+A.ok(SUI.includes("return (AP && AP.approval === 'ask') ? AP.label : 'custom'; };") && SUI.includes("authority.unrestricted ? 'FULL POWER · no prompts' : askingPosture() + ' · standing grants apply'"), 'P21: the ACCESS summary speaks the posture words, gated on the live authority');
+A.ok(CONN.includes('id="ts-agent" class="ab-agent-pick"') && /select\.ab-agent-pick \{[^}]*appearance: none/.test(read('frontend/css/interface.css')), 'P21: the ABILITIES agent pickers are glass fields with a drawn chevron, not key-input/OS paint');
+A.ok(/each switch turns a built-in ability on or off for every agent; CHECK WITH ME and LET IT WORK obey the switches, FULL POWER overrides them/i.test(CONN), 'P21: BUILT-IN ABILITIES says its switches are for every agent, in ONE ACCESS words');
+A.ok(CONN.includes("data-tip=\"Turns ' + esc(t.label) + ' on or off for every agent\"") && CONN.includes("notify((tsLabels[id] || id) + (enabled ? ' on' : ' off') + ' for every agent'"),'P21: the switch tip and toast name the ability and say every agent');
+A.ok(/toolsetDisabled/.test(read('sidecar/index.js')), 'P21: "for every agent" stays true — the toggle writes the station-wide toolsetDisabled map');
 
 A.report();

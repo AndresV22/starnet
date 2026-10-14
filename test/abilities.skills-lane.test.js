@@ -18,9 +18,15 @@ const context = {
   present: [{ id: 'agent', name: 'Agent' }],
   sel: 0,
   esc: value => String(value),
+  skillsPick: null,   // org P21: the AGENT SKILLS picker's choice (null = the dossier's agent)
   result: null
 };
-vm.runInNewContext(laneSource + '\nresult = abilitySkillsLane({});', context);
+// org P21: the lane names the shown agent through skillsIntro — run the shipped helper, not a stub
+const introMatch = source.match(/function skillsIntro\(a\) \{[\s\S]*?\n  \}/);
+A.ok(introMatch, 'the AGENT SKILLS intro helper is present');
+vm.runInNewContext((introMatch ? introMatch[0] : '') + '\n' + laneSource + '\nresult = abilitySkillsLane({});', context);
+A.ok(/Reusable procedures <b>Agent<\/b> created or learned/.test(context.result.sections.find(s => s.id === 'agent') ? (() => { const el = { innerHTML: '' }; context.result.sections.find(s => s.id === 'agent').build(el); return el.innerHTML; })() : ''),
+  'AGENT SKILLS names the agent it shows');
 
 A.eq(context.result.sections.map(section => section.id), ['market', 'library', 'agent', 'exchange'],
   'the live lane builds all four Skills sections without throwing');
