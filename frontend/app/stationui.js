@@ -11784,7 +11784,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     toggleTerm(key, def[0], def[1], def[2]);
   }
   /* org P03 — an error door lands ON the provider's card, not at the top of a long AI & MODELS page. Opens the
-     section, scrolls the card to the top of the pane (the CONFIG jump's offsetTop landing, never scrollIntoView's
+     section, scrolls the card a quarter-pane from the top (the CONFIG jump's offsetTop landing, never scrollIntoView's
      minimum scroll) and marks it for a moment. `signin` presses the card's own ⏼ SIGN IN / ⏼ RECONNECT — the same
      prov-oauth-signin flow a click starts; on a card that shows no such key (a sign-in still listed as connected) it
      starts that same card flow itself (startCardSignin), so a RECONNECT door always reconnects.
@@ -11801,9 +11801,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const card = w && w.querySelector('.prov-card[data-provider="' + id + '"]');
       if (!card) { if (++tries < 12) setTimeout(land, 250); return; }
       const pane = card.closest('.con-pane');
-      if (pane) pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - 8);
+      // a quarter-pane lift, not flush to the top: the cards above stay in view, so the landing reads as a place in
+      // AI & MODELS rather than a lone card with no context
+      if (pane) pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - Math.min(120, Math.round(pane.clientHeight * 0.25)));
+      // the mark stays until the Commander touches the window (or ~8s): a 2.4s flash was gone before the card was read
       card.classList.add('prov-landed');
-      setTimeout(() => card.classList.remove('prov-landed'), 2400);
+      const unmark = () => { card.classList.remove('prov-landed'); w.removeEventListener('pointerdown', unmark, true); };
+      w.addEventListener('pointerdown', unmark, true);
+      setTimeout(unmark, 8000);
       // a sign-in door RUNS the sign-in: the card's own key when it shows one, else the same card flow directly — a
       // RECONNECT door can name a sign-in the station still lists as connected (a mid-run 401 the sidecar has not
       // marked expired yet), and that card shows no key to press. The flow's box is drawn from state, so the
