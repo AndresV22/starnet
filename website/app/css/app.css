@@ -5684,6 +5684,8 @@ html select:not(.comms-agent-select) {
 html select option, html select optgroup {
   color: var(--text); background: var(--panel2, #0a0a08); font-style: normal;
 }
+/* a group label is a quiet heading over its options (the .mp-model voice), never the OS's heavy bold */
+html select optgroup { color: var(--ph-dim); font-weight: normal; }
 /* kill the OS number spinners app-wide — every numeric field here is a small
    typed integer (budget caps, timeouts, cooldowns); the spinner is pure chrome */
 input[type=number]::-webkit-inner-spin-button,
