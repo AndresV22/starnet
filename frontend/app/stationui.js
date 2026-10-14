@@ -2853,7 +2853,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function approvalCard(a) {
     const full = !!(a && a.approvalMode === 'full');
     const chip = (id, label, desc, sel) =>
-      '<button type="button" class="ov-vchip' + (sel ? ' sel' : '') + '" data-approval="' + id + '" data-name="' + esc(label) + '" title="' + esc(desc) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' + esc(label) + '</button>';
+      '<button type="button" class="ov-vchip' + (sel ? ' sel' : '') + '" data-approval="' + id + '" data-name="' + esc(label) + '" data-tip="' + esc(desc) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' + esc(label) + '</button>';
     return '<div class="cf-card" id="ag-approval-card">' +
       '<div class="cf-head"><span class="cf-file">✋ approval prompts</span></div>' +
       '<div class="cf-desc">ASKS FIRST respects the selected reach profile and pauses before risky calls. NEVER ASKS stops the approval prompts and authorizes the whole local computer: all available tools, host paths, arbitrary commands, visible apps, and screen/input control. <code>/yolo</code> is the never-ask shortcut.</div>' +
@@ -7512,10 +7512,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<details class="cf-group set-fold" id="auto-direction-fold"><summary><h4 class="ms-h">FINE-TUNE <span class="dim">— how far, how often, and where</span></h4></summary>' +
       '<div class="set-sub"><span class="set-sub-k">REACH</span><span class="set-sub-d">how far an unattended action may go</span></div>' +
       '<div class="set-themes" id="auto-reach">' +
-        '<button class="set-theme" data-reach="observe" title="read / research only — writes nothing">OBSERVE</button>' +
+        '<button class="set-theme" data-reach="observe" data-tip="read / research only — writes nothing">OBSERVE</button>' +
         // LOCAL ONLY (org pass 10-14): "sandbox" read as a restriction, not as "stays on this machine"; the stored value is unchanged
-        '<button class="set-theme" data-reach="sandbox" title="build &amp; write locally — nothing leaves the machine">LOCAL ONLY</button>' +
-        '<button class="set-theme" data-reach="reach" title="the highest rung: unattended actions may leave the machine — send, publish, or contact external services">SEND &amp; PUBLISH</button>' +
+        '<button class="set-theme" data-reach="sandbox" data-tip="build &amp; write locally — nothing leaves the machine">LOCAL ONLY</button>' +
+        '<button class="set-theme" data-reach="reach" data-tip="the highest rung: unattended actions may leave the machine — send, publish, or contact external services">SEND &amp; PUBLISH</button>' +
       '</div>' +
       '<div class="set-sub"><span class="set-sub-k">PACE</span><span class="set-sub-d">how many unattended jobs per day</span></div>' +
       '<div class="set-themes" id="auto-pace">' +
@@ -8231,7 +8231,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             const why = (v.reasons && v.reasons.length) ? v.reasons.join(', ') : 'armed background work';
             lifeDesc.textContent = 'Right now, closing the window KEEPS the station running in the background (' + why + '). Quit fully from the tray icon. Otherwise closing would fully quit.';
           } else {
-            lifeDesc.textContent = 'Right now, nothing is armed — closing the window fully quits StarNet (no background process). Arm a routine, connect a channel, or set autonomy to BUILD or FREE to keep it running while closed.';
+            lifeDesc.textContent = 'Right now, nothing is armed — closing the window fully quits StarNet (no background process). Arm a routine, connect a channel, or set ON ITS OWN to ' + initiativeLabel('leash') + ' or ' + initiativeLabel('free') + ' in SETTINGS › AUTONOMY to keep it running while closed.';
           }
         }).catch(() => { lifeDesc.textContent = 'Closing the window keeps the station running only when armed work needs it — otherwise it fully quits.'; });
       };

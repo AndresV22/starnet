@@ -304,8 +304,12 @@
   // arrives as a new ⚒ session" — never an unlock ladder ("set REACH to…", "reaching either lets it act"). The
   // exact N-of-M readiness counts are not dropped: they stay on readinessText, shown in SETTINGS › AUTONOMY and LAST
   // REPORT. Still composed only from status fields; '' when the status carries nothing to say.
+  // NOTHING RUNS UNATTENDED (org pass fix): binding 'posture' is the driver's FIRST gate — the dial is below SMALL
+  // JOBS (WAIT / SUGGEST), so no away job or draft ever fires and the night shift never arms. Its buildMode still
+  // reads 'draft' (buildsUnattended is false), but promising drafts would be a lie: say nothing.
   function postureOutlook(status) {
     if (!status || typeof status !== 'object') return '';
+    if (status.binding === 'posture') return '';
     const mode = modePlain(status);                      // build-vs-draft, straight from status.buildMode/draftReason/leashPerDay
     const ready = readinessPlain(status && status.readiness);   // '' once a hot bar is cleared (nothing to caveat)
     return [mode, ready].filter(Boolean).join(' ');

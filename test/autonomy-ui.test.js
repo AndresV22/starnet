@@ -27,6 +27,12 @@ A.eq((rungs.find(r => r.id === 'leash') || {}).label, 'SMALL JOBS', 'the leash r
 A.ok(/data-reach="sandbox"[^>]*>LOCAL ONLY<\/button>/.test(src), 'REACH sandbox reads LOCAL ONLY on the button');
 A.ok(!/>BUILD<\/button>/.test(src) && !/>SANDBOX<\/button>/.test(src), 'no dial button still reads BUILD or SANDBOX');
 A.ok(/initiativeLabel,/.test(src), 'StationUI exports initiativeLabel for trust offers and notices');
+A.ok(!/data-reach="(observe|sandbox|reach)" title=/.test(src) && /data-reach="sandbox" data-tip="/.test(src), 'the REACH rungs carry station data-tips, never a native title');
+// every OTHER surface that names a rung reads the same table — AUTOMATE's ON ITS OWN rail header and the desktop
+// lifecycle note kept a private copy that still said BUILD (org pass fix).
+const autoSrc = fs.readFileSync(path.join(__dirname, '../frontend/app/windows/automation.js'), 'utf8');
+A.ok(autoSrc.includes('StationUI.initiativeLabel(sum.initiative)') && !autoSrc.includes("leash: 'BUILD'"), 'AUTOMATE names the rung through StationUI.initiativeLabel, never a private BUILD copy');
+A.ok(!src.includes('autonomy to BUILD or FREE') && src.includes("initiativeLabel('leash') + ' or ' + initiativeLabel('free')"), 'the lifecycle note names the arming rungs by their rendered labels');
 for (const lvl of Au.REACH) A.ok(new RegExp('data-reach="' + lvl + '"').test(src), 'the dial has a Reach button for "' + lvl + '"');
 
 // the PACE row surfaces the leashPerDay knob: a #auto-pace container plus a button for each of the four presets

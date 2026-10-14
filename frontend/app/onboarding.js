@@ -489,9 +489,10 @@ const Onboarding = (() => {
   // the server and AWAIT it (AutonomyStore.applyPreset's own sync is fire-and-forget, so a bare status read could see
   // the stale/floor posture), then read /api/nightshift/status back and speak ONE line composed by the pure engine —
   // never a hardcoded claim (truthful telemetry: only what the status route returned). 'wait'/skip promises nothing
-  // unattended, so it gets no line. Fail-open: an unreachable route (or missing engine) → '' → the ack stands alone.
+  // unattended, so it gets no line; neither does 'suggest' (initiative propose never acts on its own —
+  // the status route's binding 'posture' says the same, and postureOutlook returns '' for it). Fail-open: an unreachable route (or missing engine) → '' → the ack stands alone.
   async function nightshiftPostureLine(preset) {
-    if (preset === 'wait' || preset === '' || typeof NightReport === 'undefined' || typeof fetch !== 'function') return '';
+    if (preset === 'wait' || preset === 'suggest' || preset === '' || typeof NightReport === 'undefined' || typeof fetch !== 'function') return '';
     // The cadence writer is awaited before this read; never issue a second,
     // unacknowledged posture write from a presentation helper.
     let status = null;

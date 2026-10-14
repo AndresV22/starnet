@@ -78,6 +78,7 @@ ok(/accWrap\.querySelectorAll\('\[data-access-posture\]'\)/.test(src) && /if \(P
   ok(!!ap, 'the dossier asking pair is still its own card');
   ok(ap && /chip\('ask', 'ASKS FIRST'/.test(ap[0]) && /chip\('full', 'NEVER ASKS', '[^']*whole local computer/.test(ap[0]), 'the fold reads ASKS FIRST / NEVER ASKS, and NEVER ASKS warns it covers the whole computer');
   ok(ap && !/ASK FOR APPROVAL|'FULL POWER'/.test(ap[0]), 'the fold never borrows the FULL POWER answer name');
+  ok(ap && /data-tip="' \+ esc\(desc\)/.test(ap[0]) && !/title="/.test(ap[0]), 'the whole-computer warning is a station data-tip, never a native title');
   ok(ap && /<code>\/yolo<\/code> is the never-ask shortcut/.test(ap[0]), 'the fold names /yolo as the never-ask shortcut');
   ok(/chip\.textContent = 'NEVER ASKS — SURE\?'/.test(src), 'NEVER ASKS keeps its two-press confirm');
   ok(/r\.levelSet && postureRung\(P\) \? ' — also set ON ITS OWN to ' \+ postureRung\(P\)/.test(src) && /levelSet: !!\(snap && snap\.level === P\.level\)/.test(src) &&/Permissions\.levelPlan\(P\.level\)/.test(src) && /initiativeLabel\(preset\.initiative\)/.test(src),

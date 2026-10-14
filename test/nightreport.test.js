@@ -247,6 +247,9 @@ A.ok(/up to 7 small jobs a day/.test(NR.postureOutlook({ buildMode: 'build', lea
 A.ok(!/\d/.test(NR.postureOutlook({ buildMode: 'build', leashPerDay: null })), 'an unknown leashPerDay drops the number instead of inventing one');
 A.ok(!/still learning|I’ll start once/i.test(outBuild), 'a hot station adds no still-learning caveat');
 A.ok(/set REACH to LOCAL ONLY/.test(NR.modeText({ buildMode: 'draft', draftReason: 'reach' })), 'the panel MODE line names the REACH rung by its rendered label, LOCAL ONLY');
+// a SUGGEST/WAIT pick (initiative below leash): the driver binds on 'posture', nothing ever runs unattended, so the
+// readout promises nothing — even though buildMode reads 'draft'/'reach' and a cold station has readiness detail.
+A.eq(NR.postureOutlook(Object.assign({}, stBase, { binding: 'posture', active: false, buildMode: 'draft', draftReason: 'reach', readiness: rdWarm })), '', 'a posture-bound (SUGGEST) status says nothing — no draft promise, no "I’ll start once"');
 A.eq(NR.postureOutlook(outBuild) === outBuild, false, 'postureOutlook takes a status object, not its own string (sanity)');
 
 /* ---------- unseenDrafts(): the live-session nudge predicate (NS visibility 2026-07-13) ----------
