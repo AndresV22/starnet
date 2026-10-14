@@ -16,6 +16,7 @@
 .settings-console .ms-h .dim { display: block; flex: 1 0 100%; order: 4; font-size: 14px; line-height: 1.5; letter-spacing: 0; margin-top: 4px; }
 .settings-console :is(.set-about,.mc-hint,.pc-plain,.perm-m-desc,.perm-m-floor,.ns-note) { font-size: 14px; line-height: 1.55; letter-spacing: 0; overflow-wrap: anywhere; }
 .settings-console .set-about { margin: 0 0 16px; }
+.settings-console .key-list + .set-about { margin-top: 16px; }   /* org P04: the note under API KEYS keeps its gap from the last key card (the dropped add box used to give it) */
 .settings-console .mc-hint { margin: 7px 0 18px; }
 .settings-console .set-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 22px 0 10px; border: 0; }
 .settings-console .set-sub-k { font-size: 14px; color: var(--ph-bright); }
