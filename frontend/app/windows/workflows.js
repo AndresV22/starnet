@@ -580,7 +580,7 @@ const WorkflowsWindow = (() => {
       + '<label class="wfw-k" for="wfw-name">Name</label><input id="wfw-name" class="wfw-field" type="text" maxlength="40" value="' + esc(S.draft.name != null ? S.draft.name : pk.name) + '">'
       + '<div class="wfw-k">Who does each step?' + (one ? ' <span class="wfw-note">— one agent can do every step</span>' : '') + '</div>'
       + stepRows
-      + (crew.length > 1 && roles.length > 1 ? '<div class="wf-row"><span class="wfw-note">One agent can do every step:</span>' + crew.slice(0, 4).map(a => '<button type="button" class="bb sm" data-pick-all="' + esc(a.id) + '">' + esc(String(a.name || a.id).toUpperCase()) + ' DOES ALL</button>').join('') + '</div>' : '')
+      + (crew.length > 1 && roles.length > 1 ? '<div class="wf-row"><span class="wfw-note">One agent can do every step:</span>' + crew.slice(0, 4).map(a => '<button type="button" class="bb sm" data-pick-all="' + esc(a.id) + '">GIVE ' + esc(String(a.name || a.id).toUpperCase()) + ' EVERY STEP</button>').join('') + '</div>' : '')
       + (S.made && S.made.error ? '<p class="wfw-bad">✕ ' + esc(S.made.error) + ' Clear some space in Build Mode, then press CREATE again.</p><div class="wf-row"><button type="button" class="bb" data-act="more">OPEN BUILD MODE</button></div>' : '')
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="create"' + (crew.length ? '' : ' disabled') + '>✓ CREATE WORKFLOW</button><span class="wfw-note">It is placed on your floor, ready for jobs.</span></div></section>';
   }
@@ -620,7 +620,7 @@ const WorkflowsWindow = (() => {
     const handled = /needs an agent|needs a workstation/;
     for (const b of l.ready.blocking.filter(b => !handled.test(b.what))) items.push('<div class="wfw-fixrow"><div class="wfw-fixh">' + esc(b.what.charAt(0).toUpperCase() + b.what.slice(1)) + '</div><div class="wf-row"><button type="button" class="bb sm" data-act="edit">FIX IT IN THE EDITOR</button></div></div>');
     return '<section class="wfw-sec wfw-setup"><h3>Finish setting it up</h3><p class="wfw-note">' + (l.ready.blocking.length === 1 ? 'One thing' : l.ready.blocking.length + ' things') + ' before it can take a job:</p>'
-      + (missing.length > 1 && crew.length ? '<div class="wf-row">' + crew.slice(0, 4).map(a => '<button type="button" class="bb sm" data-assign-all="' + esc(a.id) + '">' + esc(String(a.name || a.id).toUpperCase()) + ' DOES EVERY STEP</button>').join('') + '</div>' : '')
+      + (missing.length > 1 && crew.length ? '<div class="wf-row">' + crew.slice(0, 4).map(a => '<button type="button" class="bb sm" data-assign-all="' + esc(a.id) + '">GIVE ' + esc(String(a.name || a.id).toUpperCase()) + ' EVERY STEP</button>').join('') + '</div>' : '')
       + items.join('') + '</section>';
   }
   function jobRows(l) {
