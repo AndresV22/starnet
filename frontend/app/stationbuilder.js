@@ -405,13 +405,14 @@
     if (reqSteps.length > stepsOut.length) return refuse(lineId + ' has ' + stepsOut.length + (stepsOut.length === 1 ? ' step' : ' steps') + ' (' + steps + '), and the request gives ' + reqSteps.length + '.'
       + fitsText(env, { count: reqSteps.length, shape }) + how);
     const inOrder = reqSteps.length === stepsOut.length && !reqSteps.some(s => s.step != null && Number.isInteger(stepNum(s.step)));
-    const read = [];
+    const read = [], hits = [], by = [];   // by: how each step was read — 'number', 'name' (its role or role word), 'place' or 'work'
     for (let i = 0; i < reqSteps.length; i++) {
       const s = reqSteps[i];
       let hit = null;
       const n = s.step != null ? stepNum(s.step) : NaN, label = labelOf(s);
+      by[i] = 'name';
       if (Number.isInteger(n)) {
-        hit = stepsOut[n - 1] || null;
+        hit = stepsOut[n - 1] || null; by[i] = 'number';
         if (!hit) return refuse('This line has steps 1 to ' + stepsOut.length + ': ' + steps + '. There is no step ' + n + '.' + how);
       } else if (label != null) {
         const exact = stepsOut.filter(x => norm(x.role) === norm(label));
@@ -425,12 +426,38 @@
         else if (word && !byWord.length) return refuse('"' + String(label).slice(0, 40) + '" reads as a ' + titleCase(word) + ' step, and ' + lineId + ' has none (its steps: ' + steps + ').'
           + fitsText(env, { roles: [word], shape }) + how);
         else if (s.role != null) return refuse('This line has no ' + String(s.role).slice(0, 30) + ' step. Its steps are: ' + steps + '.' + how);
-        else if (inOrder) hit = stepsOut[i];
+        else if (inOrder) { hit = stepsOut[i]; by[i] = 'place'; }
         else return refuse('"' + String(label).slice(0, 40) + '" is not a step of ' + lineId + ' (its steps: ' + steps + ').' + how);
-        if (norm(hit.role) !== norm(label)) read.push('"' + String(label).slice(0, 40) + '" → step ' + hit.step + ' (' + titleCase(hit.role) + ')');
-      } else if (inOrder) { hit = stepsOut[i]; read.push('step ' + hit.step + ' (' + titleCase(hit.role) + ') by its place in the list'); }
+      } else if (inOrder) { hit = stepsOut[i]; by[i] = 'place'; }
       else return refuse('Each step needs "step" (a number) or "role". Its steps are: ' + steps + '.' + how);
-      if (used[hit.step]) return refuse('Step ' + hit.step + ' was given twice.' + how);
+      hits[i] = hit;
+    }
+    /* BY PLACE, CHECKED BY ITS WORK (review, 10-14): a list with no numbers is read in order, and a list given out of run order
+       ([ { STRATEGY: "Review the draft…" }, { COPY: "Draft the post…" } ] on Writer → Reviewer) staffed the Writer with the
+       reviewer, while the reply said "COPY drafts → STRATEGY reviews". A step read by its place whose instructions name another
+       role THIS line has (the role they name first) is read by its instructions instead, when that reads every such step onto a
+       step of its own; otherwise the plan is refused with the numbered form. Never a silent swap. */
+    const workOf = i => roleWordFirst(String(reqSteps[i].instructions || '')), onLine = r => stepsOut.filter(x => roleKey(x.role) === r);
+    const place = hits.map((h, i) => i).filter(i => by[i] === 'place');
+    const clash = place.filter(i => { const w = workOf(i); return w && onLine(w).length && w !== roleKey(hits[i].role); });
+    if (clash.length) {
+      const moved = place.map(i => { const w = workOf(i), on = w ? onLine(w) : []; return on.length === 1 ? on[0] : null; });
+      const fixed = new Set(hits.filter((h, i) => by[i] !== 'place').map(h => h.step));
+      if (!moved.every(Boolean) || new Set(moved.map(x => x.step)).size !== moved.length || moved.some(x => fixed.has(x.step))) {
+        const i = clash[0];
+        return refuse('The steps have no numbers, so they were read in order, but step ' + hits[i].step + ' (' + titleCase(hits[i].role) + ') in that order was given a ' + titleCase(workOf(i)) + "'s work (\"" + String(reqSteps[i].instructions).replace(/\s+/g, ' ').trim().slice(0, 40) + '…"). Number every step (its steps: ' + steps + ').' + how);
+      }
+      place.forEach((i, k) => { hits[i] = moved[k]; by[i] = 'work'; });
+    }
+    const said = (i, h) => (labelOf(reqSteps[i]) != null ? '"' + String(labelOf(reqSteps[i])).slice(0, 40) + '" → step ' + h.step + ' (' + titleCase(h.role) + ')' : 'step ' + h.step + ' (' + titleCase(h.role) + ')')
+      + (by[i] === 'place' ? ' by its place in the list' : by[i] === 'work' ? ' by its instructions' : '');
+    for (let i = 0; i < reqSteps.length; i++) {
+      const s = reqSteps[i], hit = hits[i], label = labelOf(s);
+      // two entries read as one step: say how each was read (a positional "Intro" and a "Draft" both landing on the Writer)
+      const twice = hits.findIndex((h, j) => j < i && h === hit);
+      if (twice >= 0) return refuse(by[i] === 'number' && by[twice] === 'number' ? 'Step ' + hit.step + ' was given twice.' + how
+        : 'Step ' + hit.step + ' (' + titleCase(hit.role) + ') was given twice: ' + said(twice, hit) + ', and ' + said(i, hit) + '. Number every step (its steps: ' + steps + ').' + how);
+      if (by[i] === 'place' || by[i] === 'work' || (label != null && norm(hit.role) !== norm(label))) read.push(said(i, hit));
       used[hit.step] = 1;
       if (s.instructions != null) hit.brief = String(s.instructions).trim().slice(0, 2000);
       if (s.agent != null) { const a = agentOf(env, s.agent); if (!a.ok) return a; hit.agentId = a.id; hit.recruit = !!a.recruit; }
@@ -3979,6 +4006,38 @@
       drawing: rows } };
   }
 
+  /* WHAT AN EDIT DID TO THE LINES (rc walk 10-14 review): a refit, a restaff or a moved room answers, once built, every line it
+     touched as that line now stands on the floor (ready, or what blocks it) and every machine it left on no line, so the build
+     receipt says "ready" or "still to do" by the floor's own verdict, never "stop" over a line that cannot run. A line is touched
+     when its machines are new, changed (staff, role, place) or joined differently; one it never touched is not re-read. */
+  function lineSigs(st, env) {
+    const comps = env.Pipeline.lineComponents(st.projectGeometry()) || [], out = new Map();
+    for (const c of comps) out.set(c.props.join(), JSON.stringify(c.props.map(id => st.propById(id))));
+    out.machines = new Map(st.props().filter(p => MACHINE_T.test(p.t)).map(p => [p.id, JSON.stringify(p)]));
+    return out;
+  }
+  function touchedLines(st, env, before, crewIds) {
+    const comps = env.Pipeline.lineComponents(st.projectGeometry()) || [], lines = [], onLine = new Set();
+    for (const c of comps) {
+      c.props.forEach(id => onLine.add(id));
+      if (before.get(c.props.join()) === JSON.stringify(c.props.map(id => st.propById(id)))) continue;
+      const rl = readLine(st, c.props, env, crewIds), ip = (c.intakes || []).map(id => st.propById(id)).find(p => p && p.label);
+      lines.push({ label: ip ? ip.label : null, name: lineWordOf(st, env, c.key), lineId: c.key, ready: rl.ready, blocking: rl.blocking });
+    }
+    const loose = st.props().filter(p => MACHINE_T.test(p.t) && !onLine.has(p.id) && before.machines.get(p.id) !== JSON.stringify(p)).map(p => 'the ' + pieceName(env, p.t) + ' at (' + p.x + ', ' + p.y + ')');
+    return { lines, loose };
+  }
+  // a refit that shaped rooms or set furniture by hand keeps the designer's one look at it; one that only laid or staffed machines needs none
+  const handLaid = ops => (ops || []).some(o => { const op = String((o && o.op) || '').toLowerCase().trim();
+    return /^(room|hall|resize|style|paint|floor|walls|hull|rotate|mirror)$/.test(op) || (op === 'place' && !MACHINE_T.test(String(o.t || ''))) || (op === 'move' && o.room != null); });
+  /* station.build's answer, as the page sends it (stationcommands): the plan's kind, then the one ready-made line, or the rooms,
+     hallways and every line the build laid or touched, each with the floor's own readiness */
+  function receipt(r, pl) {
+    const kind = (pl && pl.spec && pl.spec.kind) || r.kind || 'line';
+    return Object.assign({ kind }, r.line
+      ? { summary: r.summary, line: r.line, where: r.where, steps: r.steps, lineId: r.lineKey, ready: r.ready, blocking: r.blocking, recruited: r.recruited }
+      : { summary: r.summary, rooms: r.rooms, hallways: r.hallways, lines: r.lines, loose: r.loose && r.loose.length ? r.loose : undefined, handLaid: r.handLaid || undefined, recruited: r.recruited, where: r.where });
+  }
   function apply(st, pl, env) {
     const WM = env && env.WorldModel;
     if (!WM || !env.Pipeline || !env.WorkflowLine) return refuse('the station builder is not loaded on this page');
@@ -3988,6 +4047,7 @@
     let built = null;
     const recruited = [], recruits = pl.spec.recruits || [];
     if (recruits.length && typeof env.recruit !== 'function') return refuse('Recruiting is not available on this page, so nothing was built. Plan it again without "new".');
+    const edits = pl.spec.kind === 'edit' || pl.spec.kind === 'refit' || pl.spec.kind === 'rearrange', linesBefore = edits ? lineSigs(st, env) : null;
     if (pl.spec.kind === 'undo') {
       const u = st.undo();
       if (!u || !u.ok) return refuse('There was nothing to undo.');
@@ -4028,15 +4088,20 @@
       return refuse(((r && r.error) || 'The build failed, so nothing was changed.') + kept, { recruited });
     }
     const crewIds = (env.crew || []).map(a => a && a.id).filter(Boolean);
+    // every line a build laid carries the floor's own name for it (name: what station.plan { staff: { line } } answers to)
+    const nameOf = rl => rl.comp ? lineWordOf(st, env, rl.comp.key) : null;
     if (pl.spec.kind === 'build') {
       for (const x of recruited) crewIds.push(x.id);
-      const lines = (pl.lines || []).map(l => { const ln = ((built.parts[l.part] || {}).lines || [])[l.line], rl = ln ? readLine(st, ln.lineIds, env, crewIds) : { ready: false, blocking: [] }; return { label: l.label || null, room: l.room, lineId: rl.comp ? rl.comp.key : null, ready: rl.ready, blocking: rl.blocking }; });
+      const lines = (pl.lines || []).map(l => { const ln = ((built.parts[l.part] || {}).lines || [])[l.line], rl = ln ? readLine(st, ln.lineIds, env, crewIds) : { ready: false, blocking: [] }; return { label: l.label || null, name: nameOf(rl), room: l.room, lineId: rl.comp ? rl.comp.key : null, ready: rl.ready, blocking: rl.blocking }; });
       return { ok: true, kind: 'build', summary: pl.summary, rooms: pl.rooms || [], hallways: pl.hallways || [], where: pl.where, lines, roomIds: built.parts.map(p => p.roomId).filter(Boolean), recruited };
     }
-    if (pl.spec.kind === 'edit' || pl.spec.kind === 'refit' || pl.spec.kind === 'rearrange') return { ok: true, kind: 'edit', summary: pl.summary, rooms: [], hallways: [], where: pl.where, lines: [], roomIds: pl.spec.restyle ? [pl.spec.restyle.roomId] : [] };
+    if (edits) {
+      const t = touchedLines(st, env, linesBefore, crewIds);
+      return { ok: true, kind: 'edit', summary: pl.summary, rooms: [], hallways: [], where: pl.where, lines: t.lines, loose: t.loose, handLaid: pl.spec.kind === 'refit' && handLaid(pl.spec.ops), roomIds: pl.spec.restyle ? [pl.spec.restyle.roomId] : [] };
+    }
     if (pl.spec.kind === 'swap' || pl.spec.kind === 'relayout') return { ok: true, kind: 'swap', summary: pl.summary, rooms: pl.rooms || [], where: pl.where, lines: pl.lines || [], preset: pl.preset, roomIds: [] };
     if (pl.spec.kind === 'rooms' || pl.spec.kind === 'restyle') {
-      const lines = (built.parts || []).filter(p => p.lineIds && p.lineIds.length).map(p => { const rl = readLine(st, p.lineIds, env, crewIds); return { lineId: rl.comp ? rl.comp.key : null, ready: rl.ready, blocking: rl.blocking }; });
+      const lines = (built.parts || []).filter(p => p.lineIds && p.lineIds.length).map(p => { const rl = readLine(st, p.lineIds, env, crewIds); return { name: nameOf(rl), lineId: rl.comp ? rl.comp.key : null, ready: rl.ready, blocking: rl.blocking }; });
       return { ok: true, kind: pl.spec.kind, summary: pl.summary, rooms: pl.rooms || [], where: pl.where, lines,
         roomIds: pl.spec.kind === 'restyle' ? [pl.spec.roomId] : (built.parts || []).map(p => p.roomId) };
     }
@@ -4046,5 +4111,5 @@
       lineKey: rd.comp ? rd.comp.key : null, ready: rd.ready, blocking: rd.blocking, recruited };
   }
 
-  return { strandedHalls, MENU, STEP_KEYS, ROOM_MENU, STYLE_MENU, DESIGN_MENU, ZONE_KEYS, ROOM_KEYS, LINE_KEYS, LAYOUT_KEYS, LAYOUT_ROOM_KEYS, AREAS, SIZES, EDIT_KEYS, catalog, resolveLine, plan, planNext, planRoom, planRestyle, planEdit, planUndo, planDesign, planBuild, planLayout, mapOf, lineRef, roomPlacements, dressRoom, shapeGraph, areaOf, apply, sigOf };
+  return { strandedHalls, MENU, STEP_KEYS, ROOM_MENU, STYLE_MENU, DESIGN_MENU, ZONE_KEYS, ROOM_KEYS, LINE_KEYS, LAYOUT_KEYS, LAYOUT_ROOM_KEYS, AREAS, SIZES, EDIT_KEYS, catalog, resolveLine, plan, planNext, planRoom, planRestyle, planEdit, planUndo, planDesign, planBuild, planLayout, mapOf, lineRef, roomPlacements, dressRoom, shapeGraph, areaOf, apply, receipt, sigOf };
 });

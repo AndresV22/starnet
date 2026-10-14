@@ -486,10 +486,12 @@
           + '8 { undo: true } takes back the lead\'s own last build ("no, undo that"), only while nothing has changed since; repeat it to go back further. '
           + 'It answers a planId and a plain summary: tell the Commander the summary, then call station.build with the planId. If it refuses it says why and what does fit: fix the request and plan again. Never give up after one refusal, and never say something was built that station.build did not report.';
       },
+      // a step's NUMBER is typed so the harness's own argument check says it first; null on its other fields means "leave it out",
+      // as the builder has always taken it (a model sends agent: null for a step nobody works yet)
       schema: { type: 'object', properties: {
         layout: { type: 'object', properties: { pattern: { type: 'string' }, around: { type: 'string' }, side: { type: 'string' }, rooms: { type: 'array', items: { type: 'object' } } } },
         replace: { type: 'boolean' }, rooms: { type: 'array', items: { type: 'object' } }, hallways: { type: 'array', items: { type: 'object' } },
-        line: { type: 'string' }, shape: { type: 'array', items: {} }, purpose: { type: 'string' }, steps: { type: 'array', items: { type: 'object', properties: { step: { type: 'integer' }, role: { type: 'string' }, agent: { type: 'string' }, instructions: { type: 'string' } } } }, dailyCap: {}, tries: { type: 'integer' },
+        line: { type: 'string' }, shape: { type: 'array', items: {} }, purpose: { type: 'string' }, steps: { type: 'array', items: { type: 'object', properties: { step: { type: 'integer' }, role: { type: ['string', 'null'] }, agent: { type: ['string', 'null'] }, instructions: { type: ['string', 'null'] } } } }, dailyCap: {}, tries: { type: 'integer' },
         kit: { type: 'string' }, preset: { type: 'string' }, zones: { type: 'array', items: { type: 'object' } }, restyle: { type: 'object' }, remove: {}, refurnish: { type: 'object' }, clear: {}, add: { type: 'object' }, seat: { type: 'object' }, move: { type: 'object' }, staff: { type: 'object' }, undo: { type: 'boolean' }, refit: { type: 'array', items: { type: 'object' } },
         where: { type: 'string' }, name: { type: 'string' }, size: {}, beside: { type: 'string' }, side: { type: 'string' }, hallway: {}, type: { type: 'string' }, floorStyle: { type: 'string' }, floorMat: { type: 'string' } } },
       run: async (args) => {
@@ -526,16 +528,24 @@
         /* DONE, said as DONE (rc walk 10-14, A3): the receipt tells the model the job is finished, so it reports and stops instead of
            reaching for more tools (the walk's lead, out of plans, made a loop nobody asked for). The receipt's own readiness decides
            the words: ready, or exactly what is still to do — never more than it proves. */
-        const left = (r.blocking || []).filter(Boolean).map(String);
+        /* Every line the build laid or touched counts (review): the one ready-made line, or each of r.lines (a custom shape, a room
+           of lines, a refit's or a restaff's lines as they now stand), each named; machines left on no line are still to do too. */
+        const lines = r.line ? [{ name: r.line.label || r.line.name, ready: !!r.ready, blocking: r.blocking || [] }] : (Array.isArray(r.lines) ? r.lines : []).filter(Boolean);
+        const named = l => lines.length > 1 && (l.name || l.label) ? (l.name || l.label) + ': ' : '';
+        const left = [].concat(...lines.map(l => (l.blocking || []).filter(Boolean).map(b => named(l) + String(b))));
+        if (!r.line) for (const b of (r.blocking || []).filter(Boolean).map(String)) if (!lines.some(l => (l.blocking || []).indexOf(b) >= 0)) left.push(b);
+        for (const m of r.loose || []) left.push(String(m) + ' stands on no line yet');
         /* only crew is missing (the third live re-run staffed a built line through guessed ids, a map, a plan and a second card):
            the one form that staffs a line by its own name and step numbers, for when the Commander said who works them */
-        const lineName = r.line && (r.line.label || r.line.name), crewOnly = lineName && left.length && left.every(b => /needs an agent/i.test(b));
-        const staff = crewOnly ? ' If the Commander said who works those steps, staff them in one plan: station.plan { "staff": { "line": ' + JSON.stringify(String(lineName)) + ', "steps": [ { "step": 1, "agent": "a crew name" } ] } }, then station.build; otherwise tell the Commander exactly that, and stop.' : '';
-        // a ready-made line is finished when it lands; a design laid by hand keeps its one look (the planner's LOOK at your work)
-        if (r.built) r.next = 'DONE: it is built' + (left.length ? '. Still to do before it runs: ' + left.join('; ').replace(/\.$/, '') + '.' + (staff || ' Tell the Commander exactly that, and stop: build nothing else for this unless they ask.')
-          : (r.ready ? ' and ready to run' : '') + '. ' + (r.line ? 'Tell the Commander what was built in a sentence or two, and stop: there is nothing left to build or check for this.'
-            : 'If you laid it out by hand, look at it once (station.map { look: the room }) and fix only what is wrong; then tell the Commander what was built in a sentence or two, and stop.'));
-        return { content: JSON.stringify(r), summary: 'built ' + what + (r.line ? (r.ready ? ' · ready to run' : ' · ' + ((r.blocking || []).length) + ' to do') : '') };
+        const short = lines.filter(l => (l.blocking || []).length), crewOnly = left.length && short.length && !(r.loose || []).length && short.every(l => (l.name || l.label) && l.blocking.every(b => /needs an agent/i.test(b)));
+        const staff = crewOnly ? ' If the Commander said who works those steps, staff ' + (short.length > 1 ? 'each line in its own plan' : 'them in one plan') + ': station.plan { "staff": { "line": ' + JSON.stringify(String(short[0].name || short[0].label)) + ', "steps": [ { "step": 1, "agent": "a crew name" } ] } }, then station.build; otherwise tell the Commander exactly that, and stop.' : '';
+        // a refit that laid the line by hand fixes what it left; a design laid by hand keeps its one look (the planner's LOOK at your work)
+        const fix = r.kind === 'refit' ? ' Fix that with one more refit plan and build it; if you cannot, tell the Commander exactly what is left, and stop.' : ' Tell the Commander exactly that, and stop: build nothing else for this unless they ask.';
+        const look = r.handLaid ? 'You laid pieces by hand: look at the room once (station.map { look: the room }) and fix only what is wrong; then tell the Commander what was built in a sentence or two, and stop.'
+          : 'Tell the Commander what was built in a sentence or two, and stop: there is nothing left to build or check for this.';
+        if (r.built) r.next = 'DONE: it is built' + (left.length ? '. Still to do before it runs: ' + left.join('; ').replace(/\.$/, '') + '.' + (staff || fix) : (lines.length ? ' and ready to run' : '') + '. ' + look);
+        const ready = lines.length && !left.length;
+        return { content: JSON.stringify(r), summary: 'built ' + what + (lines.length || left.length ? (ready ? ' · ready to run' : ' · ' + left.length + ' to do') : '') };
       }
     };
 

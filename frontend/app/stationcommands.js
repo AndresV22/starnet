@@ -833,9 +833,8 @@ const StationCommands = (() => {
       const undo = 'The Commander can take all of it back with one UNDO in Build mode'
         + (r.kind === 'swap' ? ', or bring the old station back with RESTORE PREVIOUS in Build → Presets' : '')
         + ((r.recruited || []).length ? '; the recruited agents stay on the crew (DELETE AGENT in a Dossier removes one)' : '') + '.';
-      const result = Object.assign({ built: true, undo }, r.line
-        ? { summary: r.summary, line: r.line, where: r.where, steps: r.steps, lineId: r.lineKey, ready: r.ready, blocking: r.blocking, recruited: r.recruited }
-        : { summary: r.summary, rooms: r.rooms, hallways: r.hallways, lines: r.lines, recruited: r.recruited, where: r.where });
+      // the receipt's body is the builder's own (StationBuilder.receipt): every line it laid or touched, with the floor's readiness
+      const result = Object.assign({ built: true, undo }, StationBuilder.receipt(r, e.plan));
       result.routing = await builderPublication();
       if (!result.routing.published) {
         result.ready = false;

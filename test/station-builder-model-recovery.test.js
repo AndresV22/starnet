@@ -60,6 +60,18 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   const role = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ step: 'Reviewer', agent: 'STRATEGY' }, { step: 'Writer', agent: 'COPY' }] }, env);
   A.ok(role.ok && role.plan.steps.map(s => s.agent).join() === 'COPY,STRATEGY', 'a step named by its role ("Writer") finds that step in any order: ' + (role.error || ''));
   A.ok(SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ step: '2', agent: 'STRATEGY' }] }, env).ok, 'a number sent as text still counts');
+  /* (review) a list with no numbers given OUT of run order was staffed by its place: the reviewer on the Writer step, the
+     drafter on the Reviewer, while the reply said "COPY drafts → STRATEGY reviews". A step read by its place is checked by its work. */
+  const rev = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ agent: 'STRATEGY', instructions: 'Review the draft and approve it.' }, { agent: 'COPY', instructions: 'Draft the launch post.' }] }, env);
+  A.ok(rev.ok && rev.plan.steps.map(s => s.role + ':' + s.agent).join() === 'Writer:COPY,Reviewer:STRATEGY', 'a reversed list is read by each step\'s instructions, COPY writes: ' + (rev.error || JSON.stringify(rev.plan.steps.map(s => s.role + ':' + s.agent))));
+  if (rev.ok) A.ok(rev.plan.notes.some(n => /step 2 \(Reviewer\) by its instructions/.test(n) && /step 1 \(Writer\) by its instructions/.test(n)), 'and the plan notes say so: ' + JSON.stringify(rev.plan.notes));
+  const muddle = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ agent: 'COPY', instructions: 'Draft the launch post.' }, { agent: 'STRATEGY', instructions: 'Write up what is wrong with it.' }] }, env);
+  A.ok(!muddle.ok && /^The steps have no numbers, so they were read in order, but step 2 \(Reviewer\) in that order was given a Writer's work \("Write up what is wrong with it\.…"\)\. Number every step/.test(muddle.error) && /"step": 1/.test(muddle.error), 'a list whose work cannot be read one step each is refused with the numbered form, never staffed by guess: ' + (muddle.error || 'PLANNED'));
+  const inOrder = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ agent: 'COPY', instructions: 'Draft the launch post.' }, { agent: 'STRATEGY', instructions: 'Review the draft and approve it.' }] }, env);
+  A.ok(inOrder.ok && inOrder.plan.steps.map(s => s.agent).join() === 'COPY,STRATEGY', 'a list in run order whose work agrees keeps its order: ' + (inOrder.error || ''));
+  // a step read by its place and another by its role word, landing on the same step (zone staff takes such labels): both named
+  const twice = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ step: 'Intro', agent: 'COPY' }, { step: 'Draft', agent: 'STRATEGY' }] }, env);
+  A.ok(!twice.ok && /^Step 1 \(Writer\) was given twice: "Intro" → step 1 \(Writer\) by its place in the list, and "Draft" → step 1 \(Writer\)\. Number every step/.test(twice.error), 'two entries on one step say how each was read: ' + (twice.error || 'PLANNED'));
 }
 
 /* ---- 1b. a line planned with nobody on its steps says, BEFORE the build, how to staff it in the same plan ----
@@ -204,17 +216,87 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   reply = { built: true, summary: 'Draft + review …', line: { id: 'revision_loop', name: 'Draft + review', label: 'draft_and_review' }, ready: false, blocking: ['BAY 1 (WRITER) needs an agent', 'BAY 2 (REVIEWER) needs an agent'] };
   const crewLeft = JSON.parse((await tools.buildTool.run({ planId: 'p5' }, {})).content);
   A.ok(/^DONE: it is built\. Still to do before it runs: BAY 1 \(WRITER\) needs an agent; BAY 2 \(REVIEWER\) needs an agent\. If the Commander said who works those steps, staff them in one plan: station\.plan \{ "staff": \{ "line": "draft_and_review", "steps": \[ \{ "step": 1, "agent": "a crew name" \} \] \} \}, then station\.build; otherwise tell the Commander exactly that, and stop\./.test(crewLeft.next || ''), 'a build that only needs crew names the staff form, by the line\'s own name: ' + crewLeft.next);
-  reply = { built: true, summary: 'Restyle HOME.', where: 'HOME' };
+  reply = { built: true, kind: 'restyle', summary: 'Restyle HOME.', where: 'HOME', rooms: [], lines: [] };
   const room = JSON.parse((await tools.buildTool.run({ planId: 'p3' }, {})).content);
-  A.ok(/^DONE: it is built\. If you laid it out by hand, look at it once \(station\.map \{ look: the room \}\) and fix only what is wrong; then tell the Commander what was built in a sentence or two, and stop\./.test(room.next || ''), 'a room build says DONE, keeping its one look for a hand-laid design: ' + room.next);
+  A.ok(/^DONE: it is built\. Tell the Commander what was built in a sentence or two, and stop: there is nothing left to build or check for this\.$/.test(room.next || ''), 'a restyle says DONE and stop, with no look at a design nobody laid by hand: ' + room.next);
+  reply = { built: true, kind: 'refit', handLaid: true, summary: 'BUILD MODE, 3 edits…', lines: [] };
+  const byHand = JSON.parse((await tools.buildTool.run({ planId: 'p6' }, {})).content);
+  A.ok(/^DONE: it is built\. You laid pieces by hand: look at the room once \(station\.map \{ look: the room \}\) and fix only what is wrong; then tell the Commander what was built in a sentence or two, and stop\.$/.test(byHand.next || ''), 'a hand-laid refit keeps its one look: ' + byHand.next);
+  reply = { built: true, kind: 'rooms', summary: 'A conveyor hall…', rooms: [{ name: 'WORKS' }], lines: [], blocking: ['routing is not live yet (the router did not confirm the new plan)'] };
+  const unrouted = JSON.parse((await tools.buildTool.run({ planId: 'p7' }, {})).content);
+  A.ok(/^DONE: it is built\. Still to do before it runs: routing is not live yet \(the router did not confirm the new plan\)\. Tell the Commander exactly that, and stop/.test(unrouted.next || ''), 'routing that did not publish is still to do, line or no line: ' + unrouted.next);
   reply = { ok: false };
   const refusedBuild = await tools.buildTool.run({ planId: 'p4' }, {});
   A.ok(!/DONE/.test(refusedBuild.content), 'a reply that is no build never says DONE: ' + refusedBuild.content.slice(0, 120));
   // the planner's own schema says a step is a NUMBER (so the model need not learn it from a refusal)
   const steps = tools.planTool.schema.properties.steps;
   A.eq(steps.items.properties.step.type, 'integer', 'station.plan\'s schema types step as an integer');
-  A.ok(steps.items.properties.agent.type === 'string' && steps.items.properties.instructions.type === 'string' && steps.items.properties.role.type === 'string', 'and agent, instructions and role as text');
+  A.ok(['agent', 'instructions', 'role'].every(k => JSON.stringify(steps.items.properties[k].type) === '["string","null"]'), 'and agent, instructions and role as text (null = leave it out)');
   A.ok(/\[ \{ "step": 1, "agent": "lead", "instructions": "…" \} \] \(step = the step's NUMBER in run order\)/.test(tools.planTool.description), 'its description shows a step as a number');
+  /* what a real model's call meets FIRST is the harness's own argument check (shared/schema.js, run by the registry before the
+     tool): the walker's first plan, step "Draft", is refused there in words that say what a step is; a null field (leave it out)
+     passes, as the builder always took it */
+  const { validate } = require('../shared/schema.js');
+  const walkerFirst = { line: 'revision_loop', name: 'Launch Post Workflow', steps: [{ step: 'Draft', agent: 'COPY', instructions: COPY_DRAFT }, { step: 'Review', agent: 'STRATEGY', instructions: STRAT_REVIEW }] };
+  const v1 = validate(tools.planTool.schema, walkerFirst);
+  A.ok(!v1.ok && v1.errors[0] === '$.steps[0].step: expected integer, got string', 'the walker\'s step "Draft" is refused by the argument check as "expected integer": ' + JSON.stringify(v1.errors));
+  const nulls = { line: 'revision_loop', steps: [{ step: 1, agent: 'COPY', role: null, instructions: null }, { step: 2, agent: null }] };
+  A.ok(validate(tools.planTool.schema, nulls).ok, 'null on an optional step field passes the argument check: ' + JSON.stringify(validate(tools.planTool.schema, nulls).errors));
+  { const pl = SB.plan(walkerStation().serialize(), nulls, env); A.ok(pl.ok && pl.plan.steps.map(s => s.agent || '-').join() === 'COPY,-', '…and plans with that field left out: ' + (pl.error || '')); }
+
+  /* ---- 4b. the receipt of a REAL build of every kind (review): plan → SB.apply → the page's receipt (SB.receipt, what
+     stationcommands answers) → station.build. A custom line (the shape path after1 took), a refit, a restaff: each says DONE
+     with the floor's own readiness, and what is still to do, by the line's name. ---- */
+  {
+    const page = (st, pl) => { const r = SB.apply(st, pl, env); A.ok(r.ok, 'it builds: ' + (r.error || '')); return Object.assign({ built: true, undo: 'One UNDO in Build mode takes it back.' }, SB.receipt(r, pl), { routing: { published: true } }); };
+    const build = async rep => { reply = rep; const out = await tools.buildTool.run({ planId: 'real' }, {}); return { next: JSON.parse(out.content).next || '', summary: out.summary }; };
+    const cmds = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'frontend', 'app', 'stationcommands.js'), 'utf8');
+    A.ok(/Object\.assign\(\{ built: true, undo \}, StationBuilder\.receipt\(r, e\.plan\)\)/.test(cmds), 'the page answers station.build with the builder\'s own receipt');
+    // a custom line with nobody on it: still to do, named, and the staff form by the line's floor name
+    const st = walkerStation();
+    const bare = SB.plan(st.serialize(), { shape: ['WRITER', 'REVIEWER'], name: 'Launch Post' }, env);
+    const b1 = await build(page(st, bare.plan));
+    A.ok(/^DONE: it is built\. Still to do before it runs: BAY 1 \(WRITER\) needs an agent; BAY 2 \(REVIEWER\) needs an agent\. If the Commander said who works those steps, staff them in one plan: station\.plan \{ "staff": \{ "line": "([^"]+)", "steps": \[ \{ "step": 1, "agent": "a crew name" \} \] \} \}, then station\.build; otherwise tell the Commander exactly that, and stop\.$/.test(b1.next), 'an unstaffed custom line is NOT "done, stop": it names what is left and the staff form: ' + b1.next);
+    A.ok(/· 2 to do$/.test(b1.summary), 'its chip counts what is left: ' + b1.summary);
+    // …and the staff form it names is one that plans and builds the line ready
+    const lineName = (/"line": "([^"]+)"/.exec(b1.next) || [])[1];
+    const staff = SB.planEdit(st.serialize(), { staff: { line: lineName, steps: [{ step: 1, agent: 'COPY' }, { step: 2, agent: 'STRATEGY' }] } }, env);
+    A.ok(staff.ok, 'the named staff form plans: ' + (staff.error || ''));
+    if (staff.ok) {
+      const b2 = await build(page(st, staff.plan));
+      A.ok(/^DONE: it is built and ready to run\. Tell the Commander what was built in a sentence or two, and stop: there is nothing left to build or check for this\.$/.test(b2.next) && /· ready to run$/.test(b2.summary), 'a restaff that readies the line says ready to run, by the floor: ' + b2.next + ' | ' + b2.summary);
+    }
+    // a custom line planned staffed is ready to run
+    const st2 = walkerStation();
+    const full = SB.plan(st2.serialize(), { shape: ['WRITER', 'REVIEWER'], steps: [{ step: 1, agent: 'COPY' }, { step: 2, agent: 'STRATEGY' }] }, env);
+    const b3 = await build(page(st2, full.plan));
+    A.ok(/^DONE: it is built and ready to run\. Tell the Commander/.test(b3.next), 'a staffed custom line: ready to run: ' + b3.next);
+    // a hand-laid refit line (the walker's column) reports its line as it stands: staffed and joined, it is ready
+    const st3 = walkerStation();
+    const col = SB.planEdit(st3.serialize(), { refit: [
+      { op: 'place', t: 'intake', x: 12, y: 3, as: 'in' }, { op: 'place', t: 'bay', x: 12, y: 5, as: 'w' }, { op: 'place', t: 'bay', x: 12, y: 7, as: 'r' }, { op: 'place', t: 'outbox', x: 12, y: 9, as: 'out' },
+      { op: 'connect', from: 'in', to: 'w' }, { op: 'connect', from: 'w', to: 'r' }, { op: 'connect', from: 'r', to: 'out' },
+      { op: 'role', prop: 'w', role: 'WRITER' }, { op: 'agent', prop: 'w', agent: 'COPY' }, { op: 'role', prop: 'r', role: 'REVIEWER' }, { op: 'agent', prop: 'r', agent: 'STRATEGY' }] }, env);
+    A.ok(col.ok, 'the column refit plans: ' + (col.error || ''));
+    if (col.ok) { const b4 = await build(page(st3, col.plan)); A.ok(/^DONE: it is built and ready to run\. Tell the Commander/.test(b4.next), 'a refit that lays a whole staffed line: ready to run, no look (only machines were laid): ' + b4.next); }
+    // the same line laid with nobody on it: the refit's line is still to do, by name
+    const st4 = walkerStation();
+    const empty = SB.planEdit(st4.serialize(), { refit: [
+      { op: 'place', t: 'intake', x: 12, y: 3, as: 'in' }, { op: 'place', t: 'bay', x: 12, y: 5, as: 'w' }, { op: 'place', t: 'outbox', x: 12, y: 7, as: 'out' },
+      { op: 'connect', from: 'in', to: 'w' }, { op: 'connect', from: 'w', to: 'out' }, { op: 'role', prop: 'w', role: 'WRITER' }] }, env);
+    if (empty.ok) { const b5 = await build(page(st4, empty.plan)); A.ok(/^DONE: it is built\. Still to do before it runs: BAY 1 \(WRITER\) needs an agent\. If the Commander said who works those steps, staff them in one plan: station\.plan \{ "staff": \{ "line": "LINE [A-Z]+"/.test(b5.next), 'an unstaffed refit line says what is left, by the floor\'s own LINE word: ' + b5.next); }
+    else A.ok(false, 'the empty column plans: ' + empty.error);
+    // a machine laid on no line is still to do, and a refit's left-over work is the refit's to fix
+    const st5 = walkerStation();
+    const lone = SB.planEdit(st5.serialize(), { refit: [{ op: 'place', t: 'bay', x: 12, y: 5 }] }, env);
+    if (lone.ok) { const b6 = await build(page(st5, lone.plan)); A.ok(/^DONE: it is built\. Still to do before it runs: the bay at \(12, 5\) stands on no line yet\. Fix that with one more refit plan and build it; if you cannot, tell the Commander exactly what is left, and stop\.$/.test(b6.next), 'a lone machine is on no line yet, for the refit to fix: ' + b6.next); }
+    else A.ok(false, 'the lone bay plans: ' + lone.error);
+    // a refit that sets furniture by hand keeps its one look; one that never touched a line has no line to report
+    const st6 = walkerStation();
+    const plant = SB.planEdit(st6.serialize(), { refit: [{ op: 'place', t: 'plant', x: 12, y: 5 }] }, env);
+    if (plant.ok) { const b7 = await build(page(st6, plant.plan)); A.ok(/^DONE: it is built\. You laid pieces by hand: look at the room once/.test(b7.next) && !/ready to run/.test(b7.next), 'a hand-set plant: DONE, one look, no line claimed: ' + b7.next); }
+    else A.ok(false, 'the plant plans: ' + plant.error);
+  }
 
   /* ---- 5. tool_search finds the builder by the phrase the lead's note gives it, whatever else the query says ----
      Two of three real runs spent a search: "station builder - create assembly lines and workflows" and "station builder create
