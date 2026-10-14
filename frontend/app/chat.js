@@ -2381,6 +2381,9 @@ const Chat = (() => {
     if (!ws) return;
     load(ws);
     prefill(Starters.launchPrompt(st));
+    // a starter's prompt is longer than the composer's max height: show where it STARTS (the caret stays at its end,
+    // so typing still adds to it) instead of leaving the box scrolled to its last lines
+    input.scrollTop = 0; if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { input.scrollTop = 0; });
     if (!st.general) StarterStore.prepare(st, ws.id, input.value);
     clearEmptyState(); refreshWorkflowViews();
   }
