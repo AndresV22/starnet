@@ -41,11 +41,17 @@
      same line (kept when the marker is stripped), 2 the question, 3 the options. Prose that merely says "FORK:" has no
      `||` after it and never matches. No lookbehind: older macOS WebKit cannot parse one. */
   const DECO = '[*_`~]*';
+  // a list number before the marker ("1. TASK_QUESTION: …") is decoration too — it must never stay behind as a dangling "1."
   function markerSource(key) {
-    return '^([^\\n]*?)[ \\t>+-]*' + DECO + '[ \\t]*' + key + DECO + '[ \\t]*:' + DECO + '[ \\t]*([^\\n]*?)[ \\t]*' + DECO
+    return '^([^\\n]*?)[ \\t>+-]*(?:\\d{1,2}[.)])?[ \\t]*' + DECO + '[ \\t]*' + key + DECO + '[ \\t]*:' + DECO + '[ \\t]*([^\\n]*?)[ \\t]*' + DECO
       + '[ \\t]*\\|\\|[ \\t]*([^\\n]*?)[ \\t]*$';
   }
-  const FORK_KEY = '\\bFORK', TASK_KEY = 'TASK_QUESTION';
+  /* ONE CASE RULE (rc review 2026-10-14). The keyword carries its own case, so every regex built from it — here, in the loop's
+     "this reply waits on the Commander" check (sidecar/loop.js) and the phone push — agrees on what a marker is. FORK in
+     capitals or title case: a lowercase "fork:" is prose or code ("const fork: Fork = a || b"), never a marker. TASK_QUESTION
+     in any case: the word is unmistakable. No regex built from these takes the `i` flag. */
+  const FORK_KEY = '\\bF(?:ORK|ork)', TASK_KEY = '[Tt][Aa][Ss][Kk]_[Qq][Uu][Ee][Ss][Tt][Ii][Oo][Nn]';
+  const MARKER_KEY = '(?:' + FORK_KEY + '|' + TASK_KEY + ')';
   const LINE = new RegExp(markerSource(FORK_KEY), 'm');
   const undeco = s => String(s == null ? '' : s).replace(/^[\s*_`~]+|[\s*_`~]+$/g, '');
   // remove every marker matched by `re` (global): the prose before a marker on its line stays; a line that was only the
@@ -117,18 +123,25 @@
      marker sat on screen raw until its run ended — and forever, in a paragraph a tool call had already closed. The live
      text drops every complete marker AND the marker still arriving on the last line (its keyword and colon are in, its
      `||` is not yet — or the keyword itself is half-typed). If it never becomes a marker it shows when its line completes. */
-  const OPEN_TAIL = new RegExp('(^|\\n)([^\\n]*?)[ \\t>+-]*' + DECO + '[ \\t]*(?:' + FORK_KEY + '|' + TASK_KEY + ')' + DECO + '[ \\t]*:[^\\n]*$');
+  const OPEN_TAIL = new RegExp('(^|\\n)([^\\n]*?)[ \\t>+-]*(?:\\d{1,2}[.)])?[ \\t]*' + DECO + '[ \\t]*' + MARKER_KEY + DECO + '[ \\t]*:[^\\n]*$');
+  // a keyword still being typed: capitals ("TASK_QU", "FOR"), "Fork", or any case once it carries the underscore ("task_qu") —
+  // never a plain lowercase or title-case word ("for", "For", "task"), which would hold back ordinary prose
+  function halfKeyword(w) {
+    const up = w.toUpperCase();
+    if (w !== up && w !== 'Fork' && w.indexOf('_') < 0) return false;
+    return 'TASK_QUESTION:'.indexOf(up) === 0 || ((w === up || w === 'Fork') && 'FORK:'.indexOf(up) === 0);
+  }
   function liveText(text) {
     let s = stripMarkers(text);
     const open = OPEN_TAIL.exec(s);
     if (open) return s.slice(0, open.index) + open[1] + open[2].replace(/[ \t]+$/, '');
-    const half = /(^|[\s*_`~:>-])([A-Z_]{3,13})$/.exec(s);
-    if (half && ('TASK_QUESTION:'.indexOf(half[2]) === 0 || 'FORK:'.indexOf(half[2]) === 0)) s = s.slice(0, half.index + half[1].length).replace(/[ \t*_`~]+$/, '');
+    const half = /(^|[\s*_`~:>-])([A-Za-z_]{3,13})$/.exec(s);
+    if (half && halfKeyword(half[2])) s = s.slice(0, half.index + half[1].length).replace(/[ \t*_`~]+$/, '');
     return s;
   }
   /* A marker nothing turned into a card (a group reply, a channel) still never shows machine syntax: the question reads
      as a line of prose and its options as a short list under it. */
-  const ANY_LINE_ALL = new RegExp(markerSource('(?:' + FORK_KEY + '|' + TASK_KEY + ')'), 'gm');
+  const ANY_LINE_ALL = new RegExp(markerSource(MARKER_KEY), 'gm');
   function readable(text) {
     const s = String(text == null ? '' : text);
     ANY_LINE_ALL.lastIndex = 0;
@@ -153,7 +166,7 @@
   // TASK CONTEXT is the complementary, task-local decision protocol. It intentionally lives beside durable
   // preference forks so the browser and Node host share one already-shipped decision-protocol module without
   // adding another release-surface path. Unlike FORK, its answers stay in the Task Brief, never the dossier.
-  const TASK_LINE = new RegExp(markerSource(TASK_KEY), 'mi');   // the shared marker grammar (see markerSource)
+  const TASK_LINE = new RegExp(markerSource(TASK_KEY), 'm');   // the shared marker grammar (see markerSource; the key carries its case)
   // An EXCLUSIVE question is a fork: 2-3 options or it is a menu, not a decision. A MULTI-SELECT question
   // is a checklist ("which sources?", "which constraints?") and legitimately runs longer — 3 was starving
   // exactly the question type multi-select exists for, while the clarify card already rendered up to 6.
@@ -217,7 +230,7 @@
       : raw.split('|').map(x => taskClean(x, TASK_OPT_CHARS)).filter(Boolean).slice(0, TASK_MAX_OPTS);
     return question && options.length >= 2 ? { question, options } : null;
   }
-  const TASK_LINE_ALL = new RegExp(TASK_LINE.source, 'gmi');
+  const TASK_LINE_ALL = new RegExp(TASK_LINE.source, 'gm');
   function taskStrip(text) { return stripWith(TASK_LINE_ALL, text).trim(); }
   function taskDirective(contextBlock) {
     const lines = [
@@ -271,5 +284,5 @@
     isGateHeld: ev => !!(ev && ev.isError && ev.summary === 'not run yet — waiting on the task brief')
   };
 
-  return { shouldOffer, directive, parse, strip, stripMarkers, liveText, readable, beliefText, CONF_FLOOR, MAX_OPTS, TaskIntent };
+  return { shouldOffer, directive, parse, strip, stripMarkers, liveText, readable, beliefText, CONF_FLOOR, MAX_OPTS, MARKER_KEY, TaskIntent };
 });

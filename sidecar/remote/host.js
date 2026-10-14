@@ -127,8 +127,9 @@ function makeRemoteHost(d) {
        the page's saved aggregate). The page's aggregate of a run differs from that run's durable turns only by what the
        harness itself adds or removes: the paragraph break streamed after a hidden Task Brief step (loop.js TURN BREAK) and
        the choice marker the chat strips before saving. Only for a row that names its run (an unattributed one stays exact).
-       Self-contained (the phone runs this same function): the marker rule is fork.js's — keyword, colon, `||` options. */
-    const squash = s => String(s == null ? '' : s).replace(/[*_`~]*(?:\bFORK|TASK_QUESTION)[*_`~]*[ \t]*:[^\n]*\|\|[^\n]*/gi, '').replace(/\s+/g, '');
+       Self-contained (the phone runs this same function): the marker rule is fork.js's — a list number, keyword (MARKER_KEY's
+       one case rule), colon, `||` options. */
+    const squash = s => String(s == null ? '' : s).replace(/(?:\d{1,2}[.)][ \t]*)?[*_`~]*(?:\bF(?:ORK|ork)|[Tt][Aa][Ss][Kk]_[Qq][Uu][Ee][Ss][Tt][Ii][Oo][Nn])[*_`~]*[ \t]*:[^\n]*\|\|[^\n]*/g, '').replace(/\s+/g, '');
     const joinsTo = (parts, text) => {
       for (let start = 0; start < parts.length - 1; start++) {
         if (!text.startsWith(parts[start])) continue;

@@ -377,6 +377,7 @@ const { registerTaskBriefTools } = require('./taskbrief-tools.js'); // structure
 const CrewCall = require('./crew-call.js');   // names a crew member the Commander asked for at the END of the lead prompt
 const CrewDiet = require('./crew-diet.js');   // ZERO-CREW DIET: which crewless lead defers which part of the crew kit
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;    // shared TASK_QUESTION protocol + prompt doctrine
+const ForkMarkers = require('../frontend/app/fork.js');               // the one choice-marker grammar (parse / stripMarkers)
 const CommanderContext = require('./commander-context.js');    // bounded provenance-labelled task context
 const threadmine = require('./threadmine.js');                // NS-6: pure post-run thread-mining producer (reflect/study mold)
 const AuxGovernor = require('./auxgovernor.js');              // aux-budget lane: PURE joint ceiling over the post-run aux passes (priority + budget)
@@ -11202,9 +11203,10 @@ function remoteNotify(evt) {
     let last = '';
     try { const turns = transcriptStore.history(evt.streamId, { limit: 4 }) || []; for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === 'assistant' && typeof turns[i].content === 'string' && turns[i].content.trim()) { last = turns[i].content; break; } }
     catch (e) { failNote('remote.index.pushReply', e); }
-    const qm = /^\s*(?:TASK_QUESTION|FORK):\s*(.+?)\s*\|\|/m.exec(String(last));
-    if (qm && !evt.error) return remotePushSend({ title: remoteAgentName(evt.agentId) + ' has a question', body: qm[1].slice(0, 200), tag: 'run:' + evt.runId, url: '#thread=' + evt.streamId });
-    const line = String(last).replace(/[*#`>_]+/g, '').replace(/\s+/g, ' ').trim();
+    // the chat's own marker grammar (fork.js): a bold, numbered or mid-line marker is a question too, and never pushed raw
+    const asked = TaskIntent.parse(last) || ForkMarkers.parse(last);
+    if (asked && !evt.error) return remotePushSend({ title: remoteAgentName(evt.agentId) + ' has a question', body: asked.question.slice(0, 200), tag: 'run:' + evt.runId, url: '#thread=' + evt.streamId });
+    const line = String(ForkMarkers.stripMarkers(last)).replace(/[*#`>_]+/g, '').replace(/\s+/g, ' ').trim();
     remotePushSend({ title: remoteAgentName(evt.agentId) + (evt.error ? ' hit a problem' : ' finished'),
       body: (evt.error ? String(evt.error) : line || 'Tap to read the reply').slice(0, 200), tag: 'run:' + evt.runId, url: '#thread=' + evt.streamId });
   }

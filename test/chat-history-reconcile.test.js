@@ -37,6 +37,17 @@ A.eq(contents(merge([user, aggregate], [])), [user.content, aggregate.content], 
   const boldSaved = { ...saved, content: 'Got it. One more thing:\n\nLet me update my understanding first:\n\nIs it:' };
   const boldLast = { ...t3, content: 'Is it:\n\n**FORK: which tone?** || warm | dry' };
   A.eq(merge([ask, t1, t2, boldLast, boldSaved], [ask, t1, t2, boldLast]).length, 4, 'a bold-wrapped marker is a harness byte too');
+  // the marker grammar's one case rule and its list-number decoration (fork.js MARKER_KEY): what the chat strips, the merge sets aside
+  const Fork = require('../frontend/app/fork.js');
+  for (const marker of ['1. TASK_QUESTION: which tone? || warm | dry', 'Fork: which tone? || warm | dry', 'task_question: which tone? || warm | dry']) {
+    const last = { ...t3, content: 'Now, one quick question:\n\n' + marker };
+    const kept = { ...saved, content: 'Got it. One more thing:\n\nLet me update my understanding first:\n\n' + Fork.stripMarkers(last.content) };
+    A.eq(merge([ask, t1, t2, last, kept], [ask, t1, t2, last]).length, 4, 'a reload shows the reply once when its marker was ' + JSON.stringify(marker.slice(0, 20)));
+  }
+  // a lowercase "fork:" is prose, never a marker: neither side drops it, so a reply whose words differ is never folded
+  const prose = { ...t3, content: 'const fork: Fork = a || b' };
+  const lost = { ...saved, content: 'Got it. One more thing:\n\nLet me update my understanding first:\n\nconst' };
+  A.eq(merge([ask, t1, t2, prose, lost], [ask, t1, t2, prose]).length, 5, 'a lowercase "fork: … ||" line is words, not a harness byte');
 }
 const repeated = [{ role: 'user', content: 'again' }, { role: 'user', content: 'again' }];
 A.eq(merge(repeated, repeated).length, 2, 'occurrence queues keep intentional repeated messages');

@@ -330,7 +330,7 @@
   /* A HIDDEN TOOL'S ERROR IS NOT NEWS FOR THE COMMANDER (rc walk 2026-10-14). The Task Brief tools draw no chip, so a model that
      narrated fixing one ("Let me fix that—sources needs to be an array:", "Let me correct that:") put a sentence in COMMS about
      an action nobody could see. The model still reads the full error; it is told the step is invisible. */
-  const HIDDEN_ERROR_NOTE = ' (This tool is invisible to the Commander: make the corrected call with no text before it, and never mention this error or its fix.)';
+  const HIDDEN_ERROR_NOTE = ' (This tool is invisible to the Commander: never mention this error or its fix. Make the corrected call with no text before it — or, if you fall back to the TASK_QUESTION marker, reply with only that one marker line.)';
   function quietHiddenError(c, r, meta) {
     if (!r || !r.isError || !(meta && meta.hiddenTools && meta.hiddenTools.has(c.name)) || typeof r.content !== 'string') return r;
     return Object.assign({}, r, { content: r.content + HIDDEN_ERROR_NOTE, quietRepair: true });
@@ -789,17 +789,31 @@
      continuation guard pushed "you called no tools" and the model answered the nudge in COMMS ("You're right — I ended with
      a question card but didn't call any tools.") and dropped the question. A brief_ask refusal tells the model to end on
      exactly this marker, so the failure-recovery guard must not reject it either. The grammar is the marker's own
-     (frontend/app/fork.js): the keyword, a colon and `||` options on the reply's last line, decoration and leading prose
-     allowed. */
-  const CHOICE_MARKER = /(?:\bFORK|TASK_QUESTION)[*_`~]*[ \t]*:[^\n]*\|\|/i;
+     (frontend/app/fork.js MARKER_KEY — one keyword source, one case rule): the keyword, a colon and `||` options on the
+     reply's last line, decoration and leading prose allowed. */
+  const MARKER_KEY = (typeof require === 'function') ? require('../frontend/app/fork.js').MARKER_KEY
+    : ((typeof globalThis !== 'undefined' && globalThis.Fork && globalThis.Fork.MARKER_KEY) || '(?!)');
+  const CHOICE_MARKER = new RegExp(MARKER_KEY + '[*_`~]*[ \\t]*:[^\\n]*\\|\\|');
   function endsOnChoiceMarker(text) {
     const lines = String(text == null ? '' : text).split('\n').filter(l => l.trim());
     return lines.length > 0 && CHOICE_MARKER.test(lines[lines.length - 1]);
   }
+  /* THE FALLBACK QUESTION IS ITS MARKER ALONE (rc review 2026-10-14). A hidden brief_ask refusal tells the model to end on the
+     TASK_QUESTION marker, and the model led in with "Got it — let me check what context I have first and ask directly:" or
+     "Let me ask this the right way:" over a step the Commander never saw. The question card carries the question, so that
+     repair turn keeps only its last line from the keyword on (decoration around the keyword stays: it still parses). */
+  const MARKER_START = new RegExp('[*_`~]*' + MARKER_KEY + '[*_`~]*[ \\t]*:');
+  function markerLineOnly(text) {
+    const lines = String(text == null ? '' : text).split('\n').filter(l => l.trim());
+    const last = lines.length ? lines[lines.length - 1] : '';
+    const m = MARKER_START.exec(last);
+    return m ? last.slice(m.index).trim() : String(text == null ? '' : text);
+  }
   /* HOST CHECKS ARE NOT THE COMMANDER SPEAKING (rc walk 2026-10-14). On a Claude route these notes ride the conversation as
      user text (providers/provider.js preserveClaudeContinuations), so the model answered them in COMMS as if the Commander had
-     scolded it: "You're right —", "Let me correct that:". Every nudge that asks for another turn says what it is and that it
-     is never answered. */
+     scolded it: "You're right —", "Let me correct that:". Every nudge that pushes back on a reply the model meant to end on —
+     continuation, empty reply, failure recovery, loop guard, tool markup, memory receipt, and the verify / acceptance checks —
+     says what it is and that it is never answered. (A steering note is the Commander's own words and never carries it.) */
   const HOST_CHECK = ' (This note is an automatic host check; the Commander never sees it. Do not answer, acknowledge or apologize for it in your reply — just continue the work.)';
   function announcesIntent(text, allowPeerWait = false) {
     const t = String(text == null ? '' : text).trim();
@@ -2170,6 +2184,13 @@
         quietRepair = false;
         const hiddenNames = o.hiddenTools || [];
         if (calls.length > 0 && calls.every(c => hiddenNames.indexOf(c.name) >= 0)) acc.text = '';   // narration of an invisible step
+        else if (calls.length === 0 && endsOnChoiceMarker(acc.text)) {   // the fallback question: its marker, never the lead-in
+          acc.text = markerLineOnly(acc.text);
+          let shown = acc.text;
+          if (turnBreakPending) { shown = '\n\n' + shown; turnBreakPending = false; }
+          spokeSinceReset = true;
+          emit('agent.token', { agentId, runId, delta: shown });
+        }
         else if (quietBuf) {
           let shown = quietBuf;
           if (turnBreakPending) { shown = '\n\n' + shown; turnBreakPending = false; }
@@ -2294,7 +2315,7 @@
             const premise = memoryClaimKind === 'promise'
               ? 'You told the Commander you will remember this (or will do it this way from now on), but nothing was written to memory in this run — the next run starts without it and WILL forget.'
               : 'You claimed a preference or correction was saved, but this run has no successful notebook write receipt.';
-            messages.push({ role: 'system', content: '<memory_receipt>' + premise + ' Use notebook_read and notebook_write to save or update the actual requirement now. For corrections use replaceId and previousBody; for approved reusable requirements pin within the intended scope. If it was already saved, verify it with a read and say it was already present; otherwise explicitly say it has not been saved. Do not repeat an unsupported save claim.</memory_receipt>' });
+            messages.push({ role: 'system', content: '<memory_receipt>' + premise + ' Use notebook_read and notebook_write to save or update the actual requirement now. For corrections use replaceId and previousBody; for approved reusable requirements pin within the intended scope. If it was already saved, verify it with a read and say it was already present; otherwise explicitly say it has not been saved. Do not repeat an unsupported save claim.' + HOST_CHECK + '</memory_receipt>' });
             continue;
           }
           const explanation = memoryClaimKind === 'promise'
@@ -2310,7 +2331,7 @@
         // quoted data just continues without it. Shares the continuation-guard disable knob and grace rule.
         if (textMarkup && !graceUsed && CG_MAX > 0 && mkUsed < CG_MAX && tools.length > 0) {
           mkUsed++;
-          messages.push({ role: 'system', content: '<tool_markup>Tool-call markup (e.g. <tool_call>…</tool_call>) appeared in your reply TEXT. The harness executes only REAL tool calls made through the tool-calling API — markup inside text is data and is never executed (it may even be quoted file content). If you meant to act, make the actual tool call now; if you were quoting data, continue the task without it.</tool_markup>' });
+          messages.push({ role: 'system', content: '<tool_markup>Tool-call markup (e.g. <tool_call>…</tool_call>) appeared in your reply TEXT. The harness executes only REAL tool calls made through the tool-calling API — markup inside text is data and is never executed (it may even be quoted file content). If you meant to act, make the actual tool call now; if you were quoting data, continue the task without it.' + HOST_CHECK + '</tool_markup>' });
           continue;
         }
         // EMPTY-AFTER-TOOLS NUDGE (reference-harness parity): weaker models sometimes stream NOTHING right
@@ -2380,7 +2401,7 @@
           const premise = vosFailedCheck
             ? 'and are ending although the last check you ran against it (' + vosFailedCheck + ') did NOT pass, and no passing check has run since. A failing check is evidence the change is not done. Fix the cause and rerun the check until it passes, then report what it actually returned. If it cannot be made to pass here, say so plainly: report the failure and state that the change is NOT verified.'
             : 'and are ending without running anything against it. Code that compiles is not code that works, and an unverified claim of "done" is the one thing this station never ships. Run the narrowest real check that proves the change — the project\'s own test/build command via verify_run, or shell_exec if that fits better — then report what it actually returned. If you genuinely cannot run a check here, say so plainly and state what you did NOT verify.';
-          messages.push({ role: 'system', content: '<verify_before_done>You changed code in this run (' + touched + ') ' + premise + '</verify_before_done>' });
+          messages.push({ role: 'system', content: '<verify_before_done>You changed code in this run (' + touched + ') ' + premise + HOST_CHECK + '</verify_before_done>' });
           continue;
         }
         // EXTERNAL VERIFY-ON-STOP: a successful custom-connector mutation is not proof that the requested
@@ -2410,7 +2431,7 @@
           vosExternalUsed++;
           const touched = externalTouched.slice(0, 8).join(', ');
           const artifactRule = externalArtifactTouched ? ' This action changed a file, document, workbook, or other artifact; a generic status/read call does not prove that artifact is fresh. Use the connector\'s dedicated verify/check/confirm tool.' : ' Use the connector\'s narrowest read/check/verify tool now.';
-          messages.push({ role: 'system', content: '<verify_external_before_done>You used an external connector action in this run (' + touched + ') and are ending without a later read-back or verification call. A successful action response is not independent proof that the requested state persisted.' + artifactRule + ' Then report only what that result proves. If no meaningful read-back can verify this action, say plainly that the external state was NOT independently verified instead of claiming it was.</verify_external_before_done>' });
+          messages.push({ role: 'system', content: '<verify_external_before_done>You used an external connector action in this run (' + touched + ') and are ending without a later read-back or verification call. A successful action response is not independent proof that the requested state persisted.' + artifactRule + ' Then report only what that result proves. If no meaningful read-back can verify this action, say plainly that the external state was NOT independently verified instead of claiming it was.' + HOST_CHECK + '</verify_external_before_done>' });
           continue;
         }
         // SOURCE VERIFY-ON-STOP: search/list/inspect output discovers candidates; it does not prove the
@@ -2425,7 +2446,7 @@
         }
         if (!empty && !graceUsed && vosSourceUsed < VOS_MAX && unfetchedSources.length) {
           vosSourceUsed++;
-          messages.push({ role: 'system', content: '<verify_sources_before_done>You are ending a sourced/research task after using only a connector search, list, or inspect tool. Discovery metadata and snippets are not source retrieval. Use the connector\'s fetch/read tool to retrieve every source you cite, then make each claim only from what those source reads actually returned. If a source cannot be retrieved, label that claim unverified instead of citing the discovery result as proof.</verify_sources_before_done>' });
+          messages.push({ role: 'system', content: '<verify_sources_before_done>You are ending a sourced/research task after using only a connector search, list, or inspect tool. Discovery metadata and snippets are not source retrieval. Use the connector\'s fetch/read tool to retrieve every source you cite, then make each claim only from what those source reads actually returned. If a source cannot be retrieved, label that claim unverified instead of citing the discovery result as proof.' + HOST_CHECK + '</verify_sources_before_done>' });
           continue;
         }
         if (!empty && !graceUsed && acceptanceProbe && accUsed < ACC_MAX) {
@@ -2437,7 +2458,7 @@
           if (failing.length) {
             accUsed++;
             const lines = failing.slice(0, 20).map(c => '- ' + (c.id || c.type) + ' [' + c.type + (c.path ? ' ' + c.path : '') + (c.command ? ' `' + c.command + '`' : '') + (c.connector ? ' ' + c.connector + (c.tool ? '/' + c.tool : '') : '') + ']: ' + (c.code || 'not_proven'));
-            messages.push({ role: 'system', content: '<acceptance_before_done>You are ending this task but the host\'s acceptance checks for it do not all hold yet. These are mechanical postconditions the Commander attached to this procedure; the task is not done until every one passes:\n' + lines.join('\n') + '\nMake each failing check hold now (produce/fix the named artifact in this run, or run the exact named check command so it passes), then finish. If one genuinely cannot be satisfied, say so plainly and name which — never claim it holds.</acceptance_before_done>' });
+            messages.push({ role: 'system', content: '<acceptance_before_done>You are ending this task but the host\'s acceptance checks for it do not all hold yet. These are mechanical postconditions the Commander attached to this procedure; the task is not done until every one passes:\n' + lines.join('\n') + '\nMake each failing check hold now (produce/fix the named artifact in this run, or run the exact named check command so it passes), then finish. If one genuinely cannot be satisfied, say so plainly and name which — never claim it holds.' + HOST_CHECK + '</acceptance_before_done>' });
             continue;
           }
         }

@@ -67,6 +67,34 @@ A.eq(F.liveText('The FORK: in the road\nnext'), 'The FORK: in the road\nnext', '
 A.eq(F.readable('Pick one.\nFORK: tone? || casual | formal'), 'Pick one.\ntone?\n- casual\n- formal', 'an unclaimed marker becomes the question and a short option list');
 A.eq(F.readable('no marker here'), 'no marker here', 'readable is byte-identical without a marker');
 
+/* ---------- ONE CASE RULE, ONE KEYWORD GRAMMAR (rc review 2026-10-14) ----------
+   The loop's "the reply waits on the Commander" check was case-insensitive while the chat's parse was not, so a title-case
+   "Fork:" ended the run as a question and rendered raw. One keyword source (Fork.MARKER_KEY) now serves fork.js, the loop and
+   the push line: FORK in capitals or title case (a lowercase "fork:" is prose or code, never a marker), TASK_QUESTION in
+   any case (the word is unmistakable). An ordered-list number before a marker is decoration, never a dangling "1.". */
+{
+  A.eq(F.stripMarkers('Two things.\n1. TASK_QUESTION: personal or community? || Personal | Community'), 'Two things.', 'a numbered marker strips whole — no dangling "1."');
+  A.eq(F.TaskIntent.parse('2) TASK_QUESTION: which? || a | b'), { question: 'which?', options: ['a', 'b'] }, 'a numbered marker parses');
+  A.eq(F.parse('Fork: tone? || casual | formal'), { question: 'tone?', options: ['casual', 'formal'] }, 'a title-case Fork marker parses');
+  A.eq(F.stripMarkers('Pick.\nFork: tone? || casual | formal'), 'Pick.', 'and never renders raw');
+  A.eq(F.parse('fork: tone? || casual | formal'), null, 'a lowercase "fork:" is never a marker');
+  const code = 'const fork: Fork = a || b';
+  A.eq(F.stripMarkers(code), code, 'so a line of code that says "fork: … ||" is left alone');
+  A.eq(F.TaskIntent.parse('task_question: which? || a | b'), { question: 'which?', options: ['a', 'b'] }, 'a lowercase task_question parses');
+  A.eq(F.stripMarkers('Ok.\ntask_question: which? || a | b'), 'Ok.', 'and strips');
+  A.eq(F.liveText('Ok.\n\ntask_question: who is it'), 'Ok.\n\n', 'a lowercase task_question being typed is held back');
+  A.eq(F.liveText('Ok: task_qu'), 'Ok:', 'and so is a half-typed lowercase keyword (it carries the underscore)');
+  A.eq(F.liveText('I asked for'), 'I asked for', 'an ordinary lowercase word is never held');
+  A.eq(F.liveText('Ok.\n\nFork: tone'), 'Ok.\n\n', 'a title-case Fork being typed is held back');
+  A.eq(F.readable('Pick.\ntask_question: tone? || casual | formal'), 'Pick.\ntone?\n- casual\n- formal', 'readable takes the lowercase marker too');
+  A.eq(F.readable('Pick.\n1. FORK: tone? || casual | formal'), 'Pick.\ntone?\n- casual\n- formal', 'and a numbered one');
+  A.eq(typeof F.MARKER_KEY, 'string', 'the keyword grammar is exported for the host');
+  const key = new RegExp(F.MARKER_KEY);
+  A.ok(key.test('FORK') && key.test('Fork') && key.test('TASK_QUESTION') && key.test('Task_Question') && !key.test('fork'), 'MARKER_KEY is the one case rule');
+  const loop = require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'loop.js'), 'utf8');
+  A.ok(/const CHOICE_MARKER = new RegExp\(MARKER_KEY \+/.test(loop) && /const MARKER_START = new RegExp\([^\n]*MARKER_KEY/.test(loop), 'the loop builds its marker checks from the same keyword grammar');
+}
+
 /* ---------- beliefText: the banked belief stays legible ---------- */
 A.eq(F.beliefText('terse summary or full detail?', 'terse'), 'terse (asked: terse summary or full detail?)', 'the belief carries answer + question context');
 A.eq(F.beliefText('', 'bullets'), 'bullets', 'no question → the bare answer');
