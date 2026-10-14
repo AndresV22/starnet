@@ -114,6 +114,11 @@ async function collect(provider, req) { const out = []; for await (const e of pr
     // native GEMINI provider) names the native model, never a 'google/…' resource path Google answers 404 for
     A.eq(_internals.modelPath('google/gemini-x'), 'models/gemini-x', 'the routed google/ spelling reaches the native model');
     A.eq(_internals.modelPath('tunedModels/abc'), 'tunedModels/abc', 'a real resource path is untouched');
+    // an OpenRouter variant suffix (':free', ':thinking', …) is a routing option, not part of the native model's name —
+    // left on, it reads as the ':method' half of the native URL
+    A.eq(_internals.modelPath('google/gemini-2.0-flash-exp:free'), 'models/gemini-2.0-flash-exp', 'the routed variant suffix is dropped for the native model');
+    A.eq(p.contextLimit('google/gemini-x:free'), 1000, 'a routed variant still finds the native catalog row');
+    A.eq(JSON.stringify(p.priceOf('google/gemini-2.5-flash:thinking')), JSON.stringify(p.priceOf('gemini-2.5-flash')), 'and is priced as the native model');
     A.eq(p.contextLimit('google/gemini-x'), 1000, 'the routed spelling finds the native catalog row');
     A.eq(JSON.stringify(p.priceOf('google/gemini-2.5-flash')), JSON.stringify(p.priceOf('gemini-2.5-flash')), 'and is priced as the native model, so spend limits see it');
     const wireUrls = [];

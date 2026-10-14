@@ -26,7 +26,12 @@
   }
   // GitHub #98: 'google/<model>' is the OpenRouter spelling of a Gemini model, which a station keeps after switching to
   // the native GEMINI provider. It names the native model 'models/<model>', never a 'google/…' resource (Google 404s).
-  function routedToNative(id) { return String(id || '').trim().replace(/^google\//i, ''); }
+  // A routed id's OpenRouter variant suffix (':free', ':thinking', …) is a routing option, never part of a native model
+  // name — left on, the native URL would read it as its ':method' half.
+  function routedToNative(id) {
+    const s = String(id || '').trim();
+    return /^google\//i.test(s) ? s.replace(/^google\//i, '').replace(/:[a-z][a-z0-9-]*$/i, '') : s;
+  }
   function modelPath(id) {
     const s = routedToNative(id);
     if (!s) return 'models/gemini-pro';

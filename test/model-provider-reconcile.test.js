@@ -125,6 +125,7 @@ module.exports = (async () => {
   // GitHub #98: switching to native GEMINI keeps the routed 'google/…' spelling; the live Gemini catalog confirms its native id
   const geminiLive = [{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' }];
   A.eq(stale.internals.catalogEquivalent('google/gemini-2.5-flash', 'gemini', geminiLive), 'gemini-2.5-flash', 'the routed Gemini spelling maps to the native catalog row');
+  A.eq(stale.internals.catalogEquivalent('google/gemini-2.5-flash:free', 'gemini', geminiLive), 'gemini-2.5-flash', 'an OpenRouter variant suffix maps to the same native row');
   A.eq(stale.internals.catalogEquivalent('google/gemini-9-ultra', 'gemini', geminiLive), '', 'only a row the live catalog lists');
   A.eq(stale.internals.catalogEquivalent('openai/gpt-5', 'gemini', geminiLive), '', 'another vendor never maps to Gemini');
 
