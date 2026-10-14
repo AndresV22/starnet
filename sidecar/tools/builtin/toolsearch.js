@@ -55,7 +55,19 @@
      This is load-bearing, not polish: measured against the real 22 deferred browser tools, unweighted scoring
      answered "go back to the previous page" with browser.eval first and returned 8 tools for a query with one
      obvious answer, because common words accumulated enough weak description hits to clear the floor. */
-  function weigh(pool, qs) {
+  /* PHRASES (rc walk 10-14). A lead told to search "station builder" searched "station builder - create assembly lines and
+     workflows": "create" is a whole tool NAME (app.create, loop.create), so those outscored every builder tool, whose
+     descriptions carry "station builder" only as two weak words — and two of three real runs spent a second search. Two
+     adjacent words of the query (neither a stop word) that a description carries word for word score like an exact name. */
+  function phrases(s) {
+    const words = String(s == null ? '' : s).toLowerCase().split(/[^a-z0-9_.]+/).filter(Boolean), out = [];
+    for (let i = 0; i + 1 < words.length; i++) {
+      const a = words[i], b = words[i + 1];
+      if (a.length > 1 && b.length > 1 && !STOP.has(a) && !STOP.has(b)) out.push(a + ' ' + b);
+    }
+    return out;
+  }
+  function weigh(pool, qs, query) {
     const out = [];
     for (const q of qs) {
       let df = 0;
@@ -63,6 +75,13 @@
       // Absent from the shelf, or present on ALL of it — either way it cannot discriminate.
       out.push({ q, w: (!df || df >= pool.length) ? 0 : Math.log(pool.length / df) });
     }
+    // a phrase weighs what its two words weigh; one no tool (or every tool) carries cannot discriminate either
+    out.phrases = phrases(query).map(p => {
+      let df = 0;
+      for (const t of pool) if (String(t.description || '').toLowerCase().indexOf(p) >= 0) df++;
+      const [a, b] = p.split(' '), wa = (out.find(x => x.q === a) || {}).w || 0, wb = (out.find(x => x.q === b) || {}).w || 0;
+      return { p, w: (!df || df >= pool.length) ? 0 : wa + wb };
+    }).filter(x => x.w);
     return out;
   }
 
@@ -80,6 +99,7 @@
       if (desc.indexOf(q) >= 0) base += 4;
       s += base * w;
     }
+    for (const { p, w } of weighted.phrases || []) if (desc.indexOf(p) >= 0) s += 100 * w;
     return s;
   }
 
@@ -206,7 +226,7 @@
     }
     if (!shown.length) return none;
     const all = pool.concat(shown);
-    const weighted = weigh(all, terms(q));
+    const weighted = weigh(all, terms(q), q);
     let best = 0;
     for (const t of all) best = Math.max(best, score(t, weighted));
     if (!best) return none;
@@ -256,7 +276,7 @@
         }
         if (!q.trim()) return { content: 'Provide a `query` describing the capability you want.', summary: 'no query' };
 
-        const weighted = weigh(pool, terms(q));
+        const weighted = weigh(pool, terms(q), q);
         const scored = pool
           .map(t => ({ t, s: score(t, weighted) }))
           .filter(h => h.s > 0)

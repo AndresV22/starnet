@@ -192,5 +192,28 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   A.eq(steps.items.properties.step.type, 'integer', 'station.plan\'s schema types step as an integer');
   A.ok(steps.items.properties.agent.type === 'string' && steps.items.properties.instructions.type === 'string' && steps.items.properties.role.type === 'string', 'and agent, instructions and role as text');
   A.ok(/\[ \{ "step": 1, "agent": "lead", "instructions": "…" \} \] \(step = the step's NUMBER in run order\)/.test(tools.planTool.description), 'its description shows a step as a number');
+
+  /* ---- 5. tool_search finds the builder by the phrase the lead's note gives it, whatever else the query says ----
+     Two of three real runs spent a search: "station builder - create assembly lines and workflows" and "station builder create
+     assembly line workflow" revealed app.create, or nothing, because "create" is a whole tool name (app.create, loop.create).
+     A phrase of the query that a tool's description carries, word for word, counts as the strong signal it is. */
+  const { makeToolSearchTool } = require('../sidecar/tools/builtin/toolsearch.js');
+  const fake = (name, description, schema) => ({ name, description, schema: schema || { type: 'object', properties: {} } });
+  const reg = new Map([tools.mapTool, tools.planTool, tools.buildTool, tools.makePropTool, tools.testLineTool, tools.startLineTool].filter(Boolean).map(t => [t.name, t]));
+  for (const t of [fake('app.create', 'Create a new StarNet app: a dashboard or tool that lives INSIDE StarNet, in its own StarNet window, from a name and a one-line description.', { type: 'object', required: ['name'] }),
+    fake('app.edit', 'Rewrite one file of a StarNet app the crew made, by its app id.'), fake('session.create', 'Create a new chat session for an agent, with a title.'),
+    fake('loop.create', 'Create one durable StarNet LOOP when the Commander asks to keep working, iterate, or continue until an objective/convergence/check passes.', { type: 'object', required: ['objective'] }),
+    fake('routine.create', 'Create a StarNet ROUTINE: work an agent runs on a schedule (digests, research, monitoring, reports, drafts, reminders).', { type: 'object', required: ['prompt', 'schedule'] }),
+    fake('task.create', 'Add one durable card to the Commander\'s task board when they say "add this to my board", "make a task", or equivalent.', { type: 'object', required: ['title'] }),
+    fake('station.layout', 'Read the station floor the way the Workflow panel shows it: whether routing is live (confirmed against the router) and whether automation is stopped (E-STOP), every assembly line.')]) reg.set(t.name, t);
+  const search = makeToolSearchTool({ registry: { get: n => reg.get(n) || null } }).toolSearchTool;
+  const ctx = { deferred: ['station.map', 'station.plan', 'station.build', 'station.make_prop', 'station.test_line', 'station.start_line', 'app.create', 'app.edit', 'session.create'].filter(n => reg.has(n)),
+    advertised: ['loop.create', 'routine.create', 'task.create', 'station.layout', 'tool.search'] };
+  for (const q of ['station builder - create assembly lines and workflows', 'station builder create assembly line workflow', 'station builder']) {
+    const r = await search.run({ query: q }, ctx), shown = (r.control && r.control.revealTools) || [];
+    A.ok(['station.map', 'station.plan', 'station.build'].every(n => shown.indexOf(n) >= 0), '"' + q + '" reveals station.map, station.plan and station.build: ' + JSON.stringify(shown) + ' ' + String(r.content).slice(0, 160));
+  }
+  const plain = await search.run({ query: 'create an app dashboard' }, ctx);
+  A.ok(((plain.control && plain.control.revealTools) || [])[0] === 'app.create', 'a query with no builder phrase still finds what it names first: ' + JSON.stringify(plain.control));
   A.report('station-builder-model-recovery');
 })().catch(e => { console.error(e && e.stack || e); process.exit(1); });
