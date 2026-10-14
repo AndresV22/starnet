@@ -1972,13 +1972,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { key: 'purpose', file: 'purpose.md', badge: 'YOU WRITE THIS',
       // P23 REACH: the purpose and house rules are THIS agent's only; rules for every agent are YOU › PREFERENCES'
       // standing orders (DossierStore.composeBlock rides every agent's prompt + cron's withDossier). Name the reach.
-      desc: n => 'What your agent is for. Folded into the prompt so it colours everything it does. Only ' + n + ' · a workflow step’s DOES can add to it.',
+      desc: n => 'What ' + n + ' is for. It rides only ' + n + '’s prompt, so it colours everything ' + n + ' does. In a workflow, a step’s DOES adds to it for that step only.',
       ph: 'e.g. Track AI-policy news and brief me each morning.' },
     { key: 'context', file: 'context.md', badge: 'YOU WRITE THIS',
       desc: 'About you and your world — your project, domain, and what "good" looks like. Grounds every run.',
       ph: 'e.g. I build TypeScript web apps solo; "good" = tested, minimal diffs, no hand-waving.' },
     { key: 'manual', file: 'operating-manual.md', badge: 'YOU WRITE THIS',
-      desc: n => 'Only ' + n + ' follows these house rules — tone, format, the do-nots · rules for every agent live in YOU › PREFERENCES.',
+      desc: n => 'House rules only ' + n + ' follows: tone, format, the do-nots. Rules for every agent live in YOU › PREFERENCES.',
       ph: '- Cite your sources.\n- Keep it terse.\n- Never message anyone without asking first.' }
   ];
 
