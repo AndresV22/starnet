@@ -243,7 +243,10 @@
       leashText: leashText,
       leashSpent: leash != null && used >= leash,
       lastBeatText: fmtLocalTime(s.lastBeatAt, tz) || 'no job yet',
-      nextEligibleText: fmtLocalTime(s.nextEligibleAt, tz) || 'when the next window opens',
+      // binding 'posture' = the dial is on WAIT / SUGGEST, so NO job will run at any time: a cooldown clock here read as a
+      // scheduled job the line under the grid says cannot happen (org pass P09-a). Same rule as the halted model above.
+      nextEligibleText: s.binding === 'posture' ? 'not scheduled — ON ITS OWN is set to WAIT or SUGGEST'
+        : (fmtLocalTime(s.nextEligibleAt, tz) || 'when the next window opens'),
       modeText: modeText(s),
       modeWarn: s.buildMode === 'draft' && s.draftReason === 'no-workshop-grant',
       readinessText: readinessText(s.readiness)
@@ -261,7 +264,8 @@
 
   // the cold-start explanation behind a 'readiness' stand-down: how far the station is from EITHER hot bar
   // (dossier breadth or recent-run evidence). '' when already hot / no detail (an empty line is never invented).
-  // A NECESSARY condition, never a promise: clearing a bar does not make it act while the dial is on WAIT / SUGGEST (the
+  // The ending names the BAR itself (all 4 areas / 4 recent runs, from the status's hot bars) so the reader knows the target
+  // (org pass P09-c: 'until one of those is complete' named nothing that can complete). A NECESSARY condition, never a promise: clearing a bar does not make it act while the dial is on WAIT / SUGGEST (the
   // 'posture' gate binds first) or while you are at the station — so the line says what it WON'T do until then, which is
   // true on every surface that shows it (the AUTONOMY panel beside the posture reason, and LAST REPORT with no dial).
   function readinessText(rd) {
@@ -270,7 +274,7 @@
     const dimsBar = Number.isFinite(Number(rd.hotDimsMin)) ? Number(rd.hotDimsMin) : 4;
     const runsBar = Number.isFinite(Number(rd.hotRunsMin)) ? Number(rd.hotRunsMin) : 4;
     const runs = Number(rd.activityCount) || 0;
-    return 'still learning you — it knows ' + dims + ' of ' + dimsBar + ' areas and has ' + runs + ' of ' + runsBar + ' recent runs; it won’t act on its own until one of those is complete';
+    return 'still learning you — it knows ' + dims + ' of ' + dimsBar + ' areas and has ' + runs + ' of ' + runsBar + ' recent runs; it won’t act on its own before it knows all ' + dimsBar + ' areas or has ' + runsBar + ' recent runs';
   }
 
   // THE PLAIN HOLD-BACK REASON (org pass 10-14, call #57): the readout's one sentence for a cold-start station — what

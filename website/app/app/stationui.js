@@ -2895,7 +2895,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<button type="button" class="ov-vchip' + (sel ? ' sel' : '') + '" data-approval="' + id + '" data-name="' + esc(label) + '" data-tip="' + esc(desc) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' + esc(label) + '</button>';
     return '<div class="cf-card" id="ag-approval-card">' +
       '<div class="cf-head"><span class="cf-file">✋ approval prompts</span></div>' +
-      '<div class="cf-desc">The asking half of the answer above: CHECK WITH ME and LET IT WORK both ask first, FULL POWER does not. ASKS FIRST stops to check with you before risky steps and stays inside the reach you set. FULL POWER stops the approval prompts and authorizes the whole local computer: every tool, file, command and app, plus your screen, mouse and keyboard. <code>/yolo</code> is the full-power shortcut.</div>' +
+            // org pass P08-a: two names, one per chip, in the chips' own caps — no create-screen names repeated and no pointer
+      // to a control outside the card; /yolo is named as what it is (a COMMS toggle of this same FULL POWER).
+      '<div class="cf-desc">ASKS FIRST checks with you before risky steps and stays inside the reach you set. FULL POWER never asks and authorizes the whole local computer: every tool, file, command and app, plus your screen, mouse and keyboard. <code>/yolo</code> in COMMS toggles FULL POWER.</div>' +
       '<div class="ov-vchips" id="ag-approval-chips">' +
         chip('ask', 'ASKS FIRST', 'stops to check with you before it writes, runs, or reaches out', !full) +
         chip('full', 'FULL POWER', 'never asks first — covers the whole local computer, not just its reach profile', full) +
@@ -8793,7 +8795,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           let rep; try { rep = NightReport.compose({ status, ledger, drafts, awaySince, nowMs: now, tzOffsetMin: tzMin() }); } catch (_) { rep = null; }
           // the exact readiness counts (call #57): the awakening readout gives one plain reason, so the N-of-M numbers
           // live HERE — straight from the same status read, '' once the station is hot (never an invented line).
-          const readyLine = NightReport.readinessText ? NightReport.readinessText(status && status.readiness) : '';
+          const readyText = NightReport.readinessText ? NightReport.readinessText(status && status.readiness) : '';
+          // ONE PANEL, ONE COPY (org pass P09-b): #ns-readiness under the status grid just above already paints this exact
+          // line from the same status route — repeating it under LAST REPORT read as the same sentence twice. It is kept
+          // only when the grid could not show it (status unreachable there, or a different reading by now).
+          const shownAbove = !!(readyText && nsReadiness && nsReadiness.textContent.trim() === readyText.trim());
+          const readyLine = shownAbove ? '' : readyText;
           if (!rep || !rep.hasReport) {
             // the still-learning line is a second sentence of the SAME grey status paragraph style, full stop and all —
             // an amber .dim row under a grey status read louder than the status it qualifies
