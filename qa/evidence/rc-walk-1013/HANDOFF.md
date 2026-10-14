@@ -16,10 +16,10 @@ For the next session (Andrew is switching accounts). Read this whole file, then 
 | What | Where |
 |---|---|
 | Worktree | `C:\Users\andro\gen-trees\rc-walk-1013` |
-| Branch | `agent/rc-walk-1013` — head `fb6045605` at handoff (`git log --oneline -1`) |
+| Branch | `agent/rc-walk-1013` — head after the handoff commit (`git log --oneline -1`); code head `607d655cf` (`git log --oneline -1`) |
 | Built from | `agent/release-review-1012` (the 0.13.5 candidate) + trunk `feat/harness-backend`, both merged in — **0 behind each at handoff** |
 | Findings (59 seams + status) | `qa/evidence/rc-walk-1013/FINDINGS.md` |
-| This file | `qa/evidence/rc-walk-1013/HANDOFF.md` (written while a gate ran — commit it first if `git status` shows it untracked) |
+| This file | `qa/evidence/rc-walk-1013/HANDOFF.md` (committed) |
 | Memory | `~/.claude/projects/C--Users-andro-Desktop-gen/memory/rc-walk-1013.md` and `release-is-the-new-features-polished.md` (indexed in MEMORY.md under NEWEST). If the new account uses a different `CLAUDE_CONFIG_DIR`, that memory is NOT visible — this file is the source of truth. |
 | Isolated test stations | `.claude/launch.json` in `C:\Users\andro\Desktop\gen` has `rc-walk-seeded` (port 9471, `dev/seed.js --keep --workspace ~/.claude-scratch/rc-walk-1013/seeded`, Ask mode, haiku-4.5 via OpenRouter key from `dev/.env.dev`) and `rc-walk-fresh` (port 9472, `dev/onboard-fresh.js`, first-run). Start with the Browser tool `preview_start {name}`. They run THIS worktree's code and never touch Andrew's real station. |
 
@@ -28,10 +28,14 @@ Nothing from this lane is merged to trunk or pushed. Trunk itself is also unpush
 ## 3. Gate status at handoff
 
 - `npm run test:fast` on `fb6045605`: **OK — 1167 step(s) green** (log read, not exit code).
-- `npm run test:http` on `fb6045605`: **was running at handoff** — rerun it. Two earlier HTTP runs on near-identical trees failed only on
-  load-flaky steps that pass alone: `station-control.e2e.test.mjs` ("no station page answered" — ALL PASS when run alone) and
-  `questrefresh.e2e.test.js` ("boot timeout"). Both are the known "HTTP gate boot-timeout under load" class; other sessions'
-  gates were competing for RAM (C: had 0.2–2.4 GB free).
+- `npm run test:http` — **all 216 steps green, assembled from runs on the same code**: steps 1–190 green on `fb6045605`; step 191
+  `payload.budget` was a REAL failure (tool schemas 122 bytes over budget from the longer `team.dispatch` description) → fixed in
+  `607d655cf`; steps 191–202 + 204–216 then green on `607d655cf` via a resumed list; step 203 `remote.e2e` failed once on a port
+  another process held ("expected 53771, got 64983") and passed alone (114 assertions); `acp.e2e` (reads the same description)
+  re-run alone on `607d655cf`: OK. Not one uninterrupted run — a clean single pass is still worth doing when the machine is quiet.
+- Earlier HTTP runs also tripped load-flaky steps that pass alone: `station-control.e2e.test.mjs` ("no station page answered")
+  and `questrefresh.e2e.test.js` ("boot timeout") — the known boot-timeout-under-load class; other sessions' gates were
+  competing for RAM (0.2–2.4 GB free).
 - If a step flakes, resume from it instead of rerunning all 216: copy `test/http.list` from the failing step onward into a
   temp list and run `node scripts/run-test-list.mjs <that list>` (the runner spawns node per step — never a shell loop).
 - ⛔ Never commit in this worktree while a gate is running. ⛔ Read the LOG's last `OK — N step(s) green` / `FAILED at step` line; the
@@ -102,7 +106,7 @@ memory/taste (rate → KEEP THIS STYLE → later run), Quests, performance on a 
 
 ## 6. Next steps (suggested order)
 
-1. Get `test:http` green on the current head (resume flaky steps as in §3); commit this HANDOFF.md if still untracked.
+1. Re-sync trunk + release-review (other sessions keep landing work), then one uninterrupted `test:fast` + `test:http` on the merged head.
 2. Fix #60 (silent cancel on reload) and the customer P1s above — reproduce each live on `rc-walk-seeded` first (starnet-debugging skill).
 3. Walk the unwalked areas the same way (log seams in FINDINGS.md, investigate, fix with a locking test, re-verify live).
 4. Re-sync with trunk + release-review before every gate (other sessions keep landing work — see §7), gate the MERGED tree.
