@@ -141,7 +141,7 @@ for (const o of [undefined, { cancelSource: 'estop_by_run' }]) {
   A.ok(!/in <b>MCP CONNECTORS<\/b>|in <b>KEYS<\/b>|in TOOLSETS:|'CATALOG' : 'MCP CONNECTORS'/.test(con), 'ABILITIES copy names no retired tab (MCP CONNECTORS, KEYS, TOOLSETS)');
   A.ok(/in <b>CONNECTED SERVICES<\/b>, or paste a custom platform key in <b>SAVED API CONNECTIONS<\/b>/.test(con), 'the catalog footer names CONNECTED SERVICES and SAVED API CONNECTIONS');
   A.ok(/\{ id: 'keys', label: 'SAVED API CONNECTIONS'/.test(con) && /\{ id: 'mcp', label: 'CONNECTED SERVICES'/.test(con) && /\{ id: 'toolsets', label: 'BUILT-IN ABILITIES'/.test(con), 'the names it uses are the real tab labels');
-  A.ok(/Keys for Gmail, Notion and other services live in CONNECT › ABILITIES\. <button type="button" class="bb sm" data-act="to-service-keys">▸ SAVED API CONNECTIONS<\/button>/.test(ui), 'API KEYS points service keys at SAVED API CONNECTIONS with a glass key');
+  A.ok(/Keys for Gmail, Notion and other services live in CONNECT › ABILITIES\.<\/p>' \+\s*'<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-keys">↗ SAVED API CONNECTIONS<\/button><\/div>/.test(ui), 'API KEYS points service keys at SAVED API CONNECTIONS with a full-strength glass key, outside the dimmed prose');
   A.ok(/toServiceKeys\.addEventListener\('click', \(\) => \{ sfx\('click'\); openTerm\('connectors', 'keys'\); \}\)/.test(ui), 'the key opens the connectors keys section');
   A.ok(/P\('api-connections', [^\n]*\{ term: 'connectors', section: 'keys' \}\)/.test(places), 'which is the places.js api-connections target');
   // the public "Connect a service" guide walks the same paths the app shows (P05 review): no retired window or tab name
