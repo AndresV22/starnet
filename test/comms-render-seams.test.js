@@ -169,6 +169,11 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   A.ok(/if \(!ev\.isError && \/\^\(\?:team\[\._\]dispatch\|group\[\._\]handoff\)\$\/\.test\(nm\)\) \{ const rm = runMeta\(thisRunId\); if \(rm\) rm\.delegated = true; \}/.test(src), 'a run that handed work to crew is marked delegated');
   A.ok(/customLabel: 'edit the milestones'/.test(src) && !/customLabel: '✎/.test(src), 'the arc edit key carries no ✎ of its own (Dialogue draws one: it read "✎✎")');
   A.ok(/num\.textContent = '✎';/.test(read('frontend/app/dialogue.js')), 'Dialogue draws the ✎ for every custom key');
+  // …so NO caller may bring its own: the first-command plan in onboarding read "✎✎ edit the steps" too (rc review 2026-10-14)
+  for (const f of fs.readdirSync(path.join(__dirname, '..', 'frontend', 'app')).filter(n => /\.js$/.test(n))) {
+    const own = /customLabel:\s*['"`]\s*✎/.exec(read('frontend/app/' + f));
+    A.ok(!own, 'frontend/app/' + f + ' passes no ✎ in a customLabel (Dialogue draws it): ' + (own ? own[0] : ''));
+  }
 }
 
 /* ---------- D. the group transcript keeps the spaces between streamed turns and shows the lead's tool chips ---------- */
