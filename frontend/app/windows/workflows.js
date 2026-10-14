@@ -386,9 +386,18 @@ const WorkflowsWindow = (() => {
 
   /* ---------- a new workflow ---------- */
   /* THE STARTERS: four lines that cover most work, each a real shelf line (worldmodel BLUEPRINTS), named the way the Build Library
-     names it. Every other line is one key away (MORE LINES opens the Build Library's Conveyors tab). */
+     names it. Every other line is one key away (MORE LINES opens the Build Library's Conveyors tab). (org P18) The Commander's
+     FOR YOUR GOAL line (Build.goalLine — the shelf's own pick from their dossier words) leads when it is not one of the four, and
+     SET IT UP FOR ME chooses from the WHOLE shelf, not just the tiles shown. */
   const STARTERS = ['research_line', 'revision_loop', 'front_desk', 'build_test'];
-  const bpOf = id => ((typeof WorldModel !== 'undefined' && WorldModel.BLUEPRINTS) || []).find(b => b.id === id) || null;
+  const catalogLines = () => (typeof WorldModel !== 'undefined' && WorldModel.BLUEPRINTS) || [];
+  const bpOf = id => catalogLines().find(b => b.id === id) || null;
+  function goalStarter() {
+    let g = null;
+    try { g = B() && B().goalLine ? B().goalLine() : null; } catch (e) { g = null; }   // no dossier read yet: no goal tile (never a guess)
+    return g && g.id && bpOf(g.id) && STARTERS.indexOf(g.id) < 0 ? g : null;
+  }
+  const starterOf = id => { const bp = bpOf(id); return bp ? { id, name: plainName(id), purpose: (words().purpose || {})[id] || '', roles: bayRoles(bp) } : null; };
   const words = () => (B() && B().lineWords) ? B().lineWords() : { plain: {}, purpose: {} };
   const plainName = id => { const w = words(); const bp = bpOf(id); return (w.plain && w.plain[id]) || (bp ? bp.label : id); };
   const bayRoles = bp => (bp ? bp.props.filter(p => p.t === 'bay').map(p => p.role || 'STEP') : []);
@@ -423,7 +432,9 @@ const WorkflowsWindow = (() => {
   function draftIt(want) {
     if (!want) { sfx('bad'); notify('say what you want the workflow to make first', 'warn'); return; }
     S.drafting = { state: 'asking' }; blurIn('#wfw-describe'); schedule();
-    const starters = STARTERS.map(id => { const bp = bpOf(id); return bp ? { id, name: plainName(id), purpose: (words().purpose || {})[id] || '', roles: bayRoles(bp) } : null; }).filter(Boolean);
+    // the whole shelf, the four starters first (one billed call either way: the model reads one row per line)
+    const ids = STARTERS.concat(catalogLines().map(b => b.id).filter(id => STARTERS.indexOf(id) < 0));
+    const starters = ids.map(starterOf).filter(s => s && s.roles.length);
     postJSON('/api/routing/line-draft', { want, starters }).then(({ status, j }) => {
       if (status === 200 && j && j.ok && bpOf(j.starter)) {
         S.drafting = null;
@@ -526,11 +537,15 @@ const WorkflowsWindow = (() => {
   /* NEW WORKFLOW: describe it, or pick a starter — then who does each step, a name, CREATE */
   function newHTML(f) {
     const first = !f.lines.length, pk = S.pick, dr = S.drafting;
-    const tiles = STARTERS.map(id => {
+    // the Build Library's tile: the line's miniature, its name, one small line; what it is for is its tip (the goal tile's tip quotes
+    // the Commander's own words first — the shelf's FOR YOUR GOAL tip)
+    const goal = goalStarter();
+    const tiles = (goal ? [goal.id] : []).concat(STARTERS).map(id => {
       const bp = bpOf(id); if (!bp) return '';
-      const roles = bayRoles(bp), art = lineArt(id), on = pk && pk.bp === id;
-      return '<button type="button" class="wfw-tile' + (on ? ' on' : '') + '" data-starter="' + esc(id) + '" aria-pressed="' + !!on + '" data-tip="' + esc(plainName(id) + ': ' + ((words().purpose || {})[id] || '') + '.') + '">'
-        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + roles.length + ' step' + (roles.length === 1 ? '' : 's') + (bp.props.some(p => p.t === 'loop') ? ' · reviewed' : '') + '</span></button>';
+      const roles = bayRoles(bp), art = lineArt(id), on = pk && pk.bp === id, isGoal = !!goal && goal.id === id, purpose = (words().purpose || {})[id] || '';
+      const tip = (isGoal ? '“' + goal.quote + '” — ' + goal.why + '\n' : '') + (purpose ? purpose.charAt(0).toUpperCase() + purpose.slice(1) + '.' : plainName(id));
+      return '<button type="button" class="wfw-tile' + (on ? ' on' : '') + (isGoal ? ' wfw-goal' : '') + '" data-starter="' + esc(id) + '" aria-pressed="' + !!on + '" data-tip="' + esc(tip) + '">'
+        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + (isGoal ? 'for your goal' : roles.length + ' step' + (roles.length === 1 ? '' : 's') + (bp.props.some(p => p.t === 'loop') ? ' · reviewed' : '')) + '</span></button>';
     }).join('');
     let h = '<header class="wfw-head">' + (first ? '' : '<button type="button" class="bb sm" data-act="back">‹ ALL WORKFLOWS</button>')
       + '<h2 class="wfw-title">' + (first ? 'Make your first workflow' : 'New workflow') + '</h2></header>'
@@ -538,7 +553,7 @@ const WorkflowsWindow = (() => {
       + '<section class="wfw-sec"><h3>What should it make?</h3>'
       + '<textarea id="wfw-describe" class="wfw-field" rows="2" maxlength="600" placeholder="e.g. a weekly digest of AI news for my newsletter">' + esc(S.draft.describe || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="draft"' + (dr && dr.state === 'asking' ? ' disabled' : '') + '>' + (dr && dr.state === 'asking' ? 'SETTING IT UP…' : '✦ SET IT UP FOR ME') + '</button>'
-      + '<span class="wfw-note">The station picks the steps and writes their instructions — one short model call.</span></div>'
+      + '<span class="wfw-note">The station picks one of the ' + catalogLines().length + ' ready-made lines and writes its steps’ instructions — one short model call.</span></div>'
       + (dr && dr.state === 'error' ? '<p class="wfw-bad">✕ ' + esc(dr.error) + '</p>' : '')
       + '</section>'
       + '<section class="wfw-sec"><h3>Or pick one</h3><div class="wfw-tiles">' + tiles + '</div>'
@@ -956,6 +971,6 @@ const WorkflowsWindow = (() => {
     });
   }
   return { open, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob, startLines,
-    _state: S, _floor: floor, _lineWord: lineWord, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, _resultHTML: resultHTML, _startsText: startsText, EX_HEAD };   // (the _ seams are test/eval reads)
+    _state: S, _floor: floor, _lineWord: lineWord, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, _resultHTML: resultHTML, _startsText: startsText, _newHTML: newHTML, EX_HEAD };   // (the _ seams are test/eval reads)
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowsWindow;

@@ -341,5 +341,30 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.ok(!/Choose a workflow/.test(rd('frontend/app/windows/loops.js')) && /Choose a kind of loop/.test(rd('frontend/app/windows/loops.js')), 'GOAL LOOPS asks for a kind of loop, never "a workflow"');
   }
 
+  /* ---------- org P18 (2026-10-14): NEW WORKFLOW leads with the Commander's FOR YOUR GOAL line when it is not one of the four ---------- */
+  {
+    const S0 = { pick: S.pick, drafting: S.drafting };
+    S.pick = null; S.drafting = null;
+    const tilesOf = html => (html.match(/data-starter="([a-z_]+)"/g) || []).map(m => m.slice(14, -1));
+    ctx.Build.goalLine = () => null;
+    A.eq(tilesOf(WW._newHTML(WW._floor())).join(), 'research_line,revision_loop,front_desk,build_test', 'no goal read: the four starters');
+    ctx.Build.goalLine = () => ({ id: 'mission_control', why: 'a crew plans it and checks it', quote: 'ship my app every week' });
+    const led = WW._newHTML(WW._floor());
+    A.eq(tilesOf(led).join(), 'mission_control,research_line,revision_loop,front_desk,build_test', 'a goal line off the four leads them');
+    const goalTile = (/<button type="button" class="wfw-tile wfw-goal"[^>]*>[\s\S]*?<\/button>/.exec(led) || [''])[0];
+    A.ok(/data-tip="“ship my app every week” — a crew plans it and checks it/.test(goalTile) && /<span class="wfw-tstat">for your goal<\/span>/.test(goalTile), '…its tip quotes their words, its one small line says why it leads (no sentence under the tile): ' + goalTile.slice(0, 200));
+    A.ok(!/<span class="wfw-tstat">[^<]{40,}/.test(led), 'every tile keeps one short stat line');
+    ctx.Build.goalLine = () => ({ id: 'research_line', why: 'w', quote: 'q' });
+    A.eq(tilesOf(WW._newHTML(WW._floor())).join(), 'research_line,revision_loop,front_desk,build_test', 'a goal line that IS one of the four is not shown twice');
+    ctx.Build.goalLine = () => ({ id: 'no_such_line', why: 'w', quote: 'q' });
+    A.eq(tilesOf(WW._newHTML(WW._floor())).length, 4, 'an unknown goal id adds nothing');
+    A.ok(/More ready-made lines are in the Build Library ›/.test(WW._newHTML(WW._floor())), 'the More ready-made lines link stays');
+    A.ok(/picks one of the 20 ready-made lines/.test(WW._newHTML(WW._floor())), 'SET IT UP FOR ME says it chooses from the whole shelf');
+    delete ctx.Build.goalLine;
+    S.pick = S0.pick; S.drafting = S0.drafting;
+    const buildSrc = rd('frontend/app/build.js');
+    A.ok(/goalLine: \(\) => \{ const g = goalLine\(\); return g \? \{ id: g\.bp\.id, why: g\.why, quote: g\.quote \} : null; \},/.test(buildSrc), 'Build exposes the shelf\'s own FOR YOUR GOAL pick');
+  }
+
   A.report('workflows-window.test');
 })().catch(e => { console.error(e); process.exit(1); });

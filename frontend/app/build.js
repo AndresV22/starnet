@@ -1570,8 +1570,9 @@ const Build = (() => {
         for (const bp of blueprints()) { const k = LINE_WORK_GROUPS.some(g => g.id === LINE_WORK[bp.id]) ? LINE_WORK[bp.id] : lastWork; (groups[k] = groups[k] || []).push(bp); }
         for (const g of LINE_WORK_GROUPS) {
           if (!groups[g.id] || !groups[g.id].length) continue;
-          grid.appendChild(lineGroupHd(g.label));
-          for (const bp of groups[g.id]) addLineCell(grid, bp);
+          const open = lineShelfShown(g.id, groups[g.id]);
+          grid.appendChild(g.id === LINE_SHELF_OPEN ? lineGroupHd(g.label) : lineShelfToggle(g, groups[g.id].length, open));
+          if (open) for (const bp of groups[g.id]) addLineCell(grid, bp);
         }
         pal.appendChild(grid);
       }
@@ -1644,8 +1645,8 @@ const Build = (() => {
   const machineDiagramSVG = id => MACHINE_DIAGRAM[id] ? '<svg class="refit-machinediagram" viewBox="0 0 40 24" aria-hidden="true" focusable="false">' + MACHINE_DIAGRAM[id] + '</svg>' : '';
   // the shelf in the order work meets them, in three plain groups (a junction goes ON a belt)
   const MACHINE_GROUPS = [
-    ['THE LINE', 'work comes in, agents do the steps, the result comes out', ['intake', 'bay', 'outbox']],
-    ['BRANCH & COMBINE', 'drop these ON a belt', ['splitter', 'joiner', 'merger', 'filter']],
+    ['THE LINE', 'work comes in, agents do the steps, the result comes out', ['bay', 'intake', 'outbox']],
+    ['BRANCH & COMBINE', 'drop these ON a belt', ['splitter', 'merger', 'joiner', 'filter']],
     ['REPEAT', 'a reviewer can send work back', ['loop']]
   ];
   /* THE MACHINES SHELF (2026-09-23 playtest fix). The Conveyors tab offered whole LINES and the BELT tool,
@@ -1657,7 +1658,7 @@ const Build = (() => {
   const MACHINES_LABEL = 'MACHINES';   // the Conveyors tab's single-machine shelf — the guide + Field Manual name it by this
   const LINES_LABEL = 'LINES';         // …and its ready-made lines, the section key beside it
   let convSection = 'lines';           // the Conveyors section up now: 'lines' (BUILD YOUR OWN + the ready-made shelf) or 'machines'
-  const MACHINE_ORDER = ['intake', 'bay', 'outbox', 'splitter', 'joiner', 'merger', 'filter', 'loop'];   // JOINER beside MERGER: the pair people confuse
+  const MACHINE_ORDER = ['bay', 'intake', 'outbox', 'splitter', 'merger', 'joiner', 'filter', 'loop'];   // (org P18) the HOTBAR's order (keys 1–8), so the shelf and the hand agree; JOINER still beside MERGER
   function workflowMachines() {
     const all = catalog().filter(c => c && c.cat === 'workflow');
     const rank = id => { const i = MACHINE_ORDER.indexOf(id); return i < 0 ? MACHINE_ORDER.length : i; };
@@ -2437,6 +2438,22 @@ const Build = (() => {
       if (bp) return { bp, why: s.why, quote: t.length > 90 ? t.slice(0, 88).trimEnd() + '…' : t };
     }
     return null;
+  }
+  /* THE CONVEYORS TAB OPENS CALM (org P18, FINDINGS #32 — "the builder opens on a wall"): LINES shows FOR YOUR GOAL and ANY JOB;
+     every other shelf is its name and count, folded, one click from open. A shelf opened or folded stays so for the session; until
+     the Commander folds it, the shelf holding the ARMED line opens (its card and SET UP row show). Nothing is removed: every line
+     is one click away. */
+  const LINE_SHELF_OPEN = 'any';
+  const lineShelfOpen = new Map();   // shelf id -> true (opened) / false (folded), by the Commander's own click
+  const lineShelfShown = (id, bps) => id === LINE_SHELF_OPEN || (lineShelfOpen.has(id) ? lineShelfOpen.get(id) : (tool === 'line' && bps.some(bp => bp.id === lineType)));
+  function lineShelfToggle(g, n, open) {
+    const b = document.createElement('button'); b.type = 'button';
+    b.className = 'refit-linegroup refit-lineshelf-tog' + (open ? ' open' : '');
+    b.dataset.shelf = g.id; b.setAttribute('aria-expanded', String(open));
+    b.innerHTML = '<span class="refit-lineshelf-caret" aria-hidden="true">' + (open ? '▾' : '▸') + '</span> ' + esc(g.label) + ' <small>' + n + '</small>';
+    b.dataset.tip = g.blurb;
+    b.onclick = () => { lineShelfOpen.set(g.id, !open); sfx('click'); renderPalette(); };
+    return b;
   }
   /* a shelf section's name, across its grid row — the Props tab's "FURNITURE / 128 ITEMS" voice: a name, never a blurb */
   function lineGroupHd(label, cls) {
@@ -9635,6 +9652,8 @@ const Build = (() => {
   const api = { init, open, openWorkflows, editLine, testJobForProp, close, toggle, isOpen, requisition, refitNames: guideNames, openAssign, placeDeskFor, noteLineShipped, markLineShipped, lineShipSpent, lineOfAgentInfo, summonForRole, nagLabel: code => VAL_LABEL[code] || code,
     // the WORKFLOWS window speaks the shelf's own words and shows the shelf's own art (one name per line, never a second one)
     lineWords: () => ({ plain: LINE_PLAIN, purpose: LINE_PURPOSE }), lineSchematic: bp => lineSchematic(bp), machineStill: t => machineStill(t),
+    // (org P18) the shelf's FOR YOUR GOAL line, for WORKFLOWS › NEW WORKFLOW to lead with (null when no belief names a shape)
+    goalLine: () => { const g = goalLine(); return g ? { id: g.bp.id, why: g.why, quote: g.quote } : null; },
     nagWhy: valWhy };   // nagLabel: the floor's own nag copy for a compiler code (ROUTINES RUN NOW refusal reads it); nagWhy: the full fix sentence the hover card + Workflow panel say (station.layout reads it)
   if (typeof window !== 'undefined' && window.__STARNET_DEV__) api.__test__ = __test__;
   return api;

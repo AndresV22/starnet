@@ -101,6 +101,8 @@ textarea.wfw-field { min-height: 76px; }
   border: 1px solid var(--wf-edge); border-radius: 10px; background: var(--refit-glass); box-shadow: var(--wf-light);
   transition: background-color var(--t-fast) var(--ease-soft), border-color var(--t-fast) var(--ease-soft); }
 .wfw-tile:hover { border-color: rgba(var(--ph-rgb),.45); background: var(--wf-hover); }
+/* (org P18) the Commander's FOR YOUR GOAL line, leading the starters: the shelf's goal gold on its small line */
+.wfw-tile.wfw-goal .wfw-tstat { color: var(--gold); }
 .wfw-tile.on { border-color: var(--ph); background: var(--wf-on); box-shadow: var(--wf-light), inset 0 -2px 0 rgba(var(--ph-rgb),.65); }
 .wfw-tart { display: grid; place-items: center; width: 100%; height: 62px; border-radius: 8px; background: radial-gradient(ellipse 72% 70% at 50% 64%, rgba(130,170,150,.11), transparent 76%); }
 .wfw-tart img { display: block; max-width: 100%; max-height: 58px; image-rendering: pixelated; }
