@@ -196,4 +196,6 @@ A.ok(/drawCapHoverTag\(now\);/.test(WORLD) && !/capPropAt\(wp\)[^\n]*openTerm|ho
 const mouseup = (WORLD.match(/cv\.addEventListener\('mouseup', ev => \{[\s\S]*?\n    \}\);/) || [''])[0];
 A.ok(mouseup && !/capPropAt|hoverCap/.test(mouseup), 'P33: no click is added (what a click does stays Andrew\'s pick)');
 
+A.ok(APP.includes("t + ' · ' + railAgentName(w)") && APP.includes('const title = titles[i];'), 'D12: two untitled sessions in the rail read "New session · MIRA" (and a number for the same agent), never two identical rows');
+
 A.report();

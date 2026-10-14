@@ -4328,8 +4328,19 @@ const App = (() => {
     if (!rows.some(w => w.id === railFocusId)) railFocusId = rows.some(w => w.id === activeId) ? activeId : (rows[0] && rows[0].id);
     ul.setAttribute('role', 'listbox');
     ul.setAttribute('aria-label', 'Sessions');
+    // two untitled sessions both read "New session" and could not be told apart: a repeated untitled name carries
+    // whose session it is ("New session · MIRA"), and a number when the same agent has more than one.
+    const baseTitles = rows.map(w => Workstreams.titleOf(w));
+    const untitledName = (w, t) => !w.title && baseTitles.filter(x => x === t).length > 1 ? t + ' · ' + railAgentName(w) : t;
+    const shownTitles = rows.map((w, i) => untitledName(w, baseTitles[i]));
+    const seenTitle = new Map();
+    const titles = shownTitles.map((t, i) => {
+      if (rows[i].title || shownTitles.filter(x => x === t).length < 2) return t;
+      const n = (seenTitle.get(t) || 0) + 1; seenTitle.set(t, n);
+      return n === 1 ? t : t + ' ' + n;
+    });
     ul.innerHTML = rows.map((w, i) => {
-      const title = Workstreams.titleOf(w);   // only the General home reads "General"; an untitled other session is a "New session"
+      const title = titles[i];   // only the General home reads "General"; an untitled other session is a "New session"
       const st = railRowState(w);
       const group = headers.get(w.id);
       const groupHead = group ? '<li class="ws-auto-group" role="presentation"><button type="button" data-ws-group="' + U.esc(group.key) + '" aria-expanded="' + railExpanded.has(group.key) + '"><span>' + U.esc(group.name) + '</span><small>' + U.esc(railAgentName(w)) + ' · ' + group.rows.length + ' run' + (group.rows.length === 1 ? '' : 's') + ' · ' + (railExpanded.has(group.key) ? 'collapse' : 'show history') + '</small></button></li>' : '';

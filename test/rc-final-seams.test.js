@@ -140,7 +140,7 @@ function load(src, headers, globals, extra) {
   W.init({});
   const app = rd('frontend/app/app.js');
   A.ok(!/w\.title \|\| 'General'/.test(app) && !/\(hit\.title \|\| 'General'\)/.test(app), 'the session rail never falls back to "General" for any untitled session');
-  A.ok(/const title = Workstreams\.titleOf\(w\)/.test(A.fnBody(app, 'function renderRail()')), 'the rail row reads Workstreams.titleOf');
+  A.ok(/const baseTitles = rows\.map\(w => Workstreams\.titleOf\(w\)\)/.test(A.fnBody(app, 'function renderRail()')), 'the rail row reads Workstreams.titleOf (org D12: a repeated untitled name then gains its agent)');
   A.ok(/Workstreams\.titleOf\(w\)/.test(A.fnBody(app, 'function railRowTip(w, st, project = false)')) && /Workstreams\.titleOf\(w\)/.test(A.fnBody(app, 'function railRowLabel(w, st, project = false)')), '…and so do its tip and its spoken label');
 }
 
