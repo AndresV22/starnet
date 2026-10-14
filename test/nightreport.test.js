@@ -245,7 +245,7 @@ A.ok(!/\d+ of \d+/.test(outCold) && !/reaching either|lets it act|set REACH/i.te
 A.ok(/still learning you/i.test(NR.readinessText(rdWarm)) && /3 of 4 areas/.test(NR.readinessText(rdWarm)), 'readinessText still carries the exact N-of-M counts');
 // P09 review fix: the counts line names a NECESSARY condition, never a promise — with the dial on WAIT / SUGGEST, clearing a
 // bar does not make it act, and LAST REPORT shows this line with no dial context at all.
-A.ok(/won’t act on its own before it knows all 4 areas or has 4 recent runs/.test(NR.readinessText(rdWarm)) && !/starts acting|once either|lets it act|one of those is complete/i.test(NR.readinessText(rdWarm)), 'readinessText names the bar it needs (all 4 areas or 4 recent runs) and never promises it will act once a bar clears');
+A.ok(/; to act on its own it needs either all 4 areas or 4 recent runs$/.test(NR.readinessText(rdWarm)) && !/starts acting|once either|lets it act|one of those is complete|won’t act on its own before/i.test(NR.readinessText(rdWarm)), 'readinessText names the bar it needs — EITHER all 4 areas or 4 recent runs, never read as both (g1 P09 final round) — and never promises it will act once a bar clears');
 A.eq(NR.readinessPlain({ tier: 'hot' }), '', 'a hot station has no hold-back reason');
 // a fully-hot, granted build station: present tense, the real pace from leashPerDay, each job a new ⚒ session.
 const outBuild = NR.postureOutlook(Object.assign({}, stBase, { buildMode: 'build', draftReason: null, workshopGranted: true, readiness: { tier: 'hot' } }));

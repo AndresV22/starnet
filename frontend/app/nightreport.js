@@ -268,13 +268,14 @@
   // (org pass P09-c: 'until one of those is complete' named nothing that can complete). A NECESSARY condition, never a promise: clearing a bar does not make it act while the dial is on WAIT / SUGGEST (the
   // 'posture' gate binds first) or while you are at the station — so the line says what it WON'T do until then, which is
   // true on every surface that shows it (the AUTONOMY panel beside the posture reason, and LAST REPORT with no dial).
+  // (g1 P09 final round) "before it knows all 4 areas or has 4 recent runs" read as needing BOTH: it says it needs EITHER one.
   function readinessText(rd) {
     if (!rd || typeof rd !== 'object' || rd.tier === 'hot') return '';
     const dims = Array.isArray(rd.usableDims) ? rd.usableDims.length : 0;
     const dimsBar = Number.isFinite(Number(rd.hotDimsMin)) ? Number(rd.hotDimsMin) : 4;
     const runsBar = Number.isFinite(Number(rd.hotRunsMin)) ? Number(rd.hotRunsMin) : 4;
     const runs = Number(rd.activityCount) || 0;
-    return 'still learning you — it knows ' + dims + ' of ' + dimsBar + ' areas and has ' + runs + ' of ' + runsBar + ' recent runs; it won’t act on its own before it knows all ' + dimsBar + ' areas or has ' + runsBar + ' recent runs';
+    return 'still learning you — it knows ' + dims + ' of ' + dimsBar + ' areas and has ' + runs + ' of ' + runsBar + ' recent runs; to act on its own it needs either all ' + dimsBar + ' areas or ' + runsBar + ' recent runs';
   }
 
   // THE PLAIN HOLD-BACK REASON (org pass 10-14, call #57): the readout's one sentence for a cold-start station — what
