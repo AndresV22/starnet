@@ -1820,7 +1820,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       crewPortrait(a) +
       '<span class="dot on"></span>' +
       '<div class="crew-main">' +
-      '<div class="crew-name" style="color:' + esc(a.color) + '">' + esc(a.name) +
+      '<div class="crew-name" style="color:' + esc(a.color) + '"><span class="crew-nm">' + esc(a.name) + '</span>' +
       (duplicateAgentName(a) ? '<span class="crew-id">[' + esc(duplicateAgentName(a)) + ']</span>' : '') +
       '<span class="crew-room">' + (a.stats && a.stats.level ? 'Lv ' + a.stats.level : '') + '</span></div>' +
       '<div class="crew-status" id="cs-' + esc(a.id) + '">…</div>' +
