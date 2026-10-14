@@ -92,6 +92,15 @@ const StationCommands = (() => {
     if (!hit) throw new Error('there is no crew member "' + want + '". The crew: ' + crew.map(x => x.name + ' (' + x.id + ')').join(', '));
     return hit;
   }
+  /* THE NAME A RESULT GIVES A SESSION = the name the rail shows it by (Workstreams.titleOf): only the General home is
+     "General"; an untitled other session is a "New session". A result that said `session: 'General'` for a run filed in a
+     fresh untitled session had the lead tell the Commander the work landed in General while the rail read "New session".
+     Lookup is unchanged — an untitled session is still addressed by its id — and the session LISTS keep `title: null` for
+     untitled, so the model can tell an unnamed session from one literally called "New session". */
+  function sessionName(w) {
+    if (typeof Workstreams !== 'undefined' && Workstreams.titleOf) return Workstreams.titleOf(w) || 'New session';
+    return (w && w.title) || 'General';
+  }
   function resolveChat(want) {
     if (typeof Workstreams === 'undefined' || !Workstreams.list) throw new Error('sessions are not ready yet');
     want = String(want || '').trim();
@@ -176,7 +185,7 @@ const StationCommands = (() => {
   }
   async function sessionControl(act, a) {
     const sc = App.sessionControl || {};
-    const hit = resolveChat(a.session), id = hit.w.id, label = hit.title || 'General';
+    const hit = resolveChat(a.session), id = hit.w.id, label = hit.title || sessionName(hit.w);
     const rowOf = save => (save.workstreams || []).find(w => w && w.id === id);
     if (act === 'session.rename') {
       const title = String(a.title || '').trim().slice(0, 80);
@@ -277,7 +286,7 @@ const StationCommands = (() => {
     if (runId && (ws.runIds || []).indexOf(runId) >= 0) {
       if (noteOutcome(ws, runId, a.reason)) refreshAndPersist(ws, !!opts.quiet);
       try { endDeliveredRun(ws, runId); } catch (_) {}
-      return { folded: false, reason: 'already delivered', session: ws.title || 'General', resolvedBy: hit.resolvedBy };
+      return { folded: false, reason: 'already delivered', session: sessionName(ws), resolvedBy: hit.resolvedBy };
     }
     const who = String((a && a.agentId) || 'agent');
     const prompt = String((a && a.prompt) || '').trim();
@@ -298,7 +307,7 @@ const StationCommands = (() => {
     if (Workstreams.markUnread && !ws.worker) Workstreams.markUnread(ws.id);   // a worker's thread is hidden: the asking conversation gets the one report
     try { endDeliveredRun(ws, runId); } catch (_) {}
     refreshAndPersist(ws, !!opts.quiet, turns);
-    return { folded: true, session: ws.title || 'General', agentId: who, resolvedBy: hit.resolvedBy };
+    return { folded: true, session: sessionName(ws), agentId: who, resolvedBy: hit.resolvedBy };
   }
 
   /* ---------- station.layout: THE FLOOR AS THE LEAD READS IT (2026-09-28; builds on PR #48 by @mvanhorn) ----------
@@ -999,7 +1008,7 @@ const StationCommands = (() => {
       // Only the call-owning run may rebind voice. An unrelated run cannot transfer the call.
       try { if (typeof VoiceLive !== 'undefined' && VoiceLive.isActive && VoiceLive.isActive() && VoiceLive.rebind
           && VoiceLive.boundSessionId && VoiceLive.boundSessionId() === a.origin.streamId) VoiceLive.rebind(ws.id); } catch (_) {}
-      return { id: ws.id, title: ws.title != null ? ws.title : 'General', durable: true };
+      return { id: ws.id, title: sessionName(ws), durable: true };
     },
 
     /* Read a session's recent visible conversation — the agent's EYES into work that happened elsewhere.
@@ -1021,7 +1030,7 @@ const StationCommands = (() => {
         }));
       const busy = (typeof Channels !== 'undefined' && Channels.isBusy) ? !!Channels.isBusy(ws.id) : false;
       return {
-        id: ws.id, title: hit.title || 'General', agentId: ws.agentId || 'agent',
+        id: ws.id, title: hit.title || sessionName(ws), agentId: ws.agentId || 'agent',
         busy, runCount: (ws.runIds || []).length, turns,
         note: turns.length ? undefined : 'this session has no visible conversation yet'
       };
@@ -1045,7 +1054,7 @@ const StationCommands = (() => {
       Channels.setRunId(ws.id, runId, Date.now());
       if (Channels.setStatus) Channels.setStatus(ws.id, 'working…');
       try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
-      return { started: true, session: ws.title || 'General', runId, resolvedBy: hit.resolvedBy };
+      return { started: true, session: sessionName(ws), runId, resolvedBy: hit.resolvedBy };
     },
 
     'station.dispatch_end': async (a) => {
@@ -1055,7 +1064,7 @@ const StationCommands = (() => {
       // execution rows, including a repair run, so run termination alone can never publish raw output.
       await reconcile(hit.w.id);
       try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
-      return { settled, session: hit.w.title || 'General', resolvedBy: hit.resolvedBy };
+      return { settled, session: sessionName(hit.w), resolvedBy: hit.resolvedBy };
     },
 
     /* STATION CONTROL (2026-10-02, "the agent can do anything the Commander asks"): what the Dossier CONFIG card, the

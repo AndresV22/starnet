@@ -4591,6 +4591,9 @@ const Build = (() => {
       if (view.ok && response && response.delivered && response.delivered.reason === 'done') { try { if (typeof ReturnStore !== 'undefined' && ReturnStore.foldRow) folded = !!ReturnStore.foldRow(response.delivered); } catch (_) {} }
       finSampleRes = { key, stamp: Date.now(), view, exampleSignature:options.exampleSignature, output: Array.isArray(response?.replies) ? response.replies.join('') : '',
         runs: Array.isArray(response?.runs) ? response.runs : [], streamId: response?.streamId || null, folded, text: options.text || '',
+        // COUNTED IN SHIPPED? (rc walk #30) the server's own answer from the receipts the line's SHIPPED counts: true / false / null (unknown)
+        shipped: response && typeof response.shipped === 'boolean' ? response.shipped : null,
+        shippedWhy: response && response.shipped === false && typeof response.shippedWhy === 'string' ? response.shippedWhy : null,   // why not, only when the server proved it
         // SEND TO (conveyor-ui-01): the job's own link to the next line's job (sentTo), else the line's live SEND TOs — the panel says which
         sentTo: (response && response.sentTo && typeof response.sentTo === 'object') ? response.sentTo : null, onward: Array.isArray(response?.onwardDestinations) ? response.onwardDestinations : [] };
       finSig = ''; if (running) renderFinCard(); options.onUpdate?.(); sfx(view.ok ? 'chime' : 'bad');

@@ -210,6 +210,14 @@
     return !!w && w.worker === true && !!w.parentStreamId && w.parentStreamId !== w.id && !!find(w.parentStreamId);
   }
   function homeOf(id) { const w = find(id); return w && isHidden(w) ? w.parentStreamId : id; }
+  /* THE NAME A SESSION IS SHOWN BY (rc walk 2026-10-13: the rail read "General" twice). Only the General home is "General";
+     any other session without a title yet — a +NEW session nothing was sent in, a session made for an agent — is a
+     "New session" until its first message names it (autoTitle). One word everywhere a session is named. */
+  function titleOf(w) {
+    w = (w && w.id) ? w : find(w);
+    if (!w) return '';
+    return w.title || (w.id === generalId ? 'General' : 'New session');
+  }
 
   // display order: pinned first, then most-recently-active; archived hidden unless asked; delegated workers'
   // threads hidden unless asked (includeWorkers: the delegation card and the busy-peer chip read them).
@@ -540,7 +548,9 @@
     for (const re of SECRET_RES) out = out.replace(re, '[redacted]');
     return out;
   }
-  function safeTitle(w) { return scrubSecrets((w && w.title) || 'General'); }
+  // the exported file's heading / name and the search title are the name the rail shows (titleOf): an untitled
+  // session exports as "New session", never as a second "General"
+  function safeTitle(w) { return scrubSecrets(titleOf(w) || 'New session'); }
 
   function exportConversation(id, format, opts) {
     const w = find(id); if (!w) return null;
@@ -562,7 +572,7 @@
     if (!doc || doc.schema !== 'starnet.conversation' || doc.version !== 1 || !Array.isArray(doc.messages)) return null;
     const messages = doc.messages.filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
       .map(m => ({ role: m.role, content: scrubSecrets(m.content) }));
-    return { title: scrubSecrets(doc.title || 'General'), messages, secretsIncluded: false };
+    return { title: scrubSecrets(doc.title || 'New session'), messages, secretsIncluded: false };
   }
 
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
@@ -759,7 +769,7 @@
     init, reset, serialize, all, list, search, setConnectorHandoff, connectorHandoff, automationOf, railGroups,
     exportConversation, parseConversationExport, clearConversation,
     previewArchive, archivePreview, canUndo, undoLast,
-    create, startSession, adopt, get, active, activeId: getActiveId, generalId: getGeneralId, isHidden, homeOf,
+    create, startSession, adopt, get, active, activeId: getActiveId, generalId: getGeneralId, isHidden, homeOf, titleOf,
     switch: switchTo, rename, setAgent, setLane, setProjectRoot, pin, archive, del, removeByAgent, isDeleted, touch, markUnread, markRead, unread: isUnread,
     autoTitle, retitle, deriveTitle, needsModelTitle, isLowSignal, titleBasis,
     finalDeliveryText, appendRun, noteRunEnd, recordDeliverable, addCost, costOf, noteModel, modelOf,

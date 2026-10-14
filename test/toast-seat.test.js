@@ -80,8 +80,8 @@ A.ok(/\.nav-coach/.test(body),
 // ---- 3 · it actually runs at the two moments that matter ---------------------------------
 A.ok(/seatToastRack\(stack\);/.test(ui),
   'toast() re-seats the rack before the card is visible (a rail drag may have moved the seam)');
-A.ok(/function reseatToasts\(\)[^\n]*seatToastRack\(document\.getElementById\('toast-stack'\)\)/.test(ui),
-  'reseatToasts() re-seats a card that is already on screen');
+A.ok(/function reseatToasts\(\)[^\n]*const st = document\.getElementById\('toast-stack'\); if \(st && st\.childElementCount\) seatToastRack\(st\);/.test(ui),
+  'reseatToasts() re-seats a card that is already on screen (and skips the layout read while the rack is empty: the next card seats at emit)');
 A.ok(/addEventListener\('resize'[\s\S]{0,900}reseatToasts\(\)/.test(ui),
   'the resize path calls it (a TEXT SIZE flip dispatches a synthetic resize, so that is covered too)');
 

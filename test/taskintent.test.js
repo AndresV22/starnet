@@ -65,6 +65,17 @@ A.eq(Policy.canMutate({ status: 'ready' }, { scope: 'write', briefExempt: true }
 A.eq(Policy.canMutate({ status: 'ready' }, { scope: 'write' }).ok, false, 'any other consequential tool still waits for brief_proceed');
 A.ok(/name: 'team\.summon'[^\n]*\n\s*briefExempt: true/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'tools', 'builtin', 'orchestration.js'), 'utf8')),
   'team.summon is the tool that carries briefExempt');
+// …and the REGISTERED tool keeps it: the host's gate reads registry.get(name), whose makeTool used to drop the flag, so every hire
+// was still "paused — settling the task first" on a live station (final-rc-seams live proof, 2026-10-14)
+{
+  const { makeRegistry } = require('../sidecar/tools/registry.js');
+  const reg = makeRegistry();
+  const hire = reg.register({ name: 'team.summon', capability: 'orchestrator', scope: 'write', requiresConsent: true, briefExempt: true, run: async () => ({ content: 'ok' }) });
+  const write = reg.register({ name: 'fs.write', capability: 'files', scope: 'write', requiresConsent: true, run: async () => ({ content: 'ok' }) });
+  A.eq(Policy.canMutate({ status: 'ready' }, reg.get('team.summon')).ok, true, 'the registered team.summon passes an unsettled brief (the flag survives registration)');
+  A.eq([hire.briefExempt, write.briefExempt], [true, false], 'only a tool that opts in is exempt');
+  A.eq(Policy.canMutate({ status: 'ready' }, reg.get('fs.write')).ok, false, 'a registered write still waits for brief_proceed');
+}
 
 // RECOMMENDATION MATCHING — a formatting slip must not silently cost the Commander the ★ suggestion, and a
 // rescue must never resolve to the WRONG chip. Every accepted form returns the CANONICAL option text.

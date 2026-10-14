@@ -8425,7 +8425,7 @@ const Chat = (() => {
     try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
     try { if (typeof App !== 'undefined' && App.persist) App.persist(); } catch (_) {}
   }
-  function streamLabel(w) { return (w && (w.title || (w.id === (typeof Workstreams !== 'undefined' && Workstreams.generalId && Workstreams.generalId()) ? 'General' : 'Untitled'))) || 'current stream'; }
+  function streamLabel(w) { return (w && (typeof Workstreams !== 'undefined' && Workstreams.titleOf ? Workstreams.titleOf(w) : (w.title || 'New session'))) || 'current stream'; }
   function workstreamList() {
     try { return (typeof Workstreams !== 'undefined' && Workstreams.list) ? Workstreams.list() : []; } catch (_) { return []; }
   }
@@ -8655,7 +8655,7 @@ const Chat = (() => {
   function branchWorkstreamCommand(args) {
     if (!activeWs || typeof Workstreams === 'undefined' || !Workstreams.create) return localLine('No active workstream to branch.');
     const src = activeWs;
-    const title = String(args || '').trim() || ((src.title || 'General') + ' branch');
+    const title = String(args || '').trim() || (Workstreams.titleOf(src) + ' branch');
     const ws = Workstreams.create(title, { agentId: src.agentId || 'agent', kind: src.kind === 'task' ? 'task' : 'chat' });   // a branch inherits the SOURCE stream's kind
     ws.history = (src.history || []).map(m => Object.assign({}, m));
     ws.lane = 'todo';

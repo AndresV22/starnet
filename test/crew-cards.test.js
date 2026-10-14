@@ -11,7 +11,9 @@ const vm = require('vm');
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'crewcards.js'), 'utf8');
 
-function load(startAt = 1000000) {
+// load(startAt) or load({ frames, startAt }): a number is the clock's start (the exact-run cases), an object the frame options
+function load(opts = {}) {
+  const startAt = typeof opts === 'number' ? opts : (typeof opts.startAt === 'number' ? opts.startAt : 1000000);
   const L = {};
   const bus = { on: (n, f) => (L[n] = L[n] || []).push(f) };
   const emit = (n, p) => (L[n] || []).forEach(f => f(p));
@@ -27,16 +29,22 @@ function load(startAt = 1000000) {
     querySelector: s => s === '.crew-name' ? name : s === '.crew-status' ? status : s === '.crew-clock' ? kids['crew-clock'] : s === '.crew-step' ? row._step : null
   };
   status.after = x => { row._step = x; };
-  let tick = null;
+  let tick = null, nextMs = null, tid = 0;
+  const timers = [], raf = [];
+  const win = {};
   const ctx = {
-    window: {},
+    window: win,
     U: { bus },
     Date: { now: () => t },
     document: { readyState: 'complete', querySelectorAll: () => [row], querySelector: () => null, getElementById: () => null,
       createElement: () => ({ className: '', textContent: '', setAttribute() {} }) },
     MutationObserver: class { observe() {} },
-    setInterval: (fn) => { tick = fn; return 1; }
+    // the paint loop is a setTimeout chain timed to the clock's next turn; the stub keeps the latest one (advance fires it now)
+    // and a real queue (frame() fires the due ones), so a page that draws frames can be stepped one frame at a time
+    setTimeout: (fn, ms) => { tick = fn; nextMs = ms; const id = ++tid; timers.push({ id, fn, at: t + Math.max(0, ms) }); return id; },
+    clearTimeout: (id) => { const i = timers.findIndex(x => x.id === id); if (i >= 0) timers.splice(i, 1); }
   };
+  if (opts.frames) ctx.requestAnimationFrame = (fn) => { raf.push(fn); return raf.length; };
   vm.runInNewContext(src, ctx);
   return {
     emit, cl,
@@ -44,7 +52,19 @@ function load(startAt = 1000000) {
     clock: () => (kids['crew-clock'] || {}).textContent,
     step: () => (row._step || {}).textContent,
     asking: () => cl.has('asking'),
-    elapsed: (runId, now = t) => ctx.window.CrewClock.elapsedForRun(runId, now)
+    elapsed: (runId, now = t) => win.CrewClock.elapsedForRun(runId, now),
+    nextMs: () => nextMs, crewClock: () => win.CrewClock,
+    // one animation frame: time moves, due timers fire, then the frame's rAF callbacks run (where the world draws its tag)
+    frame(ms = 16) {
+      t += ms;
+      for (let guard = 0; guard < 100; guard++) {
+        const due = timers.filter(x => x.at <= t).sort((a, b) => a.at - b.at)[0];
+        if (!due) break;
+        timers.splice(timers.indexOf(due), 1); due.fn();
+      }
+      raf.splice(0).forEach(f => f(t));   // every callback of a frame gets the same frame timestamp
+    },
+    at: (ms) => { t = ms; }, now: () => t
   };
 }
 
@@ -200,7 +220,55 @@ function load(startAt = 1000000) {
   A.eq(c.elapsed('zero', NaN), null, 'invalid observation time is unavailable, not a painted zero');
 }
 
-// 8) the page side: every way a question/approval is settled reaches the bus
+// 8) CREW turns its second in the same frame the world's desk tag does (review of rc walk #21: a free-running 1 s interval
+//    painted at the page's own phase, so the card read a second behind the tag that reads the same clock every frame)
+{
+  const c = load();
+  c.emit('agent.run.start', { agentId: 'nova', runId: 'r1' });
+  const t0 = c.now();
+  c.at(t0 + 2300); c.advance(0);                      // a paint 2.3 s into the run
+  A.eq(c.clock(), '0:02', 'fixture: 2.3 s reads 0:02');
+  A.eq(c.nextMs(), 700 + 1, 'with no animation frames the next paint is a timer just past the turn to 0:03 (700 ms on, +1): ' + c.nextMs());
+  c.advance(c.nextMs());
+  A.eq(c.clock(), '0:03', '…and the paint at that moment reads 0:03, as the world tag does');
+  A.eq(c.crewClock().msToNextSecond(c.now()), 1000 - 1 + 1, 'CrewClock answers the same next turn for any other timer readout');
+  c.emit('permission.prompt', { promptId: 'p1', agentId: 'nova', tool: 'fs.write' });
+  A.eq(c.nextMs(), 1001, 'a wait opening re-aims the tick, and a clock held on a wait on you never turns: the loop idles at 1 s');
+  // one run's own clock, by runId (a DELEGATED row names its worker's run)
+  c.at(c.now() + 30000);
+  A.eq(c.crewClock().elapsedOfRun('r1', c.now()), 3001, 'elapsedOfRun excludes the open wait on you: ' + c.crewClock().elapsedOfRun('r1', c.now()));
+  A.eq(c.crewClock().elapsedOfRun('r-never-seen', c.now()), null, 'a run this page never saw start has no clock here (null, never 0)');
+  c.emit('agent.run.start', { agentId: 'nova', runId: 'r2' });
+  c.emit('permission.response', { promptId: 'p1', decision: 'once' });
+  c.at(c.now() + 5000);
+  A.eq(c.crewClock().elapsedOfRun('r2', c.now()), 5000, 'a second run of the same agent keeps its own clock');
+  A.eq(c.crewClock().elapsedOf('nova', c.now()), 8001, 'the agent clock (CREW) is still its oldest run');
+}
+// 8b) on a page that draws frames, CREW repaints IN the frame the clock turns — the frame the world's desk tag (drawn each frame
+//     from this clock) turns in — and an atNextTurn readout (the DELEGATED row) repaints in that same frame
+{
+  const c = load({ frames: true });
+  const fmt = ms => { const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  c.frame(5);
+  c.emit('agent.run.start', { agentId: 'nova', runId: 'r1' });
+  const t0 = c.now();
+  let frames = 0, mism = 0, turns = 0, last = null;
+  const heard = [];
+  const listen = () => c.crewClock().atNextTurn(() => { heard.push({ crew: c.clock(), world: fmt(c.now() - t0) }); });
+  listen();
+  for (let i = 0; i < 400; i++) {   // 400 frames of 16.7 ms ≈ 6.7 s
+    c.frame(16.7);
+    frames++;
+    if (c.clock() !== fmt(c.now() - t0)) mism++;
+    if (c.clock() !== last) { turns++; last = c.clock(); }
+    if (i === 120) listen();
+  }
+  A.eq(mism, 0, 'CREW and the world tag never disagree on a frame (' + frames + ' frames, ' + turns + ' turns)');
+  A.ok(turns >= 6, 'the clock turned every second it ran: ' + turns);
+  A.ok(heard.length === 2 && heard.every(h => h.crew === h.world), 'atNextTurn fires once per ask, right after CREW paints, with CREW and the world agreeing: ' + JSON.stringify(heard));
+}
+
+// 9) the page side: every way a question/approval is settled reaches the bus
 {
   const chat = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'chat.js'), 'utf8');
   const clar = chat.slice(chat.indexOf('function clarifyRow('), chat.indexOf('function permissionRow('));

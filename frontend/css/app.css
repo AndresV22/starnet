@@ -5935,6 +5935,11 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
 .dlv-said { font-size: 12px; line-height: 1.5; color: var(--text); opacity: 0.85; white-space: pre-wrap;
   word-break: break-word; max-height: 190px; overflow: auto; padding-right: 4px;
   scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; }
+/* the closing message rendered (safeMarkdown: one block per line) — paragraphs and headings at the card's own size, no gaps */
+.dlv-said.md { white-space: normal; }
+.dlv-said.md p, .dlv-said.md h1, .dlv-said.md h2, .dlv-said.md h3 { margin: 0 0 6px; font-size: inherit; line-height: inherit; }
+.dlv-said.md h1, .dlv-said.md h2, .dlv-said.md h3 { color: var(--ph-bright); font-weight: normal; letter-spacing: .6px; }
+.dlv-said.md code { font-family: inherit; color: var(--ph-bright); }
 
 /* the file list — one row per artifact, each openable on its own */
 .dlv-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }

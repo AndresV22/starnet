@@ -53,7 +53,7 @@ function panelOn(st, opts) {
     sampleState: () => o.sample || null, sampleHTML: () => '<div class="fl-result bad">REFUSED</div>', stopSample: null
   };
   const headers = ['function sendChoices(outboxId)', 'function sendState(outboxId)', 'function sendTarget(outboxId)', 'function onwardNote()', 'function sendBlocked(outboxId, name)',
-    'function paintOutbox(body, f, p)', 'function sendDynHTML(f)', 'function jobResultHTML(mine, f)', 'function loopNotes(text)'];
+    'function paintOutbox(body, f, p)', 'function sendDynHTML(f)', 'function jobResultHTML(mine, f)', 'function loopNotes(text)', 'function notShippedNote(mine)'];
   // the panel's one SEND TO chip namer (floor lane's one line-name rule: the chip carries worldmodel.lineName) — a const arrow,
   // so it is sliced by its own line, not by fnBody
   const chipAt = panel.indexOf('  const sendChipName = c => ');

@@ -18,11 +18,13 @@
    A foreground worker that ended without delivering anything says exactly that — never "done". */
 const Delegated = (() => {
   const steps = new Map();   // worker runId -> { name, args } of its latest agent.tool_call
-  let ticker = 0, wired = false;
+  let ticker = 0, tickGen = 0, wired = false;
   const $log = () => document.getElementById('chat-log');
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const clock = ms => { const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const snap = () => (typeof Overseer !== 'undefined' && Overseer.snapshot && Overseer.snapshot()) || {};
+  // the instant CREW is painting when this repaint rides its turn (CrewClock.now), so the row reads exactly what CREW shows
+  const crewNow = () => (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.now === 'function') ? CrewClock.now() : Date.now();
   const has = (o, k) => typeof o !== 'undefined' && o && typeof o[k] === 'function';
 
   function agentOf(id) {
@@ -129,12 +131,17 @@ const Delegated = (() => {
       // the station stopped answering (Overseer.fresh): the last ledger can no longer vouch for this worker, so the row
       // claims neither working nor stopped — no live clock, no Stop key (a failed poll repaints at once)
       if (typeof Overseer !== 'undefined' && Overseer.fresh && !Overseer.fresh()) return { cls: 'unknown', live: 'status unknown — station unreachable', t: '' };
-      return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
+      // the worker's OWN run as CREW clocks it (every wait on the Commander excluded — rc walk #21: this branch still read the
+      // ledger's wall clock, so a worker that waited on an approval read a minute ahead of CREW and the world tag); the
+      // ledger's start only when this page never saw that run begin
+      const runMs = (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.elapsedOfRun === 'function' && w.runId) ? CrewClock.elapsedOfRun(w.runId, crewNow()) : null;
+      return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(typeof runMs === 'number' && isFinite(runMs) ? runMs : Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
     }
     // elapsedOf needs NOW: without it the clock read NaN and painted "0:00" for the whole run (live walkthrough 2026-10-13)
     if (C && C.isBusy && C.isBusy(k.id)) {
       // Only the current channel identifies this run; a historical run or the agent's oldest run may be its sibling.
-      const now = Date.now(), runId = C.runIdOf ? C.runIdOf(k.id) : null;
+      // Read at the instant CREW is painting (crewNow), so the row turns its second with CREW and the world tag.
+      const now = crewNow(), runId = C.runIdOf ? C.runIdOf(k.id) : null;
       const runMs = runId && typeof CrewClock !== 'undefined' && CrewClock.elapsedForRun ? CrewClock.elapsedForRun(runId, now) : null;
       return { cls: 'working', live: 'working', t: Number.isFinite(runMs) ? clock(runMs) : (C.elapsedOf ? clock(C.elapsedOf(k.id, now)) : '') };
     }
@@ -178,7 +185,8 @@ const Delegated = (() => {
   const stopping = new Set();
   const WORD = { recorded: 'delivered', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting', unknown: 'status unknown' };
   function names(list) {
-    const n = list.map(a => String(a.name || a.id));
+    // each agent once (rc walk #44: a re-dispatch read "Delegated to RESEARCH, COPY and COPY"); its rows below still list every task
+    const n = list.map(a => String(a.name || a.id)).filter((x, i, all) => all.indexOf(x) === i);
     return n.length <= 3 ? (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0] || '')
       : n.slice(0, 2).join(', ') + ' and ' + (n.length - 2) + ' more';
   }
@@ -411,8 +419,15 @@ const Delegated = (() => {
       }
     }
     const anyLive = list.some(b => b.rows.some(r => (r.worker && r.worker.status === 'running') || (typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(r.ws.id))));
-    if (anyLive && !ticker) ticker = setInterval(repaint, 1000);
-    if (!anyLive && ticker) { clearInterval(ticker); ticker = 0; }
+    // the clock tick rides CREW's own turn (CrewClock.atNextTurn: right after CREW paints, in the frame CREW and the world tag
+    // turn in), a 1 s timer only where that clock is absent; repaint re-arms it while anything is live (ticker -1 = armed on CREW)
+    if (anyLive && !ticker) {
+      const gen = ++tickGen;
+      const fire = () => { if (gen !== tickGen) return; ticker = 0; repaint(); };
+      if (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.atNextTurn === 'function') { ticker = -1; CrewClock.atNextTurn(fire); }
+      else ticker = setTimeout(fire, 1000);
+    }
+    if (!anyLive && ticker) { if (ticker > 0) clearTimeout(ticker); ticker = 0; tickGen++; }
   }
   function keyOf(el) {
     for (const a of ['data-dg-see', 'data-dg-stop', 'data-dg-toggle', 'data-dg-file', 'data-dg-question', 'data-dg-retry']) if (el.hasAttribute && el.hasAttribute(a)) return '[' + a + '="' + String(el.getAttribute(a)).replace(/["\\]/g, '\\$&') + '"]';

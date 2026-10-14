@@ -13,6 +13,14 @@
       return s ? '<p>' + s + '</p>' : '';
     }).join('');
   }
+  // markdown -> one plain line (a card's glance): links keep their words, heading/list/quote marks and **, __, `, * drop
+  function plainLine(raw) {
+    return String(raw || '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/(^|\n)\s{0,3}(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/g, '$1')
+      .replace(/(^|\s)#{1,6}\s+/g, '$1')   // a heading inside a summary the server already folded onto one line
+      .replace(/(\*\*|__|\x60)/g, '').replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s).,:;!?]|$)/g, '$1$2')
+      .replace(/\s+/g, ' ').trim();
+  }
   function csvRows(raw, maxRows, maxCols) {
     const rows = []; let row = [], cell = '', quoted = false;
     raw = String(raw || '').slice(0, 512 * 1024); maxRows = Math.max(1, maxRows || 50); maxCols = Math.max(1, maxCols || 20);
@@ -303,7 +311,8 @@
       // what you just read is the added complexity this pass exists to remove.
       // (a WORKFLOW job's row carries what the line delivered — the job record's own output — 10-03)
       const said = (run && run.deliveryText) || r.output || '';
-      const back = sec('WHAT CAME BACK', said ? '<div class="dlv-said">' + esc(said) + '</div>' : '');
+      // read as the agent wrote it — headings, bold, code — through the same safe renderer the file preview uses (rc walk #48: raw **marks**)
+      const back = sec('WHAT CAME BACK', said ? '<div class="dlv-said md">' + safeMarkdown(said) + '</div>' : '');
       // THE FILES — each openable on its own, with the size measured off disk.
       const fileRows = files.length
         ? '<ul class="dlv-files">' + (r.files || []).map((f, fi) => f.openUrl
@@ -324,9 +333,11 @@
       const pill = pillOf(r.status);
       const nFiles = (r.files || []).length;
       // THE SAY BAND — the agent's words, or an honest admission that there aren't any.
-      const say2 = r.authored
-        ? '<b class="dlv-title">' + esc(r.title || 'Untitled output') + '</b>' + (r.summary ? '<p class="dlv-sum">' + esc(r.summary) + '</p>' : '')
-        : '<b class="dlv-title plain">' + esc(r.title || 'Untitled output') + '</b>' + (r.summary ? '<p class="dlv-sum">' + esc(r.summary) + '</p>' : '<p class="dlv-sum none">the agent did not name this one</p>');
+      /* (rc walk #48) the one-line summary is read as plain words — a workflow job's summary is the head of its markdown answer,
+         and "**TEASER 1:**" on the glance is markup, not a sentence. An unnamed file says nothing under its name: its name and
+         the facts band are the plain facts ("the agent did not name this one" was an apology, not information). */
+      const sum = plainLine(r.summary);
+      const say2 = '<b class="dlv-title' + (r.authored ? '' : ' plain') + '">' + esc(r.title || 'Untitled output') + '</b>' + (sum ? '<p class="dlv-sum">' + esc(sum) + '</p>' : '');
       // THE FACTS BAND — every item here is provable from the run log.
       // "size unknown" is for a file we could not measure. A row with NO files has nothing to measure, so it says
       // so — the two are different facts and the wrong one reads as a failed read.
@@ -625,5 +636,5 @@
     if (!runId || !body || typeof body._deliverablesShowRun !== 'function') return false;
     body._deliverablesShowRun(runId, label); return true;
   }
-  return { esc, safeMarkdown, safeCsv, openUrl, fileHref, artifactPath, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, rowsForRun, BUCKETS };
+  return { esc, safeMarkdown, plainLine, safeCsv, openUrl, fileHref, artifactPath, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, rowsForRun, BUCKETS };
 });

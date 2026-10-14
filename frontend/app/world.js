@@ -8008,7 +8008,14 @@ const World = (() => {
       // only at a desk that is honestly in the working pose — a talk-only run never grows a clock
       const working = (b === agent) ? !!agent.working : !!(b.working || (b.workUntil && now < b.workUntil));
       if (!working) continue;
-      const sec = Math.max(0, Math.floor((now - t0) / 1000));
+      /* ONE CLOCK PER RUN (rc walk #21 #27): CREW and the DELEGATED row read CrewClock — the same run with every wait on the
+         Commander excluded — while this tag counted wall time from run start, so a run that waited 2 min on an approval read
+         RUN 6:05 here and 3:43 in CREW. It reads the same clock; the run's own start is the fallback when CREW has no live run. */
+      // (CrewClock is wall-clock ms; this frame's `now` is the rAF timestamp: CrewClock.frameNow turns it into the frame's one wall
+      // instant — the instant CREW paints its turn from in this same frame, so the two never straddle a second)
+      const wallNow = (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.frameNow === 'function') ? CrewClock.frameNow(now) : Date.now();
+      const crewMs = (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.elapsedOf === 'function') ? CrewClock.elapsedOf(aid, wallNow) : null;
+      const sec = Math.max(0, Math.floor((typeof crewMs === 'number' && isFinite(crewMs) ? crewMs : (now - t0)) / 1000));
       const mm = Math.floor(sec / 60), ss = String(sec % 60).padStart(2, '0');
       const label = 'RUN ' + (mm >= 60 ? Math.floor(mm / 60) + ':' + String(mm % 60).padStart(2, '0') + ':' + ss : mm + ':' + ss);
       // anchor beside the desk's crown (placed workstation, or the hero's synthetic desk), else above the body

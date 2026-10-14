@@ -478,4 +478,26 @@ const asyncChecks = [];   // the world.js poll check is async: A.report waits fo
   A.eq([writes, disk.length], [0, 0], 'nothing is written');
   A.ok(ledger.record({ lineId: 'L1', entryRunId: 'ok', streamId: 'ok', agentId: 'a', dockId: 'd', outboxId: 'o' }), 'the same job whole records');
 }
+/* DID THIS JOB COUNT IN SHIPPED? (rc walk #30: the panel said ✓ DELIVERED beside SHIPPED 0) — the job's own answer comes from the
+   very receipts SHIPPED counts: a productive job true, a text-only job false, an unreadable history null (unknown, never false),
+   and a receipt held while the history is unreadable true (it is counted once the history reads again) */
+{
+  let disk = [], broken = false;
+  const runs = { prod: { toolsOk: 1 }, talk: { toolsOk: 0, artifacts: [] }, held: { toolsOk: 2 } };
+  const ledger = makeLineShipments({ now: () => 7000, load: () => { if (broken) throw new Error('locked'); return disk; }, save: v => { disk = v.slice(); },
+    runsFor: sid => [Object.assign({ runId: sid, lineId: 'L1', streamId: sid, agentId: 'a', dockId: 'd', reason: 'done' }, runs[sid])] });
+  const job = id => ({ lineId: 'L1', entryRunId: id, streamId: id, agentId: 'a', dockId: 'd', outboxId: 'o' });
+  A.ok(ledger.record(job('prod')) && !ledger.record(job('talk')), 'a productive job ships; a text-only job is delivered but mints no receipt');
+  A.eq(ledger.jobShipped('L1', ['later-hop', 'prod']), true, 'the productive job counted in SHIPPED (any of its run ids may be the entry)');
+  A.eq(ledger.jobShipped('L1', ['talk']), false, 'the text-only job did not — the panel says so beside DELIVERED');
+  A.eq(ledger.jobShipped('L2', ['prod']), false, 'a receipt on another line is not this job\'s');
+  A.eq([ledger.jobShipped('', ['prod']), ledger.jobShipped('L1', [])], [null, null], 'no line or no runs: unknown, never a guess');
+  broken = true;
+  const fresh = makeLineShipments({ now: () => 7000, load: () => { if (broken) throw new Error('locked'); return disk; }, save: v => { disk = v.slice(); },
+    runsFor: sid => [Object.assign({ runId: sid, lineId: 'L1', streamId: sid, agentId: 'a', dockId: 'd', reason: 'done' }, runs[sid])] });
+  A.eq(fresh.jobShipped('L1', ['prod']), null, 'an unreadable history answers unknown (null), never "not shipped"');
+  fresh.record(job('held'));
+  A.eq(fresh.jobShipped('L1', ['held']), true, 'a receipt held while the history is unreadable counts (it is written once the history reads)');
+  broken = false;
+}
 Promise.all(asyncChecks).then(() => A.report());

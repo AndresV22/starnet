@@ -165,6 +165,20 @@ function makeLineShipments(options) {
     for (const r of held) if (r.at > at) at = r.at;
     return at || null;
   }
-  return { record, snapshot, held: () => held.length, missedAt: missed };
+  /* DID THIS JOB COUNT IN SHIPPED? (rc walk #30, 2026-10-13: the Workflow panel said "✓ DELIVERED" beside "SHIPPED 0" — a
+     text-only answer is delivered but, by the productive-work rule above, never a receipt). The job's own answer, read from
+     the same receipts SHIPPED counts: true = its receipt is in the saved history, or held to be written once the history
+     reads again (counted then) · false = the history was read and holds no receipt for it · null = the history cannot be
+     read and nothing is held for it (unknown, never false). runIds: the job's run ids (any of them may be its entry run). */
+  function jobShipped(lineId, runIds) {
+    const ids = new Set((Array.isArray(runIds) ? runIds : []).map(String));
+    if (!propId(lineId) || !ids.size) return null;
+    const mine = r => r.lineId === lineId && ids.has(r.entryRunId);
+    if (held.some(mine)) return true;
+    let current;
+    try { current = ensure(); } catch (_) { return null; }   // (ensure already noted why the history is unreadable)
+    return current.some(mine);
+  }
+  return { record, snapshot, held: () => held.length, missedAt: missed, jobShipped };
 }
 module.exports = { cleanShipments, validateShipments, makeLineShipments, loadShipmentReceipts, cleanJobRows, provenWork, SHIPMENT_KEEP_MS, SHIPMENT_KEEP_MAX };

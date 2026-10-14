@@ -1186,3 +1186,4 @@ test/ask-cards-readable.test.js
 test/desktop-custom-truth.test.js
 
 test/comms-press-sound.test.js
+test/rc-final-seams.test.js
