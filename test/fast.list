@@ -99,6 +99,8 @@ test/provider.openrouter.test.js
 test/provider.openai-compatible.test.js
 test/provider.ollama-native.test.js
 test/provider.ollama-system.test.js
+test/provider.host-notes.test.js
+test/provider.host-fences.test.js
 test/realtime-voice.test.js
 test/native-stt.test.js
 test/local-voice.test.js
@@ -109,6 +111,10 @@ test/provider.anthropic.test.js
 test/provider.anthropic.thinking-binding.test.js
 test/provider.claude-cli.test.js
 test/claude-cli-text-protocol.test.js
+test/claude-cli-persist.test.js
+test/claude-cli-persist-review.test.js
+test/claude-cli-persist-loop.test.js
+test/claude-cli-lifecycle.test.js
 test/provider-accounts.test.js
 test/claude-cli-login.test.js
 test/claude-cli-signin-engine.test.js
@@ -684,6 +690,7 @@ test/subagents.test.js
 test/orchestration.test.js
 test/builder-lend.test.js
 test/crew-call.test.js
+test/crew-diet.test.js
 test/domain-terminal.test.js
 test/worker-iteration-cap.test.js
 test/channels.test.js
@@ -1189,3 +1196,4 @@ test/desktop-custom-truth.test.js
 
 test/comms-press-sound.test.js
 test/rc-final-seams.test.js
+test/run-context.compaction.test.js

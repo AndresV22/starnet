@@ -109,7 +109,7 @@
     let i = 0;
     for (; i < (messages || []).length; i++) {
       const msg = messages[i];
-      if (!msg || msg.role !== 'system') break;
+      if (!msg || msg.role !== 'system' || provider.isRunContextNote(msg)) break;   // the run-context note rides the user side (provider.js)
       const text = textFromContent(msg.content).trim();
       if (text) system.push({ text });
     }

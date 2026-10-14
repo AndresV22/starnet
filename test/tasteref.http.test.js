@@ -7,6 +7,7 @@
 // another design run becomes the newest approval; everything survives a sidecar restart; the personalization pause stops
 // keep-style and says so.
 const A = require('./_assert.js');
+const { userWords } = require('./helpers/host-notes.js');   // the user's own words: the run-context note leads the newest user message on this wire
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -37,7 +38,7 @@ const mock = http.createServer((req, res) => {
     seen.push(body);
     const msgs = Array.isArray(body.messages) ? body.messages : [];
     let lastUser = -1; for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i] && msgs[i].role === 'user') { lastUser = i; break; }
-    const ask = lastUser >= 0 ? String(msgs[lastUser].content || '') : '';
+    const ask = lastUser >= 0 ? userWords(msgs[lastUser]) : '';
     const answered = msgs.slice(lastUser + 1).some(m => m && m.role === 'tool');
     const job = /DESIGN_JOB_(\w+)/.exec(ask);
     if (job && !answered) {

@@ -183,6 +183,16 @@ async function collect(provider, req) { const out = []; for await (const e of pr
     A.eq(plain.contents[0].parts[0], { text: 'hello' }, 'plain string user turn unchanged');
   }
 
+  // RUN CONTEXT NOTE (lean-prompt 2026-10-12): never hoisted into systemInstruction, even on a conversation's first
+  // message — it rides the user turn, so the system instruction is identical across the conversation's messages.
+  {
+    const note = require('../sidecar/providers/provider.js').runContextNote('[RUNTIME]\nRun id: r1');
+    const first = _internals.messagesToGemini([{ role: 'system', content: 'S' }, { role: 'system', content: note }, { role: 'user', content: 'hi' }]);
+    A.eq(first.systemInstruction, { parts: [{ text: 'S' }] }, 'first message: systemInstruction is the system prompt alone');
+    A.eq(first.contents.map(c => c.role), ['user'], 'first message: the note joins the user turn');
+    A.eq(first.contents[0].parts.map(p => p.text), [note, 'hi'], 'note text precedes the request, verbatim');
+  }
+
   A.eq(_internals.finishFor('MAX_TOKENS', false), 'length', 'MAX_TOKENS -> length');
   /* ---- THINKING. This adapter published ['none'] and sent no thinking parameter at all, so a Commander on
        their own Gemini key ran a NON-thinking Gemini. Two contracts, and sending BOTH to a Gemini 3 model is

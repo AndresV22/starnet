@@ -189,6 +189,7 @@ const kimiRegion = require('./providers/kimi-region.js');
 const { effectiveModel: resolveEffectiveModel, effectiveUsd, effectiveRunUsd } = require('./spend.js');
 const { makeEmitter } = require('../shared/emitter.js');
 const { redact, setKnownSecretSource, renderRecall, injectRecall, rank, makeContext, compactionMemoryBlock, compactionSummaryPrompt, RUN_CONTEXT_DEFAULTS, foldFreedEnough } = require('./context.js');
+const { runContextNote, crewCallFence } = require('./providers/provider.js');   // lean-prompt: the per-run <run_context> note and the trailing <crew_call> note (adapters share their predicates)
 const { makeSummarizer } = require('./compaction-summarizer.js');   // chunked context-compaction fold (Lane A)
 const EarlierConversation = require('./earlier-conversation.js');     // the turns COMMS's history window dropped, carried verbatim
 const { setStationSecretSource } = require('./child-env.js');   // station-secret-free env for every helper process
@@ -374,6 +375,7 @@ const WorkflowTakeover = require('./workflow-takeover.js');
 const TaskBriefPolicy = require('./taskbrief-policy.js');       // host validation + mutation boundary
 const { registerTaskBriefTools } = require('./taskbrief-tools.js'); // structured ask/proceed controls
 const CrewCall = require('./crew-call.js');   // names a crew member the Commander asked for at the END of the lead prompt
+const CrewDiet = require('./crew-diet.js');   // ZERO-CREW DIET: which crewless lead defers which part of the crew kit
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;    // shared TASK_QUESTION protocol + prompt doctrine
 const CommanderContext = require('./commander-context.js');    // bounded provenance-labelled task context
 const threadmine = require('./threadmine.js');                // NS-6: pure post-run thread-mining producer (reflect/study mold)
@@ -2047,6 +2049,8 @@ const agentRosterRaw = new Map();
 // push/load — a legacy on-disk { version:1, agents } (no updatedAt) loads as 0, so any first write is accepted.
 let agentRosterUpdatedAt = 0;
 const AGENT_ROSTER_FILE = path.join(WORKSPACES, 'agent.roster.json');
+// CREW = every roster agent other than the one running — the same rows the [ORCHESTRATION] "YOUR TEAM" list renders.
+function crewCountFor(agentId) { let n = 0; for (const aid of agentRoster.keys()) if (aid !== agentId) n++; return n; }
 function replaceAgentRoster(list) {
   agentRoster.clear();
   agentRosterRaw.clear();
@@ -20929,6 +20933,17 @@ async function runOnceCore(o) {
      Declared before the deferred pool is settled so tool.search can never offer — and announce as "Now available"
      — a name the loop will not reveal and dispatch would refuse. */
   const directDomainWithheld = (name) => !!directDomainTask && (/^team\./.test(name) || name === 'web_search');
+  /* ZERO-CREW DIET (lean-prompt, 2026-10-12). A lead whose live roster holds no crew still paid for the whole crew kit
+     on every task request: 8 team_* schemas (~7.5 KB) plus a ~5 KB [ORCHESTRATION] briefing about a team that does
+     not exist (measured on the default new-install floor: 88 tools / 108 KB per "tell me a joke"). With no crew, the
+     kit's crew-only part is DEFERRED (crew-diet.js CREW_KIT_DEFERRED: team.dispatch + the background controls) — still
+     granted, dispatchable and findable through tool_search, exactly like the station builder. team.summon (its result
+     reveals team.dispatch, so "summon a researcher and have it look into X" never has to search), team.spawn
+     (same-identity clones need no crew; a background spawn reveals its controls) and team.config / team.configure (the
+     lead's OWN Dossier) stay advertised. Only when tool.search is granted: a deferred name nothing can reveal is a
+     hidden tool. With any crew the request is byte-identical to before. KILL SWITCH: STARNET_LEAN_CREW=0 (and
+     SKYNET_TOOL_SEARCH=0) advertise it all. */
+  const crewless = CrewDiet.isCrewlessLead({ isTask, deferralOff, leanCrew: ENV('LEAN_CREW'), tools: resolved.tools, crewCount: crewCountFor(agentId) });
   let connectorDeferral = { deferred: [], servers: [] };
   let unavailable = { byTool: {}, bySignal: {} };
   {
@@ -20966,7 +20981,7 @@ async function runOnceCore(o) {
         routineRun: !!(surface === 'autonomous' && trigger === 'schedule' && String(o.cronJobId || ''))
       }, granted);
     }
-    const extra = connectorDeferral.deferred.concat(Object.keys(unavailable.byTool));
+    const extra = connectorDeferral.deferred.concat(Object.keys(unavailable.byTool), crewless ? CrewDiet.CREW_KIT_DEFERRED : []);
     resolved.deferred = deferred.concat(extra.filter(n => granted.has(n) && deferred.indexOf(n) < 0 && !directDomainWithheld(n)));
     resolved.unavailable = unavailable.byTool;
     const footprintSig = JSON.stringify([connectorDeferral.servers, unavailable.bySignal]);
@@ -22051,14 +22066,55 @@ async function runOnceCore(o) {
   // have this turn. It also cost ~2.6KB of prefill on every greeting — on a 3B local model that is real seconds.
   // Describe the granted tools, not the caller's desktop-only lead flag. Trusted owner
   // channel tasks receive orchestration above; workers and disabled toolsets do not.
+  // Two rule sets hold with or without crew, so both briefings carry them verbatim (crew > 0 stays byte-identical).
+  const stationPointers = 'A Dossier or notebook edit changes no Bay, brief or floor; to change the floor, tool_search "station builder" and claim only what station.build reports. To change any setting the Commander asks for, tool_search "station settings". '
+    + 'To explain or troubleshoot Bays and assembly lines (what runs, in what order, what starts a line, why a step is not running), read station.layout first and quote its status; never answer from memory.';
+  /* SESSIONS (2026-07-30): the lead can also RUN the station's sessions — and the peek rule exists because
+     of a live failure: asked "what did the researcher do?", a lead with no way to read the other session
+     GUESSED, and told the Commander their agent had done nothing when the work was sitting right there.
+     An agent that can check and doesn't is lying by negligence; truthful telemetry applies to prose too. */
+  const sessionsNote = '\n• SESSIONS: session_list shows every open session by title; session_create makes a named one '
+    + '("make a session called research"); session_focus opens one for the Commander; and passing session:"<title>" '
+    + 'on a team.dispatch worker runs and files that work INSIDE that session. '
+    + '⛔ To answer ANY question about another session\'s work ("what did the researcher do?", "did anything finish?"), '
+    + 'read it first with session_peek — NEVER answer from memory or assumption. Your own thread does not show other '
+    + 'sessions\' turns, so without peeking you would be guessing, and a guessed "nothing happened" about real finished '
+    + 'work is a lie the Commander will catch.';
+  // SPAWN and CREW CONFIGURATION hold with or without crew too (clones need no crew; the lead configures its OWN Dossier),
+  // and so does the project workspace: computed once, shared verbatim by both briefings.
+  const spawnLine = '\n• SPAWN temporary same-identity subagents with team.spawn for one-off parallel subtasks when no named specialist is needed. '
+    + 'Use background:true for watchable long-running spawned workers, then inspect/control them with team.subagents, team.interrupt, and team.resume. '
+    + 'When a running background worker needs a mid-flight correction or new information, use team.steer (pass the id and generation from team.subagents) instead of interrupting and restarting it.';
+  const crewConfigLine = '\n• CREW CONFIGURATION: use team.config to read Dossier documents, then team.configure to edit the requested agent by exact ID. '
+    + 'A notebook entry does not update another agent\'s Purpose or standing orders. Report a change only after the tool confirms it was saved. '
+    + 'Dossier Purpose and standing orders describe the ongoing role; Bay briefs add the workflow-stage job. '
+    + stationPointers;
+  let projectConversation = false;
   if (isTask && resolved.tools.includes('team.dispatch')) {
-    let projectConversation = false;
     try { projectConversation = !!(o.streamId && overseer.resolve(o.streamId).projectHome); }
     catch (error) {
       // Ordinary unsaved conversations need not exist in the coordination store.
       // Damaged/unavailable state is different: keep chat usable and report it.
       if (error.message !== 'no such session') failNote('project.context', error);
     }
+  }
+  let projectWorkspaceNote = '';
+  if (projectConversation) {
+    const project = projectsStore.get(o.projectRoot || '') || {};
+    projectWorkspaceNote = '\n[PROJECT WORKSPACE] This is the project\'s main conversation. Keep decisions and final results here. '
+      + 'Preferred crew: ' + JSON.stringify(project.preferredAgents || []) + '. These are preferences, not restrictions; involve other existing station agents as useful without asking for permission just to involve them. '
+      + 'Respect direct Commander steering on workers. Use concise task descriptions so the activity feed explains the actual work. Changing projects does not cancel this work.';
+  }
+  if (crewless) {
+    // ZERO-CREW DIET (see `crewless`): no team to list or coordinate — the recruit line, the pointer to the deferred
+    // dispatch kit, the project workspace, and the crew-independent SPAWN / CREW CONFIGURATION (station pointers
+    // included) / SESSIONS rules verbatim. The deferred names are also in [HARNESS]'s list.
+    teamNote = '\n\n[ORCHESTRATION] You are the lead orchestrator. You have no crew yet. When the Commander wants a new agent '
+      + '("create a research agent for me"), actually DO it with team.summon — don\'t just describe it or claim you cannot; '
+      + 'it returns the new agentId, and team.dispatch becomes callable to hand it work. team.dispatch is granted but not loaded '
+      + 'until then (tool_search "delegate subtasks" finds it); a background team.spawn makes its worker controls callable.'
+      + projectWorkspaceNote + spawnLine + crewConfigLine + sessionsNote;
+  } else if (isTask && resolved.tools.includes('team.dispatch')) {
     teamNote = '\n\n[ORCHESTRATION] You are the lead orchestrator. You can build and direct a crew for the Commander:';
     if (require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface })) teamNote += '\nCoordinate the Commander\'s existing station crew from this conversation. Handle simple work directly. '
       + 'Use the agents the Commander has already created, choosing by their roles and instructions. '
@@ -22070,12 +22126,7 @@ async function runOnceCore(o) {
       + 'Route follow-ups to existing work; inspect worker status and generation before steering. '
       + 'Project context stays scoped to the relevant thread; read its decisions before acting. '
       + 'A completed worker is evidence to review, not proof the overall objective is done.';
-    if (projectConversation) {
-      const project = projectsStore.get(o.projectRoot || '') || {};
-      teamNote += '\n[PROJECT WORKSPACE] This is the project\'s main conversation. Keep decisions and final results here. '
-        + 'Preferred crew: ' + JSON.stringify(project.preferredAgents || []) + '. These are preferences, not restrictions; involve other existing station agents as useful without asking for permission just to involve them. '
-        + 'Respect direct Commander steering on workers. Use concise task descriptions so the activity feed explains the actual work. Changing projects does not cancel this work.';
-    }
+    teamNote += projectWorkspaceNote;
     const lines = [];
     // S3: each crew line carries that specialist's EARNED track record when it has one (browser-computed,
     // coarse — see frontend/app/xp.js credential()). It INFORMS the pick, it never gates it: an agent that has
@@ -22097,9 +22148,7 @@ async function runOnceCore(o) {
       + (anyTrack ? '\n  A [bracketed] note is that specialist\'s REAL track record on this station — earned from work the '
         + 'Commander rated and runs the harness watched finish. Use it to pick the right worker; it is evidence, not a '
         + 'permission level, and an agent without one is simply new, not worse.' : '');
-    teamNote += '\n• SPAWN temporary same-identity subagents with team.spawn for one-off parallel subtasks when no named specialist is needed. '
-      + 'Use background:true for watchable long-running spawned workers, then inspect/control them with team.subagents, team.interrupt, and team.resume. '
-      + 'When a running background worker needs a mid-flight correction or new information, use team.steer (pass the id and generation from team.subagents) instead of interrupting and restarting it.';
+    teamNote += spawnLine;
     // Class Loadouts S1: the class list here is composed from the SHARED catalog (id + tagline), never hardcoded,
     // so the summon prose can't drift from the Recruitment Bay's actual classes as new ones are added.
     const classListLine = SPECIALIST_CLASSES.map(c => c.id + (c.tagline ? ' — ' + c.tagline : '')).join('; ');
@@ -22110,26 +22159,12 @@ async function runOnceCore(o) {
       + 'summon an agent, actually DO it with team.summon — don\'t just describe it or claim you cannot. '
       + 'For scheduled work, create StarNet routines with routine_create; if the work clearly belongs to a specialist '
       + '(research/news/latest => researcher/scout/analyst), target that agentId, or summon the specialist first.';
-    teamNote += '\n• CREW CONFIGURATION: use team.config to read Dossier documents, then team.configure to edit the requested agent by exact ID. '
-      + 'A notebook entry does not update another agent\'s Purpose or standing orders. Report a change only after the tool confirms it was saved. '
-      + 'Dossier Purpose and standing orders describe the ongoing role; Bay briefs add the workflow-stage job. '
-      + 'A Dossier or notebook edit changes no Bay, brief or floor; to change the floor, tool_search "station builder" and claim only what station.build reports. To change any setting the Commander asks for, tool_search "station settings". '
-      + 'To explain or troubleshoot Bays and assembly lines (what runs, in what order, what starts a line, why a step is not running), read station.layout first and quote its status; never answer from memory.';
-    /* SESSIONS (2026-07-30): the lead can also RUN the station's sessions — and the peek rule exists because
-       of a live failure: asked "what did the researcher do?", a lead with no way to read the other session
-       GUESSED, and told the Commander their agent had done nothing when the work was sitting right there.
-       An agent that can check and doesn't is lying by negligence; truthful telemetry applies to prose too. */
-    teamNote += '\n• SESSIONS: session_list shows every open session by title; session_create makes a named one '
-      + '("make a session called research"); session_focus opens one for the Commander; and passing session:"<title>" '
-      + 'on a team.dispatch worker runs and files that work INSIDE that session. '
-      + '⛔ To answer ANY question about another session\'s work ("what did the researcher do?", "did anything finish?"), '
-      + 'read it first with session_peek — NEVER answer from memory or assumption. Your own thread does not show other '
-      + 'sessions\' turns, so without peeking you would be guessing, and a guessed "nothing happened" about real finished '
-      + 'work is a lie the Commander will catch.';
+    teamNote += crewConfigLine;
+    teamNote += sessionsNote;
   } else if (isTask && Array.isArray(o.groupTools) && o.lead && resolved.tools.includes('station.build')) {
     teamNote = '\n\n[STATION — you lead this group chat] Change StarNet through its own tools, in the background, never through the screen: '
       + 'read assembly lines with station.layout first and quote its status; tool_search "station builder" for station.map (see the floor), station.plan (plan any change on a copy), '
-      + 'station.build (build a plan; the Commander approves each build), station.test_line and station.start_line; tool_search "station settings" for settings. '
+      + 'station.build (build a plan; it follows the Commander\'s approval setting), station.test_line and station.start_line; tool_search "station settings" for settings. '
       + 'Claim only what those tools report. Hand work to the other participants with group.handoff.';
   } else if (isTask && o.delegatedBy && resolved.tools.includes('station.build')) {
     // THE LENT BUILDER (team.dispatch builder:true): this worker holds the floor tools for this job only. Without this
@@ -22329,8 +22364,11 @@ async function runOnceCore(o) {
   // VERIFIED JOURNEY ADAPTATION: this is the behavioral half of the receipt the Commander sees. It is derived
   // exclusively from completed journey outcomes, is agent-specific, and disappears immediately when the
   // Commander suppresses that domain. It grants no tools or authority; it is a bounded planning prior.
+  // The cache-stable system prompt (stablePrefix, see CACHE-STABLE PREFIX below) carries the TIER-ONLY form: a count changes
+  // with every verified outcome and would re-write the cached prefix mid-conversation. The kill switch keeps the counted one.
+  const stablePrefix = !internal && !o.recovery && String(ENV('STABLE_PREFIX') || '').trim() !== '0';
   let journeyBlock = '';
-  if (!internal) { try { const jb = journeyStore.adaptationBlock(agentId); if (jb) journeyBlock = '\n\n' + jb; } catch (_) { journeyBlock = ''; } }
+  if (!internal) { try { const jb = journeyStore.adaptationBlock(agentId, { counts: !stablePrefix }); if (jb) journeyBlock = '\n\n' + jb; } catch (_) { journeyBlock = ''; } }
   /* DELIVERABLE NAMING — asked for at THE one final prompt seam, so every real-work surface gets it identically:
      the watched browser run, a cron routine, a Workshop shift, a messaging reply. Putting it on handleRun alone
      (as a first draft did) left the AWAY runs — the ones nobody watched and therefore most need a readable name —
@@ -22351,12 +22389,36 @@ async function runOnceCore(o) {
     + summarizeCapabilities((resolved.unavailable && Object.keys(resolved.unavailable).length)
         ? Object.assign({}, resolved, { tools: resolved.tools.filter(n => !Object.prototype.hasOwnProperty.call(resolved.unavailable, n)) })
         : resolved, { surface, ownerTrusted, unrestrictedHost: unrestrictedHostNow(), delegatedBy: o.delegatedBy || '', toolless: !isTask }) + skillBlock;
-  const taskSystem = FinishLine.append(cacheSystemPrefix + runtimeSkillBlock
-    + preloadedSkillBlock + serviceKeysBlock + taskIntentNote + awayBriefingNote + directDomainBlock + journeyBlock
-    + deliverableNote + crewCallNote + runtimeBlock, { isTask, internal, tools: resolved.tools });
+  /* CACHE-STABLE PREFIX (lean-prompt, 2026-10-12). Everything below that changes per MESSAGE — the run's skill index
+     (ranked by this message), a /skill preload, the Task Brief (its id is the run's), the away briefing, a one-host
+     check, the crew call, [RUNTIME] (run id, today) and the open quests — used to close the system prompt, so the
+     system differed on every message and the conversation behind it was never read from any provider's prefix cache
+     (measured 2026-10-11: system part 1 diverged at char 4,819 on every message; ~50 KB of history re-sent uncached).
+     It now rides ONE fenced <run_context> note placed with the newest user message, exactly where <recalled-memory>
+     goes (injected below), so the system prompt + tools are byte-identical across a conversation's messages and its
+     tool iterations (except the crew call: its own <crew_call> note right AFTER the newest user message, so it still
+     reads last — review 2026-10-12). Same text, same order — moved, not rewritten; the per-conversation blocks (service keys, the
+     Task Brief DOCTRINE, journey adaptation, the deliverable clause, FINISH THE JOB) stay in the system. The doctrine is
+     the constant half of the Task Brief directive (~4.4K): it rides exactly when the brief and its brief_* tools do —
+     every task message of a COMMS conversation — so it is as stable as the tool list; only the brief's own block
+     (<task_brief id="tb_<runId>">, ORIGINAL REQUEST, commander evidence) moves. Internal self-talk and recovery
+     continuations are untouched. The journey adaptation in the system is its tier-only form (no live counts).
+     KILL SWITCH: STARNET_STABLE_PREFIX=0 restores the old single system prompt. `stablePrefix` is declared above
+     journeyBlock. */
+  const taskDoctrine = taskBrief ? '\n\n' + TaskIntent.directive('') : '';                     // TaskIntent.directive(cx) = doctrine + '\n' + cx
+  const taskBriefContext = taskBrief && String(taskContextBlock || '').trim() ? '\n\n' + String(taskContextBlock).trim() : '';
+  // the crew call is NOT a run-context block: it trails the Commander's words as its own <crew_call> note (below)
+  const perRunBlocks = runtimeSkillBlock + preloadedSkillBlock + taskBriefContext + awayBriefingNote + directDomainBlock + runtimeBlock;
+  const taskSystem = stablePrefix
+    ? FinishLine.append(cacheSystemPrefix + serviceKeysBlock + taskDoctrine + journeyBlock + deliverableNote, { isTask, internal, tools: resolved.tools })
+    : FinishLine.append(cacheSystemPrefix + runtimeSkillBlock
+      + preloadedSkillBlock + serviceKeysBlock + taskIntentNote + awayBriefingNote + directDomainBlock + journeyBlock
+      + deliverableNote + crewCallNote + runtimeBlock, { isTask, internal, tools: resolved.tools });
   const sys = internal
     ? (String(system || '') + evidenceBlock)
-    : withQuests(taskSystem, questsBlock);   // ground-truth caps + task-context doctrine share the one final prompt seam
+    : stablePrefix ? taskSystem
+      : withQuests(taskSystem, questsBlock);   // ground-truth caps + task-context doctrine share the one final prompt seam
+  const runContext = stablePrefix ? runContextNote(withQuests(perRunBlocks, questsBlock)) : '';
   // H1.2: bulletproof resume — if this run arrives with NO prior history (a fresh restart whose browser save was
   // wiped, or any caller that only sent the new directive) AND it names an explicit workstream, seed the
   // conversation from the durable server transcript so the agent remembers the dialogue. Never overrides real
@@ -22442,6 +22504,20 @@ async function runOnceCore(o) {
         }
       }
     } catch (e) { failNote('run.earlierConversation', e); }
+  }
+  // CACHE-STABLE PREFIX: the per-run <run_context> note (see `stablePrefix`) takes the <recalled-memory> seam — a system
+  // note immediately before the newest user message, so the request still ends on that user turn. Injected FIRST, so
+  // recall (below) lands between it and the user turn: the same order the two had when the block closed the system.
+  if (runContext) msgs = injectRecall(msgs, runContext);
+  // THE CREW CALL TRAILS (review 2026-10-12; provider.js CREW CALL NOTE). crew-call.js wants its line "short,
+  // request-specific, and last"; inside the run-context note it sat BEFORE the Commander's words. It rides its own
+  // <crew_call> note right AFTER the newest user message instead, so every route reads it after the request (chat wire
+  // and Ollama: that turn's closing text; Claude: the next user turn) and it stays out of the cache-stable system.
+  const crewCall = stablePrefix ? crewCallFence(crewCallNote) : '';
+  if (crewCall) {
+    let at = msgs.length - 1;
+    while (at >= 0 && !(msgs[at] && msgs[at].role === 'user')) at--;
+    if (at >= 0) msgs = msgs.slice(0, at + 1).concat([{ role: 'system', content: crewCall }], msgs.slice(at + 1));
   }
   // Cortex (M-mem.3): surface the agent's OWN memory in-prompt — RANK it by relevance to this message
   // (BM25 + recency/trust/pin), inject the top few as a recalled-memory fence before the triggering user
