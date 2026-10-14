@@ -1252,6 +1252,24 @@ const WorldModel = (() => {
       return patch;
     }
 
+    /* A SEALING AIRLOCK MOVES A WHOLE ROOM'S DOORWAYS (2026-10-13). A room holding a closed or jammed airlock has no
+       boundary doors at all (projectGeometry), so placing, moving, pasting or removing one changes the walls along the
+       room's whole edge — not just under the airlock. Its footprint alone left BUILD MODE's chunked bake showing the old
+       doorways (~6.5k stale pixels sealing one room on the demo station); these edits now also name the rects of every
+       room such an airlock stands, or stood, in. `spots` are airlock-shaped {t, door, x, y}; anything else is skipped. */
+    function sealRoomRects(spots) {
+      const out = [], seen = new Set();
+      for (const s of spots) {
+        if (!s || s.t !== 'airlock' || !doorSeals(s.door)) continue;
+        const rid = roomAt(s.x, s.y);
+        if (!rid || seen.has(rid) || !doc.rooms[rid]) continue;
+        seen.add(rid);
+        for (const r of doc.rooms[rid].rects) out.push({ x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 });
+      }
+      return out;
+    }
+    const roomRectsAt = (x, y) => { const rid = roomAt(x, y), rm = rid && doc.rooms[rid]; return rm ? rm.rects.map(r => ({ x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 })) : []; };
+
     /* ---------- mutations ---------- */
     function addRoom(opts) {
       const kind = ROOM_KINDS[opts.kind] ? opts.kind : 'hab';
@@ -1711,7 +1729,7 @@ const WorldModel = (() => {
       applyJunctionCfg(prop, opts);   // a FILTER/MERGER carries its routes/def/bufferSize (inert on other props)
       if (cleanDoor(opts.door)) prop.door = opts.door;   // an AIRLOCK carries its seal state (inert on other props)
       doc.props.push(prop);
-      emit([{ x1: x, y1: y, x2: x + w - 1, y2: y + h - 1 }], { staticBakeUnchanged: t !== 'airlock' });
+      emit([{ x1: x, y1: y, x2: x + w - 1, y2: y + h - 1 }].concat(sealRoomRects([prop])), { staticBakeUnchanged: t !== 'airlock' });
       return { ok: true, id };
     }
 
@@ -1766,7 +1784,7 @@ const WorldModel = (() => {
       const p = doc.props[i];
       doc.props.splice(i, 1);
       if (p.t === 'intake') pruneSendTo();   // an OUTBOX that sent work to this INBOX now sends it nowhere (one undo with the delete)
-      emit([propFootprint(p)], { staticBakeUnchanged: p.t !== 'airlock' });
+      emit([propFootprint(p)].concat(sealRoomRects([p])), { staticBakeUnchanged: p.t !== 'airlock' });
       return { ok: true };
     }
 
@@ -1830,7 +1848,7 @@ const WorldModel = (() => {
       const before = propFootprint(p);
       if (!linked) {
         p.x = nx; p.y = ny;
-        emit([before, propFootprint(p)], { staticBakeUnchanged: p.t !== 'airlock' });
+        emit([before, propFootprint(p)].concat(sealRoomRects([Object.assign({}, p, { x: before.x1, y: before.y1 }), p])), { staticBakeUnchanged: p.t !== 'airlock' });
         return { ok: true };
       }
       // A LINKED MACHINE'S BELTS FOLLOW IT (conveyor-links phase B): each link to another machine is lifted and re-laid
@@ -1887,7 +1905,7 @@ const WorldModel = (() => {
         if (lost.length) return { ok: false, error: 'LINK_LOST', msg: 'moving these together would take up a belt link — move those machines one at a time (their belts follow)', lost };
         for (const id of ends) { const J = propById(id); if (J && isJunction(J)) syncJunctionCfg(J); }
         if (conv) { const no = moveRouteRefusal(routeBefore, linksBefore); if (no) return no; }
-        emit(dirty, { staticBakeUnchanged: !ps.some(q => q.t === 'airlock') });
+        emit(dirty.concat(sealRoomRects(ps.flatMap(q => [q, Object.assign({}, q, { x: q.x - dTx, y: q.y - dTy })]))), { staticBakeUnchanged: !ps.some(q => q.t === 'airlock') });
         return { ok: true, relaid };
       });
     }
@@ -3716,7 +3734,7 @@ const WorldModel = (() => {
         }
         // SEND TO inside the copy points at the copy's own INBOX
         for (const n of clip.nodes) if (n.sendTo && map[n.sendTo] && map[n.oid]) { const P = propById(map[n.oid]); if (P && P.t === 'outbox') P.sendTo = map[n.sendTo]; }
-        emit(dirty, { staticBakeUnchanged: !clip.nodes.some(n => n.t === 'airlock') });
+        emit(dirty.concat(sealRoomRects(made.map(propById))), { staticBakeUnchanged: !clip.nodes.some(n => n.t === 'airlock') });
         return { ok: true, ids: made, map, links: placed.map(l => l.id), belts: (clip.belts || []).length };
       }, (o && typeof o.label === 'string' && o.label) || 'PASTE');
     }
@@ -3904,7 +3922,7 @@ const WorldModel = (() => {
         doc.belts[beltKey(x, y)] = b.d;
         dirty.push({ x1: x, y1: y, x2: x, y2: y });
       }
-      emit(dirty, { staticBakeUnchanged: !bp.props.some(s => s.t === 'airlock') });   // machines + belts only, unless it brings a door
+      emit(dirty.concat(sealRoomRects(doc.props.filter(q => ids.includes(q.id)))), { staticBakeUnchanged: !bp.props.some(s => s.t === 'airlock') });   // machines + belts only, unless it brings a door
       return { ok: true, ids, props: bp.props.length, belts: bp.belts.length };
     }
 
@@ -4405,7 +4423,7 @@ const WorldModel = (() => {
       if (!s) return fail('BAD_STATE', 'door state must be open|closed|jammed');
       snapshot();
       if (s === 'open') delete p.door; else p.door = s;
-      emit([]);
+      emit([propFootprint(p)].concat(roomRectsAt(p.x, p.y)));   // sealing or opening changes that room's doorways, all round its edge
       return { ok: true, id: propId, door: p.door || 'open' };
     }
     // set/replace a FILTER's routes+def or a MERGER's bufferSize (cfg null/empty clears). Mirrors assignPropAgent.

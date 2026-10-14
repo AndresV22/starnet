@@ -119,6 +119,17 @@ for(const change of [()=>st.moveProp(door.id,1,0),()=>st.rotateProp(door.id,1),
 st.undo();assert.equal(patch.staticBakeUnchanged,undefined,'undoing an airlock edit re-bakes');
 assert.ok(patch.global&&patch.dirtyRects.length===0,'…the whole station (a sealed room drops every doorway it has)');
 st.redo();assert.ok(patch.global,'…and so does redoing it');
+// A SEALING AIRLOCK MOVES A WHOLE ROOM'S DOORWAYS: its edits name the room it stands in, not just its own tile
+const sr=st.rooms()[0].rects[0], covers=(rects,r)=>rects.some(q=>q.x1===r.x1&&q.y1===r.y1&&q.x2===r.x2&&q.y2===r.y2);
+const seal=st.addProp({t:'airlock',door:'closed',x:sr.x1+3,y:sr.y1+3,w:1,h:1});
+assert.ok(seal.ok&&covers(patch.dirtyRects,sr),'placing a closed airlock re-bakes its whole room');
+assert.ok(st.moveProp(seal.id,1,0).ok&&covers(patch.dirtyRects,sr),'…moving it too');
+assert.ok(st.setDoorState(seal.id,'open').ok&&covers(patch.dirtyRects,sr)&&!patch.global,'…opening it re-bakes that room, not the station');
+assert.ok(st.setDoorState(seal.id,'closed').ok&&covers(patch.dirtyRects,sr),'…closing it too');
+assert.ok(st.removeProp(seal.id).ok&&covers(patch.dirtyRects,sr),'…and removing it');
+const openLock=st.addProp({t:'airlock',x:sr.x1+3,y:sr.y1+3,w:1,h:1});
+assert.ok(openLock.ok&&patch.dirtyRects.length===1,'an open airlock seals nothing: its own tile is enough');
+assert.ok(st.removeProp(openLock.id).ok);
 const r0=st.rooms()[0];
 st.setFloor(r0.id,'cobalt');
 assert.equal(patch.staticBakeUnchanged,undefined,'floor changes still rebake');
