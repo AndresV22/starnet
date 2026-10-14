@@ -117,6 +117,9 @@ const workflow = new Function(build.slice(build.indexOf('*/', wbi) + 2, build.la
   A.eq(ok.usd, 0.0123, 'the total is the server\'s totalUsd, never re-summed locally');
   A.ok(ok.reply.length <= 81 && ok.reply.endsWith('…') && ok.reply.startsWith('Approved.'), 'the reply is the LAST delivered text, cut to ~80 chars');
   A.eq(ok.reason, null, 'no reason on success');
+  // (org D7 polish) SAID reads plain words: markdown marks are dropped and lines joined, never '## … **…**'
+  const md = pure.sampleResultView({ ok: true, delivered: { runId: 'r3' }, runs: [], replies: ['## This week in AI\n\n1. **Open models** close the [gap](https://x.y) - `v2` ships'] }, 200, nameOf);
+  A.eq(md.reply, 'This week in AI · 1. Open models close the gap - v2 ships', 'SAID strips headings, bold, links and code marks: ' + md.reply);
 
   const notDelivered = pure.sampleResultView({ ok: true, delivered: null, runs: [], replies: [], totalUsd: 0 }, 200, nameOf);
   A.ok(!notDelivered.ok, 'HTTP 200 without `delivered` does NOT tick ③ — the card asserts only what the harness proved');

@@ -303,6 +303,8 @@ body:has(.refit-workflow-editor):has(> .tut-coach:not(.kit)) > .tut-ring { visib
 .refit-tier { color: var(--gold); letter-spacing: 2px; text-shadow: 0 0 9px rgba(var(--gold-rgb), .45); }
 @media (prefers-reduced-motion: reduce) { .refit-levelup { animation: none; } }
 .refit-finline .fl-title { color: var(--ink); background: var(--ph); padding: 1px 8px; font-size: 13px; letter-spacing: 1.5px; }
+/* (org D7 polish) a long line name or step wraps into even lines ('FINISH RESEARCH · / DIG & WRITE'), never one stranded word */
+.refit-finline .fl-title, .refit-finline .fl-step { text-wrap: balance; }
 .refit-finline .fl-x { display: flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 22px; }
 .refit-finline .fl-step {
   display: flex; align-items: center; text-align: left; width: 100%; margin-top: 4px;

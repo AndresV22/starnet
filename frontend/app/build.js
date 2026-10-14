@@ -3674,7 +3674,13 @@ const Build = (() => {
     const usd = (typeof r.totalUsd === 'number' && isFinite(r.totalUsd)) ? r.totalUsd : null;
     const replies = Array.isArray(r.replies) ? r.replies : [];
     const last = replies.length ? String(replies[replies.length - 1] || '') : '';
-    const clean = last.replace(/\s+/g, ' ').trim();
+    // (org D7 polish) SAID is a glance, not a renderer: the reply's markdown marks (## headings, **bold**, list bullets, code fences,
+    // [link](url)) are dropped and its lines joined with ' · ', so the card never shows '## This week in AI 1. **Open…'
+    const plain = last.replace(/```[^\n]*\n?/g, '').split('\n')
+      .map(s => s.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s*(?:[-*+]|>)\s+/, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/(\*\*|__)(\S(?:.*?\S)?)\1/g, '$2').replace(/`([^`]*)`/g, '$1').trim())
+      .filter(Boolean).join(' · ');
+    const clean = plain.replace(/\s+/g, ' ').trim();
     const reply = clean.length > 80 ? clean.slice(0, 80) + '…' : clean;
     const ok = !!r.ok && !!r.delivered;
     const reason = ok ? null : (r.error ? String(r.error) : ('sample refused (HTTP ' + (status == null ? '?' : status) + ')'));
