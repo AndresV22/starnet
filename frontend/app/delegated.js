@@ -177,7 +177,8 @@ const Delegated = (() => {
   const stopping = new Set();
   const WORD = { recorded: 'delivered', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting', unknown: 'status unknown' };
   function names(list) {
-    const n = list.map(a => String(a.name || a.id));
+    // each agent once (rc walk #44: a re-dispatch read "Delegated to RESEARCH, COPY and COPY"); its rows below still list every task
+    const n = list.map(a => String(a.name || a.id)).filter((x, i, all) => all.indexOf(x) === i);
     return n.length <= 3 ? (n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n[0] || '')
       : n.slice(0, 2).join(', ') + ' and ' + (n.length - 2) + ' more';
   }
