@@ -28,7 +28,7 @@ const Systems = (() => {
      is offline; tip = what it is (the hover tip, never a sentence under a tile). */
   const LIST = [
     { id: 'agents', label: 'AGENTS', group: 'crew', sel: '.bb[data-term="agents"]', terms: ['agents', 'logbook', 'rewind'], start: true, tip: 'Each crew member’s dossier — config, memory, record' },
-    { id: 'recruit', label: 'RECRUIT', group: 'crew', sel: '#bb-recruit', words: ['RECRUIT', 'RECRUITMENT BAY'], start: true, tip: 'Recruit a class, or re-spec your agent' },
+    { id: 'recruit', label: 'RECRUIT', group: 'crew', sel: '#bb-recruit', words: ['RECRUIT', 'RECRUITMENT BAY'], start: true, tip: 'Pick a class, or re-spec your agent' },
     { id: 'commander', label: 'YOU', group: 'crew', sel: '.bb[data-term="commander"]', terms: ['commander'], start: true, tip: 'What the station has learned about you' },
     { id: 'stepin', label: 'STEP-IN', group: 'crew', sel: '.bb[data-term="stepin"]', terms: ['stepin'], words: ['STEP-IN'], how: 'when an agent needs you to take its browser', tip: 'Take an agent’s browser when it needs you to sign in' },
     // ONE MENU (2026-10-01): MY WORK / AUTOMATE / CONNECT are each one dock button over several windows (stationui
@@ -40,7 +40,7 @@ const Systems = (() => {
     { id: 'connect', label: 'CONNECT', group: 'build', sel: '#bb-connect', terms: ['connectors', 'skills', 'messaging'], words: ['ABILITIES', 'CHANNELS'], start: true, tip: 'Services your agents use, and where you message them' },
     { id: 'newapp', label: 'NEW APP', group: 'build', sel: '#bb-newapp-build', start: true, tip: 'Describe anything and your crew builds it in its own window' },
     { id: 'manual', label: 'FIELD MANUAL', group: 'system', sel: '.bb[data-term="manual"]', terms: ['manual'], start: true, tip: 'First mission, controls and the station handbook' },
-    { id: 'settings', label: 'SETTINGS', group: 'system', sel: '.bb[data-term="settings"]', terms: ['settings'], start: true, tip: 'AI models & keys, permissions, spending, look & sound' },
+    { id: 'settings', label: 'SETTINGS', group: 'system', sel: '.bb[data-term="settings"]', terms: ['settings'], start: true, tip: 'Models, keys, permissions, spending & more' },
     { id: 'updates', label: 'UPDATES', group: 'system', sel: '.bb[data-term="updates"]', terms: ['updates'], start: true, tip: 'Version and release notes' },
     { id: 'notifs', label: 'NOTIFICATIONS', group: 'system', sel: '.bb[data-term="notifs"]', terms: ['notifs'], start: true, tip: 'Alerts and unread events' }
   ];

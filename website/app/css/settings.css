@@ -1,6 +1,6 @@
 /* Settings: shared glass language, scoped to this console and its expanded controls. */
 .settings-console .con-pane { padding: 22px; container: settings-pane / inline-size; }
-.settings-console .con-sec-desc { font-size: 16px; line-height: 1.5; margin-bottom: 20px; }
+.settings-console .con-sec-desc { font-size: 16px; line-height: 1.5; margin-bottom: 20px; text-wrap: pretty; }   /* no lone last word under a section head */
 .settings-console.sn-menu .con-rail-list { padding: 8px; gap: 4px; }
 .settings-console.sn-menu .con-rail-item { flex: 0 0 auto; min-height: 36px; grid-template-columns: 16px minmax(0,1fr); gap: 8px; padding: 8px 10px; margin: 0; border-radius: 7px; background: transparent; font-size: 14px; line-height: 1.25; }
 .settings-console.sn-menu .con-rail-label { font-size: 14px; letter-spacing: .15px; line-height: 1.25; }
@@ -75,6 +75,15 @@
 .settings-console .key-prov { font-size: 16px; }
 .settings-console .key-meta { font-size: 13px; line-height: 1.5; }
 .settings-console .key-acts { display: flex; flex-wrap: wrap; gap: 7px; }
+/* org P04 polish: a saved row's address chip (a CUSTOM endpoint URL) wraps inside its own column, never under the keys */
+.settings-console .key-mask { max-width: 100%; overflow-wrap: anywhere; }
+/* a narrow pane: the keys drop under the name and model as one wrapping row, so the model line keeps the row's width
+   (a 4-key CUSTOM column left "model" alone on its line). 21px = the lamp (9) + the row gap (12). */
+@container settings-pane (max-width: 460px) {
+  .settings-console .key-row { flex-wrap: wrap; }
+  .settings-console .key-main { flex: 1 1 calc(100% - 21px); }
+  .settings-console .key-acts { flex: 1 1 100%; flex-direction: row; padding-left: 21px; }
+}
 .settings-console .ns-grid { gap: 12px; }
 .settings-console .ns-cell { border-radius: 9px; padding: 14px; border-color: rgba(var(--ph-rgb), .16); background: rgba(0,0,0,.1); }
 .settings-console .ns-k { font-size: 12px; margin-bottom: 7px; }

@@ -1153,7 +1153,7 @@ const Tutorial = (() => {
   const FM_TABS = ['FIRST MISSION', 'CONNECT PLATFORMS', 'CONTROLS', 'CREW', 'GEAR', 'LINES', 'PROGRESS', 'HELP'];
   // STATION SYSTEMS: on a growing dock some paths a chapter names are not buttons yet — say where every one of them is.
   // ONE note, printed in every chapter that names a staged system (FIRST MISSION, CREW, LINES, HELP — org P10).
-  const stagedNote = () => ((typeof Systems !== 'undefined' && Systems.staged && Systems.staged()) ? '<p class="fm-note">Your dock adds buttons as you use the station. Any place named here that is not in your dock yet opens from <b>WORK › QUESTS › Progress</b>, which lists every station system.</p>' : '');
+  const stagedNote = () => ((typeof Systems !== 'undefined' && Systems.staged && Systems.staged()) ? '<p class="fm-note">Your dock adds buttons as you use the station. Any place named here that is not in your dock yet opens from <b>WORK › QUESTS › PROGRESS</b>, which lists every station system.</p>' : '');
   function fmContent(tab) {
     if (tab === 'CONNECT PLATFORMS') {
       return '<p class="fm-lead">Bring the apps you already use into your station. What would you like to connect?</p>'

@@ -6,7 +6,7 @@ const AutonomyStore = (() => {
   let state = null, loaded = false, error = '', pending = 0, epoch = 0;
   let tail = Promise.resolve();
   const listeners = new Set();
-  const RESUMED = 'Automation resumed — schedules and away work will run again';
+  const RESUMED = 'AUTOMATION RESUMED: schedules and away work will run again';   // a labeled toast: the stamp rides the label's row
   const ready = () => typeof Autonomy !== 'undefined';
   const floor = () => ready() ? Autonomy.fresh() : { v: 1, initiative: 'wait', reach: 'sandbox', leashPerDay: 3 };
   const normalize = value => ready() ? Autonomy.normalize(value) : floor();
@@ -63,7 +63,7 @@ const AutonomyStore = (() => {
     if (s && s.actsUnattended) return RESUMED;
     const id = (posture && posture.initiative) || 'wait';
     const rung = (typeof StationUI !== 'undefined' && StationUI.initiativeLabel) ? StationUI.initiativeLabel(id) : String(id).toUpperCase();
-    return 'Automation resumed — schedules will run again; away work stays off at ' + rung;
+    return 'AUTOMATION RESUMED: schedules run again; away work stays off at ' + rung;
   }
   function announceResume(posture) {
     try { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(resumedText(posture), 'good'); } catch (e) { console.warn('[autonomy] resume notice failed:', (e && e.message) || e); }

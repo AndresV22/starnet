@@ -1809,11 +1809,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function crewPortrait(a) {
     return '<span class="crew-portrait" aria-hidden="true"><img alt="" draggable="false" hidden></span>';
   }
+  // the empty-crew mark: the dock's own AGENTS line icon (glass-demo.js menuPaths.agents), drawn as SVG — the '▯' glyph
+  // came from a fallback font and read as a missing-font box above NO AGENTS ON STATION
+  const NO_AGENTS_MARK = '<span class="es-glyph" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="M5 2h6v5H5zM3 14v-4h10v4"/></svg></span>';
   function crewRender() {
     wireCrewLive();   // ensure the per-agent run-state listener is live
     const ul = $('#crew'); if (!ul) return;
     if (!present.length) {
-      ul.innerHTML = '<li class="crew-empty"><div class="empty-state"><span class="es-glyph">▯</span><b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div></li>';
+      ul.innerHTML = '<li class="crew-empty"><div class="empty-state">' + NO_AGENTS_MARK + '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div></li>';
       $('#crew-sum').innerHTML = '';
       return;
     }
@@ -3422,7 +3425,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (dossierWindow) dossierWindow.classList.add('agent-dossier');
     if (!present.length) {
       // shared empty-state vocabulary rather than a bare paragraph (no agents = nothing to dossier)
-      body.innerHTML = '<div class="empty-state" style="margin:32px auto;"><span class="es-glyph">▯</span>' +
+      body.innerHTML = '<div class="empty-state" style="margin:32px auto;">' + NO_AGENTS_MARK +
         '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div>';
       return;
     }
@@ -5896,9 +5899,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '</div>' +
         '<div class="key-edit" id="pool-edit-' + i + '" hidden>' +
         '<input type="password" class="key-input" id="pool-in-' + i + '" placeholder="paste spare keys, separated by commas…" autocomplete="off" spellcheck="false">' +
-        '<button class="bb sm" data-act="pool-save" data-i="' + i + '">REPLACE POOL</button>' +
-        '<button class="bb sm danger" data-act="pool-clear" data-i="' + i + '">CLEAR POOL</button>' +
-        '<span class="dim">up to 8 · scoped only to ' + esc(provName(k.provider)) + ' · failed saves restore the prior pool or report an incomplete rollback</span>' +
+        '<button class="bb sm" data-act="pool-save" data-i="' + i + '">SAVE SPARE KEYS</button>' +
+        '<button class="bb sm danger" data-act="pool-clear" data-i="' + i + '">CLEAR SPARE KEYS</button>' +
+        '<span class="dim">up to 8 · scoped only to ' + esc(provName(k.provider)) + ' · a failed save keeps your previous spare keys or reports an incomplete rollback</span>' +
         '</div>' +
         baseBlock;
     });
@@ -6044,7 +6047,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         } else if (act === 'pool-save' || act === 'pool-clear') {
           const inp = body.querySelector('#pool-in-' + i);
           const keys = act === 'pool-clear' ? [] : String((inp && inp.value) || '').split(/[\n,;]+/).map(v => v.trim()).filter(Boolean);
-          if (act === 'pool-save' && !keys.length) { notify('paste at least one spare key, or use CLEAR POOL', 'bad'); sfx('bad'); return; }
+          if (act === 'pool-save' && !keys.length) { notify('paste at least one spare key, or use CLEAR SPARE KEYS', 'bad'); sfx('bad'); return; }
           Promise.resolve(h.validateAndSetKeyPool ? h.validateAndSetKeyPool(keys, row.provider) : h.setKeyPool(keys, row.provider)).then(res => {
             const count = (res && typeof res === 'object') ? Number(res.count) || 0 : res;   // { count, engine } (#89); a bare count from older hosts
             notify(count ? ('✓ ' + count + ' verified spare key' + (count === 1 ? '' : 's') + ' active only for ' + provName(row.provider)) : ('cleared spare keys for ' + provName(row.provider)), count ? 'good' : 'warn');
@@ -7630,7 +7633,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<div class="key-list">' + keysHtml() + '</div>' +
       '<p class="set-about">Credentials are saved locally and used to authenticate with the selected service. Saved keys stay masked. Desktop storage uses the OS keychain when available.</p>' +
       // org P05: model keys live here; keys for services live in CONNECT › ABILITIES — one door, the places.js api-connections target
-      '<p class="set-about">Keys for Gmail, Notion and other services live in CONNECT › ABILITIES. <button type="button" class="bb sm" data-act="to-service-keys">▸ SAVED API CONNECTIONS</button></p>' +
+      // (the key sits OUTSIDE the .set-about prose: that paragraph's 0.55 reading-dim greyed it into a disabled-looking key)
+      '<p class="set-about">Keys for Gmail, Notion and other services live in CONNECT › ABILITIES.</p>' +
+      '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-keys">↗ SAVED API CONNECTIONS</button></div>' +
       // STORE / MANAGED CREDITS — rendered ONLY when the sidecar reports a configured credits backend (/api/credits).
       // When credits aren't wired this stays an empty node (no dead card, no fake balance — the honesty law). wireCredits
       // fetches the real balance + history and the external purchase link; buying opens a browser tab, never an in-app form.
@@ -8140,7 +8145,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let paintBackdropSwatches = () => {};
 
     const sections = [
-      { id: 'providers', label: 'AI & MODELS', glyph: '⌁', desc: 'Connect an AI service, manage its saved credentials, and choose fallback models and defaults for new agents.', build: frag(secProviders + secModels) },
+      { id: 'providers', label: 'AI & MODELS', glyph: '⌁', desc: 'Connect an AI service, manage its saved keys, and choose fallback models and agent defaults.', build: frag(secProviders + secModels) },
       // ONE WORD: AUTONOMY — the dial and what it did while you were away are one section (the old NIGHT SHIFT
       // section folded in; openTerm maps its id here so an old deep link still lands).
       { id: 'autonomy', label: 'AUTONOMY', glyph: '◈', desc: 'Choose when agents work on their own, where that work goes, and see what they did while you were away.', build: frag(secAutonomy + secAwayActivity) },
@@ -11782,7 +11787,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     toggleTerm(key, def[0], def[1], def[2]);
   }
   /* org P03 — an error door lands ON the provider's card, not at the top of a long AI & MODELS page. Opens the
-     section, scrolls the card to the top of the pane (the CONFIG jump's offsetTop landing, never scrollIntoView's
+     section, scrolls the card a quarter-pane from the top (the CONFIG jump's offsetTop landing, never scrollIntoView's
      minimum scroll) and marks it for a moment. `signin` presses the card's own ⏼ SIGN IN / ⏼ RECONNECT — the same
      prov-oauth-signin flow a click starts; on a card that shows no such key (a sign-in still listed as connected) it
      starts that same card flow itself (startCardSignin), so a RECONNECT door always reconnects.
@@ -11799,9 +11804,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const card = w && w.querySelector('.prov-card[data-provider="' + id + '"]');
       if (!card) { if (++tries < 12) setTimeout(land, 250); return; }
       const pane = card.closest('.con-pane');
-      if (pane) pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - 8);
+      // a quarter-pane lift, not flush to the top: the cards above stay in view, so the landing reads as a place in
+      // AI & MODELS rather than a lone card with no context
+      if (pane) pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - Math.min(120, Math.round(pane.clientHeight * 0.25)));
+      // the mark stays until the Commander touches the window (or ~8s): a 2.4s flash was gone before the card was read
       card.classList.add('prov-landed');
-      setTimeout(() => card.classList.remove('prov-landed'), 2400);
+      const unmark = () => { card.classList.remove('prov-landed'); w.removeEventListener('pointerdown', unmark, true); };
+      w.addEventListener('pointerdown', unmark, true);
+      setTimeout(unmark, 8000);
       // a sign-in door RUNS the sign-in: the card's own key when it shows one, else the same card flow directly — a
       // RECONNECT door can name a sign-in the station still lists as connected (a mid-run 401 the sidecar has not
       // marked expired yet), and that card shows no key to press. The flow's box is drawn from state, so the
