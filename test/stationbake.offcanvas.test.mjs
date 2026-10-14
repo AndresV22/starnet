@@ -8,7 +8,9 @@
    material). This counts, in a real page with the industrial textures loaded, the draw calls a chunked bake makes whose
    destination misses the canvas they are made on.
    ...and a face strip the industrial atlas does not cover (glass, here) is rendered and read back once, not on every bake:
-   the second bake of the same floor reads no strip back at all. */
+   the second bake of the same floor reads no strip back at all.
+   ...and the light maps' dither readbacks (a GPU readback waits for every draw queued before it, the chunk's whole dense
+   plate) run together after the call's last chunk, never between one chunk's walls and the next. */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer as createHttp } from 'node:http';
@@ -82,17 +84,23 @@ function probe() {
     if (misses(this, x, y, w, h)) tally.drawImage[1]++;
     return orig.drawImage.apply(this, a);
   };
-  // a face strip is a 48px-wide canvas (STRIP_TILES tiles) read back once rendered
-  const getImageData = P.getImageData, strips = [0, 0];
+  // a face strip is a 48px-wide canvas (STRIP_TILES tiles) read back once rendered; a chunk's light map is a CHUNK_PX
+  // square read back for its dither (and the only one: the scratch rasters the bake reads are taller)
+  const getImageData = P.getImageData, strips = [0, 0], fillRect = P.fillRect, lights = { n: 0, drawsBetween: 0, drawsSince: 0 };
   let pass = 0;
-  P.getImageData = function (...a) { if (this.canvas.width === 48) strips[pass]++; return getImageData.apply(this, a); };
+  P.getImageData = function (...a) {
+    if (this.canvas.width === 48) strips[pass]++;
+    if (pass === 0 && this.canvas.width === SB.CHUNK_PX && this.canvas.height === SB.CHUNK_PX) { if (lights.n++) lights.drawsBetween += lights.drawsSince; lights.drawsSince = 0; }
+    return getImageData.apply(this, a);
+  };
+  P.fillRect = function (...a) { lights.drawsSince++; return fillRect.apply(this, a); };
   let baked;
   try {
     baked = SB.bakeIncremental(geo, null, null);
     P.fillRect = orig.fillRect; P.drawImage = orig.drawImage;
     pass = 1; SB.bakeIncremental(geo, null, null);
   } finally { P.fillRect = orig.fillRect; P.drawImage = orig.drawImage; P.getImageData = getImageData; }
-  return { textures: IndustrialTextures.status(), rooms: st.rooms().length, W: geo.W, H: geo.H, chunks: baked.chunkMap.size, tally, strips };
+  return { textures: IndustrialTextures.status(), rooms: st.rooms().length, W: geo.W, H: geo.H, chunks: baked.chunkMap.size, tally, strips, lights };
 }
 
 let chrome, cdp, profile, failed = false;
@@ -123,6 +131,9 @@ try {
   console.log('  face strips read back: ' + r.strips[0] + ' on the first bake, ' + r.strips[1] + ' on the second');
   assert.ok(r.strips[0] > 0, 'the first bake renders the face strips the floor needs');
   assert.equal(r.strips[1], 0, 'a second bake of the same floor renders and reads back no face strip again');
+  console.log('  light-map dithers: ' + r.lights.n + ' readbacks, ' + r.lights.drawsBetween + ' fillRects between the first and the last');
+  assert.equal(r.lights.n, r.chunks, 'every chunk dithers its light map once');
+  assert.equal(r.lights.drawsBetween, 0, 'the dither readbacks run together after the last chunk, not between chunks');
   console.log('stationbake.offcanvas: a chunk bake paints its own square — ' + (share('fillRect') * 100).toFixed(1) + '% fillRect, ' + (share('drawImage') * 100).toFixed(1) + '% drawImage off the canvas');
 } catch (error) { failed = true; console.error(error.stack || error); }
 finally {

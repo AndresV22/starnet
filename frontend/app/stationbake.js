@@ -4634,7 +4634,8 @@ const StationBake = (() => {
          bake paths skip together, so parity holds there too.
      DEPTH.dither = mix between the smooth original and the fully dithered result (0 = off). */
   const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-  function ditherLight(L, w, h) {
+  // (vx, vy: the canvas's origin in bake px — the Bayer phase is keyed to it; a deferred dither passes its own chunk's)
+  function ditherLight(L, w, h, vx = VX, vy = VY) {
     const k = Math.max(0, Math.min(1, DEPTH.dither));
     if (k <= 0.001) return;
     if (typeof L.getImageData !== 'function' || typeof L.putImageData !== 'function') return;
@@ -4642,12 +4643,12 @@ const StationBake = (() => {
     const d = img.data;
     const STEPS = 5;   // alpha quantized to 6 hard values (0, 51, 102 … 255)
     for (let y = 0; y < h; y++) {
-      const row = ((y + VY) & 3) << 2;
+      const row = ((y + vy) & 3) << 2;
       for (let x = 0; x < w; x++) {
         const i = ((y * w + x) << 2) + 3;
         const a = d[i];
         if (!a || a === 255) continue;
-        const t = (BAYER4[row | ((x + VX) & 3)] + 0.5) / 16;
+        const t = (BAYER4[row | ((x + vx) & 3)] + 0.5) / 16;
         const q = Math.min(STEPS, Math.floor((a / 255) * STEPS + t)) * (255 / STEPS);
         d[i] = Math.round(a + (q - a) * k);
       }
@@ -4891,7 +4892,12 @@ const StationBake = (() => {
     L.fillStyle = 'rgba(0,0,0,1)';
     for (const v of viewportRects) L.fillRect(v.x, v.y, v.w, v.h);
     L.globalCompositeOperation = 'source-over';
-    ditherLight(L, lightCv.width, lightCv.height);
+    /* ONE WAIT FOR THE GPU PER CALL, NOT PER CHUNK. The dither reads the light map back, and a GPU readback waits for every
+       draw queued before it — the chunk's whole dense plate. The chunks one bakeIncremental call bakes queue their dithers
+       (ditherQueue) and run them after the last chunk, so the GPU rasters one chunk while the next one's walls are walked.
+       Nothing reads a chunk's light map before its dither runs (the call returns after it). */
+    if (ditherQueue) ditherQueue.push({ L, w: lightCv.width, h: lightCv.height, vx: VX, vy: VY });
+    else ditherLight(L, lightCv.width, lightCv.height);
     const flickers = [];
     for (let i = 0; i < lampPos.length; i += 2) flickers.push(lampPos[i]);
     return { lightCv, interiorCv, flickers, lamps: lampPos.slice() };   // lamps = all virtual light samples; no ceiling hardware is rendered
@@ -5566,10 +5572,16 @@ const StationBake = (() => {
   /* ONE CALL, ONE SET OF STRIPS. Every chunk bake renders the face strips its curved walls sample (a canvas and a GPU
      readback each, on the busy station ~6 ms a chunk) and derives the rooms' palettes, and a room edit bakes up to a dozen
      chunks of the same floor in one call. They are shared across that call's chunks (sharedGeo), never across calls. */
-  let sharedGeo = null;
+  let sharedGeo = null, ditherQueue = null;
   function bakeIncremental(geo, previous, dirtyRects, opts) {
     sharedGeo = null;   // the first chunk of this call starts from fresh caches
-    try { return bakeIncrementalShared(geo, previous, dirtyRects, opts); } finally { sharedGeo = null; }
+    ditherQueue = [];
+    try { return bakeIncrementalShared(geo, previous, dirtyRects, opts); }
+    finally {
+      sharedGeo = null;
+      const queued = ditherQueue; ditherQueue = null;
+      for (const d of queued) ditherLight(d.L, d.w, d.h, d.vx, d.vy);
+    }
   }
   function bakeIncrementalShared(geo, previous, dirtyRects, opts) {
     opts = opts || {};
