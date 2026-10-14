@@ -3,7 +3,7 @@
    rail grew a horizontal scrollbar, an idle "Lv 1" broke onto two lines, and the hover DOSSIER key sat on top of "idle".
    The card's text column is ~85px wide at the default rail width: nothing is cut — a run clock that does not fit beside the
    name takes the line under it, "Lv N" shows only when it fits whole, only a name too long on its own ends in an ellipsis,
-   and the DOSSIER key has its own line under the status, off the portrait well (P31 polish: there it covered the legs).
+   and the DOSSIER key sits at the foot of the portrait well, off the status line.
    (Proven live on an isolated station by measurement — see the lane report; this pins the rules that do it.) */
 'use strict';
 const A = require('./_assert.js');
@@ -25,9 +25,7 @@ A.ok(/min-width:\s*0/.test(line) && /flex-wrap:\s*wrap/.test(line) && /overflow:
 A.ok(/body\.glass-demo:not\(\.hud-mode\) #crew \.crew-row\.has-clock \.crew-name \{[^}]*max-height:\s*none/.test(css), 'a run clock is never hidden: when it does not fit beside the name it takes the line under it, whole');
 A.ok(/body\.glass-demo:not\(\.hud-mode\) #crew \.crew-main \{[^}]*min-width:\s*0/.test(css), 'the text column may shrink below its content (no sideways scroll on the rail)');
 const dos = rule('body.glass-demo:not(.hud-mode) #crew .crew-dossier');
-A.ok(/left:\s*70px/.test(dos) && /right:\s*auto/.test(dos), 'the DOSSIER key sits at the text column\'s left edge, off the portrait well (P31 polish: it covered the agent\'s legs): ' + dos);
-A.ok(/#crew \.crew-row:has\(\.crew-dossier\) \.crew-main \{ padding-bottom: 25px; \}/.test(css), 'the text column reserves the key its own line, so the status never sits under it');
-A.ok(/#crew \.crew-row:has\(\.crew-dossier\) :is\(\.crew-status, \.crew-step\) \{ padding-right: 0; \}/.test(css), 'glass rows drop the base rows\' 66px key gutter: the key is on its own line');
+A.ok(/left:\s*9px/.test(dos) && /right:\s*auto/.test(dos), 'the DOSSIER key sits at the foot of the portrait well, never over the status line: ' + dos);
 A.ok(!/\.crew-step \{ padding-right: 66px; \}/.test(css), 'the status line no longer reserves room for a key that is not there');
 
 A.report('crew-card-fit.test');

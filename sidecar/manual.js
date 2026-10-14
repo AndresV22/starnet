@@ -50,8 +50,9 @@ const NAV_HEAD =
   'with the shell, the file system or a web request to the station: those tools are the only door:\n';
 const NAV_COMMS =
   '- COMMS: the chat panel. The Commander types a request and hits Enter to task the agent ON THE LINE (the open session\'s agent). ' +
-  'With 2+ agents a crew-manifest row click shows that agent\'s sessions; its DOSSIER key, a right-click or its sprite opens its ' +
-  'dossier. None of these changes who COMMS talks to.\n';
+  'With one agent a crew-manifest row click opens its dossier; with 2+ it shows that agent\'s sessions, and the DOSSIER key on the ' +
+  'pointed-at row opens the dossier. A right-click on the row or its sprite opens the dossier at any crew size. None of these ' +
+  'changes who COMMS talks to.\n';
 /* SESSIONS (2026-10-08): "pin this conversation" made Claude Haiku 4.5 AND Sonnet 4.5 write a notebook memory titled "Pinned
    conversation" and report it pinned — the only "pin" either could see was memory's. One line, inline like AUTOMATE, so no
    lookup is needed to know a conversation is a rail session (station.control session.* with no session = this one). */
@@ -186,8 +187,9 @@ const CONCEPTS =
   'Chats, routine runs and away runs are SESSIONS on the COMMS rail. You: task.list/create/manage; session.list/create/peek/' +
   'focus; station.status (if you have it) is a live snapshot of every session. Trap: call session.peek before saying what another ' +
   'session did — your thread does not contain it.\n' +
-  '- COMMS: the chat. Messages go to the agent ON THE LINE (the open session\'s agent); a crew row click (2+ agents) only shows ' +
-  'that agent\'s sessions and DOSSIER / right-click / its sprite open its dossier. GROUP CHAT: "+ Add ' +
+  '- COMMS: the chat. Messages go to the agent ON THE LINE (the open session\'s agent); a crew row click opens that agent\'s ' +
+  'dossier, or with 2+ agents only shows its sessions (then the pointed-at row\'s DOSSIER key, a right-click or its sprite opens ' +
+  'the dossier). GROUP CHAT: "+ Add ' +
   'agents" in the COMMS bar (or @-mentioning an agent) turns a direct chat into a group; the lead answers anything unaddressed ' +
   'and cannot be removed. Enter while an agent is working QUEUES the message; /steer <text> steers the live run; /stop stops it. ' +
   'You: station.control session.rename|pin|archive|delete; group.add brings crew into this chat (a one-on-one chat becomes a group ' +
@@ -256,7 +258,7 @@ const TROUBLESHOOTING =
   '- “I typed in COMMS but nothing happened” → make sure the intended agent is ON THE LINE (the picker at ' +
   'the top of COMMS) before sending.\n' +
   '- “Where did my agent go?” → agents walk to their workstation to work and roam when idle; they ' +
-  'are still on the crew manifest — its DOSSIER key opens its file; with 2+ agents a row click shows its sessions.\n' +
+  'are still on the crew manifest — a row click opens its file (with 2+ agents it shows its sessions; a right-click opens the file).\n' +
   '- “How do I get more agents?” → open the Recruitment Bay and RECRUIT one (pick a class, or build ' +
   'a custom class).\n';
 
