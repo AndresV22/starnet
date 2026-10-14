@@ -146,9 +146,9 @@ const APPCSS = read('frontend/css/app.css');
 A.ok(/#chat-panel h3 #comms-title \{ flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/.test(APPCSS) && /#chat-panel h3 \.h3-right \{[^}]*flex: 0 0 auto;/.test(APPCSS),
   'P26: the title clamps to one line and a fault in #chat-status keeps its width first');
 const HTML = read('frontend/index.html');
-A.ok(!/class="comms-agent-wrap" title=/.test(HTML) && /class="comms-agent-wrap" data-tip="[^"]*switches to its latest session/.test(HTML), 'P26: the ON THE LINE tip is a data-tip, never a native title');
+A.ok(!/class="comms-agent-wrap" title=/.test(HTML) && /class="comms-agent-wrap" data-tip-below data-tip="[^"]*opens its latest session/.test(HTML), 'P26: the ON THE LINE tip is a data-tip, never a native title');
 // P26 fix (review): selectAgent never rebinds General (cur.id !== Workstreams.generalId()) — the tip must not promise it does
-A.ok(/class="comms-agent-wrap" data-tip="[^"]*\(an empty session other than General takes that agent instead\)"/.test(HTML) &&
+A.ok(/class="comms-agent-wrap" data-tip-below data-tip="[^"]*an empty session, not General, takes that agent\."/.test(HTML) &&
   /if \(cur && cur\.id !== Workstreams\.generalId\(\) && !isGroupWs\(cur\)/.test(read('frontend/app/app.js')),
   'P26 fix: the tip says General keeps its agent, matching selectAgent');
 
