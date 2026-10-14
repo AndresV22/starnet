@@ -4007,8 +4007,9 @@ const WorldModel = (() => {
         const x = ra[id], y = rb[id];
         if (same(x, y)) continue;
         if (x && y && ((x.hullStyle || null) !== (y.hullStyle || null) || (x.hullMat || null) !== (y.hullMat || null))) return everything();
-        for (const r of ((x && x.rects) || []).concat((y && y.rects) || [])) rects.push({ x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 });
         if (x && y && x.name !== y.name) rects.push(nameplateRect(x), nameplateRect(y));
+        if (x && y && same(Object.assign({}, x, { name: null }), Object.assign({}, y, { name: null }))) continue;   // only renamed: just the plate
+        for (const r of ((x && x.rects) || []).concat((y && y.rects) || [])) rects.push({ x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 });
       }
       return rects.length ? emit(rects.concat(d.rects)) : emit(d.rects, { staticBakeUnchanged: true });
     }

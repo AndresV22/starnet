@@ -144,7 +144,8 @@ const rn=st.rooms()[0], x2=Math.max(...rn.rects.map(r=>r.x2)), y2=Math.max(...rn
 assert.ok(st.renameRoom(rn.id,'RENAMED').ok);assert.equal(patch.staticBakeUnchanged,undefined,'a room name is part of the bake');
 assert.ok(!patch.global&&patch.dirtyRects.length===1&&patch.dirtyRects[0].x2===x2&&patch.dirtyRects[0].y2===y2,
   '…so a rename names that corner, not the whole station: '+JSON.stringify(patch.dirtyRects));
-st.undo();assert.ok(!patch.global&&patch.dirtyRects.some(r=>r.x2===x2&&r.y2===y2),'…and undoing it re-bakes the same plate');
+st.undo();assert.ok(!patch.global&&patch.dirtyRects.length===2&&patch.dirtyRects.every(r=>r.x2===x2&&r.y2===y2),
+  '…and undoing it re-bakes only that plate, never the whole room: '+JSON.stringify(patch.dirtyRects));
 console.log('refit placement: prop-only pixels, fresh geometry/routing, mixed edits, airlock and history PASS');
 
 // Render invalidation is not authorization to publish a floor held in Build.
