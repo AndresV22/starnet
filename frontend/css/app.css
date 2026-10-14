@@ -5368,6 +5368,9 @@ select.fbc-sel:focus { border-color: var(--ph); box-shadow: inset 0 2px 5px rgba
 .set-about.ns-away { margin: 0 0 2px; }
 .set-about.ns-note { margin: 0 0 6px; }
 .set-about.ns-note:empty { display: none; }
+/* LAST REPORT is the section's final block: its last line kept only a collapsing margin and sat on the rule below it.
+   Padding (not margin) holds the gap, so the line always clears whatever ends the pane. */
+#ns-report:not(:empty) { padding-bottom: 14px; }
 /* FOCUS: the readout is a line of its own above the steer field, so the input never sits mid-sentence.
    The row is capped at the pane measure — left to fill a wide console the input stretched the full ~960px
    and stranded its own STEER button alone against the far edge, a metre from the text it acts on. */
