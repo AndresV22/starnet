@@ -159,7 +159,7 @@ Channels.reset();
   bctx.__end('ws_lead');
   A.eq(settledBell, ['needs:ws_lead'], 'with nothing left waiting, the run\'s end settles the entry as before');
   Ch.reset();
-  A.eq((ch.match(/settleRunNeeds\(ws\.id\)/g) || []).length, 2, 'the clean end and the error end both settle the bell through settleRunNeeds');
+  A.eq((ch.match(/settleRunNeeds\(ws\.id\)/g) || []).length, 3, 'the clean end, the error end and the thrown teardown (STOP, a dropped stream) all settle the bell through settleRunNeeds');
   A.ok(!/StationUI\.settleNotifs\('needs:' \+ ws\.id\)/.test(ch), 'no run-end path settles needs:<conversation> blindly any more');
 }
 

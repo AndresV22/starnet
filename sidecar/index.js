@@ -15612,6 +15612,7 @@ function handleStateSnapshot(req, res) {
         // worker's ask also outlives its lead's turn: it carries what a reloaded page needs to file and answer it
         // (the conversation, what it asks for) — the same fields its permission.prompt carried (askHuman)
         const row = { runId: runId, agentId: (ask && ask.workerAgentId) || agentId, promptId: promptId };
+        if (ask && ask.tool) row.tool = ask.tool;   // additive: a reloaded floor words a question (brief.ask) as one, not an approval
         if (ask && f.detached) Object.assign(row, { background: true, tool: ask.tool, scope: ask.scope, argsSummary: ask.argsSummary,
           workerAgentId: ask.workerAgentId, workerRunId: ask.workerRunId, workerStreamId: ask.workerStreamId, streamId: ask.streamId, askedAt: ask.askedAt, leadAgentId: ask.agentId });
         out.prompts.push(row);

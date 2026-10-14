@@ -8039,8 +8039,8 @@ const Chat = (() => {
   // INTERRUPT — a per-stream stop. It cancels
   // only the DISPLAYED stream's in-flight run; the plumbing already exists (each stream owns an AbortController
   // here + a server runId) so this just exposes a ⏹ button / Esc for it. Flag the stream interrupted so send()'s
-  // catch keeps what already streamed instead of logging an error, and drop that stream's type-ahead queue — a
-  // deliberate stop means "I'm taking over", not "now run my backlog".
+  // catch keeps what already streamed instead of logging an error, and take that stream's type-ahead queue off the
+  // belt — a deliberate stop means "I'm taking over", not "now run my backlog" — and back into the box (restoreQueued).
   function stopActive(how) {
     if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.stop();
     // /loop: Stop ends the interval watcher too, or the next tick fires a run the user just said they didn't
@@ -8058,15 +8058,18 @@ const Chat = (() => {
     interrupted.add(id);
     // how: 'esc' from the composer key; the STOP button passes its click event, voice barge-in passes nothing — all YOU
     stopSource.set(id, how === 'esc' ? 'esc' : 'you');
-    queued.delete(id);
+    restoreQueued(id);
     // GOAL LOOP: a deliberate Stop means "I'm taking over" — pause any active loop so the teardown's judge doesn't
     // fire the next continuation. (The user resumes it explicitly with /goal resume.)
     if (typeof GoalLoop !== 'undefined') { const g = goalOf(activeWs); if (g && GoalLoop.isActive(g)) { GoalLoop.pause(g, 'you stopped the run'); persistGoal(); } }
+    // what this run itself is paused on, read before the bulk clear (a background worker's ask outlives the run: not one of them)
+    const ownAsks = (typeof Channels !== 'undefined' && Channels.pendingAllOf) ? Channels.pendingAllOf(id).filter(p => p && p.promptId && p.background !== true) : [];
     if (typeof Channels !== 'undefined' && Channels.clearPending) Channels.clearPending(id, Date.now());   // a pending approval is moot once stopped
     status('stopping…'); updateControls();
     if (typeof SFX !== 'undefined') (SFX.close || SFX.press)();   // STOP winds a run down: the docks' close() cue
-    // runs only once the stop is CONFIRMED (or there was no run id to kill): the run's open approval cards go dead with it
-    const localAbort = () => { retireOpenConsents(id, (typeof Channels !== 'undefined' && Channels.runIdOf(id)) || ''); const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
+    // runs only once the stop is CONFIRMED (or there was no run id to kill): the run's open approval cards go dead with it,
+    // and every other surface holding one of its asks (the bell, CREW, the floor) is told it is over
+    const localAbort = () => { retireOpenConsents(id, (typeof Channels !== 'undefined' && Channels.runIdOf(id)) || ''); settleStoppedAsks(ownAsks); const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
     const rid = (typeof Channels !== 'undefined') ? Channels.runIdOf(id) : null;
     // STOP MEANS STOP (2026-09-04): the local fetch is torn down only AFTER the sidecar confirmed the kill. A
     // swallowed /api/cancel failure used to render a clean "RUN STOPPED" while the run kept burning server-side;
@@ -8075,6 +8078,30 @@ const Chat = (() => {
     if (rid && typeof Harness !== 'undefined' && Harness.cancel) {
       Promise.resolve(Harness.cancel(rid)).then(v => { if (v && v.ok) localAbort(); else stopFailed(id, v); }, e => stopFailed(id, { ok: false, error: (e && e.message) || String(e), transport: true }));
     } else localAbort();
+  }
+  /* QUEUED WORDS ARE NEVER LOST ON STOP (live walk 2026-10-14): a message typed while the run worked became a queued pill,
+     and STOP deleted it — not sent, not in the box, no notice. The stop still takes the backlog off the belt (nothing
+     auto-sends behind your back), but the words go back into the message box, ahead of whatever is typed there, unsent,
+     and one line says so — the same "give the typed text back" a refused /skill command does. */
+  function restoreQueued(id) {
+    const arr = queued.get(id) || [];
+    queued.delete(id);
+    renderQueued();
+    if (!arr.length || !input) return;
+    const typed = String(input.value || '').trim();
+    input.value = arr.concat(typed ? [typed] : []).join('\n');
+    autoGrowInput();
+    localLine(arr.length === 1 ? 'Your queued message was not sent — it is back in the message box.'
+      : 'Your ' + arr.length + ' queued messages were not sent — they are back in the message box.');
+  }
+  /* A STOPPED RUN'S ASKS LEAVE EVERY SURFACE (live walk 2026-10-14). The station denies a killed run's open prompts, but the
+     page drops the stream right after the kill is confirmed, so that permission.response never arrived: the bell kept
+     "NEEDS YOU — 2 waiting" while the rail said 1, CREW kept its gold "needs your OK" and the floor kept AWAITING APPROVAL
+     over an idle agent, until a reload. Once the stop is CONFIRMED each of the run's own asks is announced settled in the
+     station's own words for a stopped wait — decision 'deny', stopped:true: nothing was approved. */
+  function settleStoppedAsks(asks) {
+    if (typeof U === 'undefined' || !U.bus) return;
+    for (const p of asks) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'deny', stopped: true });
   }
 
   // The sidecar did NOT confirm the stop: un-flag the stream (never mark it stopped on a claim the harness can't
@@ -8136,6 +8163,10 @@ const Chat = (() => {
   }
   function renderQueued() {
     const strip = el('chat-queued'); if (!strip) return;
+    /* THE QUEUE NEVER HIDES THE LIVE LINE (live walk 2026-10-14): the strip sits between the log and the message box, so a
+       new pill shrinks the log from its bottom — and with an approval card held (no follow) the presence line under it was
+       cut in half. A log showing its end keeps showing it: it moves up by what the strip grew (never past a held card's top). */
+    const atEnd = !!log && nearBottom(), h0 = strip.offsetHeight;
     const arr = (activeWs && queued.get(activeWs.id)) || [];
     strip.innerHTML = '';
     arr.forEach((t, i) => {
@@ -8147,6 +8178,8 @@ const Chat = (() => {
       pill.appendChild(document.createTextNode('⤷ ')); pill.appendChild(label); pill.appendChild(x);
       strip.appendChild(pill);
     });
+    const grew = strip.offsetHeight - h0;
+    if (atEnd && grew > 0) log.scrollTop += (heldCard && log.contains(heldCard)) ? Math.min(grew, Math.max(0, topInLog(heldCard) - 8)) : grew;
   }
   // a stream just freed (or was switched back to while idle) — send its next queued follow-up. Guarded to the
   // DISPLAYED stream so send()'s DOM writes always target the visible log; a backgrounded queue waits for return.
@@ -10500,6 +10533,9 @@ const Chat = (() => {
       // crew HUD would stick at WORKING — clear this run's count here. Normal + in-band-error completions deliver
       // run.end (decremented by the bus listener), so we must NOT clear there or a concurrent sibling under-counts.
       if (typeof StationUI !== 'undefined' && StationUI.clearRunning) StationUI.clearRunning(ws.agentId || 'agent');
+      // ...and its waits on you end with it, exactly as an in-band end settles them: the bell drops this run's asks
+      // (a background worker's keeps its entry), so it never reads "NEEDS YOU — 2 waiting" beside a rail that says 1
+      settleRunNeeds(ws.id);
     } finally {
       aborters.delete(ws.id);
       liveRunRoots.delete(ws.id);
