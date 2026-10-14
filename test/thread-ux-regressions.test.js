@@ -386,5 +386,5 @@ test('a worker question is ONE hop away: revealAsk lands on its question card, r
   assert.deepEqual(focused, ['q1', 'q1'], 'focus lands on that exact card'); assert.ok(!revealed.includes('q-other'), 'never on the card of another question');
   assert.equal(c.revealAsk('p2'), false, 'an approval is not a question card'); assert.equal(c.revealAsk('gone'), false, 'an answered ask reveals nothing');
   assert.ok(/if \(typeof Chat !== 'undefined' && Chat\.revealAsk\) Chat\.revealAsk\(q\.dataset\.dgQuestion\);/.test(delegated), 'the row\'s Answer key uses it');
-  assert.ok(/i\.kind === 'question' && i\.p && typeof Chat !== 'undefined' && Chat\.revealAsk && Chat\.revealAsk\(i\.p\.promptId\)\) return;/.test(fs.readFileSync('frontend/app/needsyou.js', 'utf8')), 'NEEDS YOU Answer lands on the card, not the row');
+  assert.ok(/i\.kind === 'question' && i\.p && typeof Chat !== 'undefined' && Chat\.revealAsk && Chat\.revealAsk\(i\.p\.promptId\)\) return(?: true)?;/.test(fs.readFileSync('frontend/app/needsyou.js', 'utf8')), 'NEEDS YOU Answer lands on the card, not the row');
 });
