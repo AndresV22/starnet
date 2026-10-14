@@ -3633,14 +3633,15 @@ const Chat = (() => {
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
     r.d.dataset.clarifyPrompt = String(p.promptId || ''); r.d.tabIndex = -1; r.d.dataset.liveAsk = '1';
     if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
-      const rid=ws && Channels.runIdOf(ws.id);
+      const rid=p.runId || (ws && Channels.runIdOf(ws.id));   // the prompt's own run first, like the choice and approval cards
       let answeredHere=false;
       const tc=TaskConversation.mount(r.body,Object.assign({},q,{asker:askerName(p,ws)}),async text=>{
         const result=await Harness.consentAnswer(rid,p.promptId,text,true);
         if(!result || !result.ok)return false;
         answeredHere=true;
         // the question is answered: say so on the bus like the approval card does, or the CREW card and the world pose stay "needs your OK"
-        try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once'});}catch(_){}
+        // via:'desk': a confirmed local answer names its surface, so no other card reads it as "from your phone"
+        try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once',via:'desk'});}catch(_){}
         if(ws)Channels.clearPending(ws.id,Date.now(),p.promptId);
         if(isActiveWs(ws)){renderPresence();syncStatus();}
         releaseCard(r.d);
@@ -3659,7 +3660,7 @@ const Chat = (() => {
           if(answeredHere){releaseCard(r.d);return;}
           if(ws&&typeof Channels!=='undefined')Channels.clearPending(ws.id,Date.now(),p.promptId);
           if(isActiveWs(ws))renderPresence();
-          if(tc&&tc.settle)tc.settle(resp.expired?'No answer in time — '+askerName(p,ws)+' used its judgment':'Answered'+settledWhere(resp));
+          if(tc&&tc.settle)tc.settle(resp.expired?'No answer in time — '+askerName(p,ws)+' used its judgment':resp.decision==='deny'?'Declined'+settledWhere(resp):'Answered'+settledWhere(resp));
           releaseCard(r.d);syncStatus();
         };
         U.bus.on('permission.response',onElsewhere);
@@ -3731,7 +3732,7 @@ const Chat = (() => {
       if (ws) settlePromptNotice(ws.id, p.promptId);
       // answered: tell the bus, as the approval card does — the CREW card's "needs your OK" frame and the world's
       // AWAITING pose clear on permission.response, and a question never emitted one (sweep 2026-10-02)
-      try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once' }); } catch (_) {}
+      try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once', via: 'desk' }); } catch (_) {}
       if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);   // the wait never counts as run time
       if (isActiveWs(ws)) renderPresence();
       btns.remove(); hint.remove(); keepFocus(r.d); releaseCard(r.d);

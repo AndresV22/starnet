@@ -79,6 +79,7 @@ const TaskConversation = (() => {
       busy=true;feedback.textContent='Sending your answer…';refresh();
       try {
         const accepted=await send(text);
+        if(done)return false;   // settled on another surface while this send was in flight: that outcome stands
         if(accepted===false)throw Error('This question is no longer waiting. Your text is kept here; send it in COMMS to continue.');
         done=true;feedback.textContent='Answer sent';
         options.remove();label.remove();actions.remove();hint.remove();
@@ -86,7 +87,7 @@ const TaskConversation = (() => {
         const receipt=el('details','tc-receipt');receipt.appendChild(el('summary','','You answered: '+text.slice(0,100)+(text.length>100?'…':'')));
         receipt.appendChild(el('p','tc-answer-sent',text));card.appendChild(receipt);
         return true;
-      }catch(e){feedback.textContent=e.message||'Could not send. Your text is kept here; try again.';return false;}
+      }catch(e){if(!done)feedback.textContent=e.message||'Could not send. Your text is kept here; try again.';return false;}
       finally{busy=false;refresh();}
     }
     input.addEventListener('input',refresh);
