@@ -1208,3 +1208,8 @@ test/internal-run-not-working.test.js
 test/aux-effort.test.js
 test/starter-drift.test.js
 test/openrouter-effort-heal.test.js
+test/stop-truth.test.js
+test/world-await-tags.test.js
+test/group-stop-truth.test.js
+test/crew-card-fit.test.js
+test/comms-render-seams.test.js
