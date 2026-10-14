@@ -85,7 +85,7 @@
     shape: a => ({ look: lookOf(a) }), needs: a => Object.keys(a.look || {}).length ? '' : 'look.set named no look setting (e.g. {"look": {"hints": false}})',
     card: a => 'change the station\'s look: ' + clip(Object.keys(a.look || {}).map(k => k + ' ' + (typeof a.look[k] === 'object' ? JSON.stringify(a.look[k]) : a.look[k])).join(', ') || 'nothing named', 160) + '.' });
 
-  // ---- spending (Settings › SPENDING LIMITS, AI & MODELS › backup models) ----
+  // ---- spending (Settings › SPENDING LIMITS, AI & MODELS › FALLBACK MODELS) ----
   // "5" / "$5" from a model is the number it means (the card and the saved value read it the same way); anything else
   // reaches the route's own strict parse exactly as sent
   const dollars = a => { const o = pick(a, ['perRun', 'perAgent', 'perDay', 'global']); for (const k of Object.keys(o)) if (typeof o[k] === 'string' && /^\s*\$?\d+(\.\d+)?\s*$/.test(o[k])) o[k] = Number(o[k].replace(/[\s$]/g, '')); return o; };
@@ -94,7 +94,7 @@
     run: (a, env) => env.route('POST', '/api/budget/caps', dollars(a)) });
   def('budget.resume', { takes: '{scope: day|global}', power: () => true, card: a => 'grant one more cap\'s worth of headroom on the ' + clip(a.scope, 10) + ' spending pool.',
     run: (a, env) => env.route('POST', '/api/budget/resume', { scope: a.scope }) });
-  def('fallback.set', { takes: '{models: ["model id", …] | null}', card: a => a.models ? 'set your backup models to ' + clip((a.models || []).join(', '), 160) + '.' : 'reset your backup models to the default.',
+  def('fallback.set', { takes: '{models: ["model id", …] | null}', card: a => a.models ? 'set your fallback models to ' + clip((a.models || []).join(', '), 160) + '.' : 'reset your fallback models to the default.',
     run: (a, env) => env.route('POST', '/api/fallback/chain', { models: a.models == null ? null : a.models }) });
 
   // ---- permissions & autonomy ----

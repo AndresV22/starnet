@@ -84,6 +84,9 @@ ok(/const ADD_ON_CARD = 'Add a key on a provider card above\.'/.test(station) &&
 ok(/>✎ ENDPOINT URL<\/button>/.test(station) && !/✎ STATION LINK/.test(station), 'the saved CUSTOM row edits its address under ✎ ENDPOINT URL');
 ok(/↻ SPARE KEYS/.test(station) && !/↻ BACKUPS/.test(station), 'the key pool reads ↻ SPARE KEYS, not BACKUPS (STATION BACKUP is a different thing)');
 ok(/retry ✎ ENDPOINT URL before running/.test(harness), 'the desktop endpoint error names the ✎ ENDPOINT URL key');
+ok(/data-act="baseurl-edit" data-i="' \+ i \+ '" data-tip="[^"]+">✎ ENDPOINT URL</.test(station), 'the ✎ ENDPOINT URL key carries a station data-tip, never a native title= bubble');
+ok(/a spare key was rejected/.test(harness) && /your previous spare keys are unchanged/.test(harness) && !/backup key|backup pool is/.test(harness), 'a rejected ↻ SPARE KEYS save names spare keys, never a backup pool');
+ok(/set your fallback models to/.test(fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'tools', 'builtin', 'station-control.js'), 'utf8')), 'the fallback.set approval card names FALLBACK MODELS, the heading AI & MODELS shows');
 ok(!/while keeping your ChatGPT sign-in connected/.test(station), 'the add-key copy never claims a ChatGPT sign-in');
 {
   const src = station.slice(station.indexOf('  function normEndpoint(raw) {'), station.indexOf('  function addKeyHtml('));

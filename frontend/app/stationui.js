@@ -5772,7 +5772,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const isCustomEp = k.provider === 'custom';
       const poolCount = H() && H().keyPoolSize ? H().keyPoolSize(k.provider) : 0;
       const baseBtn = isCustomEp
-        ? '<button class="bb sm" data-act="baseurl-edit" data-i="' + i + '" title="change this endpoint URL without re-onboarding">✎ ENDPOINT URL</button>'
+        ? '<button class="bb sm" data-act="baseurl-edit" data-i="' + i + '" data-tip="change this endpoint URL without re-onboarding">✎ ENDPOINT URL</button>'
         : '';
       const baseBlock = isCustomEp
         ? '<div class="key-edit" id="base-edit-' + i + '" hidden>' +
