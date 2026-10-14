@@ -496,6 +496,7 @@
      review with no instructions, so COPY's Bay was told the Writer's stock "Turn the notes into a 200-word newsletter blurb…
      Keep every link" while the reply said "COPY drafts the post". A step with only its role's stock instructions (no
      instructions, no purpose) is named too, in the same one re-plan. */
+  const NEXT_WORD = 'Tell the Commander the summary in plain words, then call station.build with this planId. Nothing has been built yet.';   // = the page's usual next step
   function planNext(p, crewNames) {
     const steps = ((p && p.steps) || []).filter(s => s && s.step != null), stockAt = (p && Array.isArray(p.stock)) ? p.stock : [];
     const idle = steps.filter(s => !s.agent), stock = steps.filter(s => stockAt.indexOf(s.step) >= 0);
@@ -503,11 +504,13 @@
     const names = (crewNames || []).filter(Boolean);
     const said = xs => { const l = xs.map(s => s.step + ' (' + s.role + ')'); return (xs.length === 1 ? 'Step ' : 'Steps ') + (l.length === 1 ? l[0] : l.slice(0, -1).join(', ') + ' and ' + l[l.length - 1]); };
     const first = String((stock[0] || {}).instructions || '').replace(/\s+/g, ' ').trim(), quote = (first.match(/^[^.!?]{1,70}[.!?]/) || [first.slice(0, 60) + '…'])[0];
-    const canned = stock.length ? ' only ' + (stock.length === 1 ? "its role's" : "their roles'") + ' stock instructions (step ' + stock[0].step + ': "' + quote + "\"), not this workflow's" : '';
+    const canned = stock.length ? ' only ' + (stock.length === 1 ? "its role's" : "their roles'") + ' stock instructions (step ' + stock[0].step + ': "' + quote + '")' : '';
     const form = '[ ' + steps.filter(s => idle.indexOf(s) >= 0 || stock.indexOf(s) >= 0).map(s => '{ "step": ' + s.step + ', "agent": ' + (s.agent ? JSON.stringify(String(s.agent)) : '"…"') + (stock.indexOf(s) >= 0 ? ', "instructions": "…"' : '') + ' }').join(', ') + ' ]';
     const why = stock.length ? ' (instructions: what that step does in the workflow the Commander described)' : '';
-    if (!idle.length) return 'Nothing is built yet. ' + said(stock) + (stock.length === 1 ? ' has' : ' have') + canned + '. If the line is for work the Commander described, plan again with the same request plus steps: '
-      + form + why + ', so its Bays are told the real work and ONE approval builds it. Otherwise tell the Commander the summary and call station.build with this planId.';
+    // staffed, with stock instructions only: often right ("builds features and tests them" IS the Engineer's and Tester's stock work),
+    // so it is the lead's call, said once; the usual next step stays, word for word
+    if (!idle.length) return said(stock) + (stock.length === 1 ? ' has' : ' have') + canned + '. If that is not the work the Commander described, plan again with the same request plus steps: '
+      + form + why + ', so its Bays are told the real work and ONE approval builds it. Otherwise: ' + NEXT_WORD;
     const one = idle.length === 1, same = stock.length && stock.every(s => idle.indexOf(s) >= 0) && idle.every(s => stock.indexOf(s) >= 0);
     return 'Nothing is built yet. ' + said(idle) + (one ? ' has nobody to work it' : ' have nobody to work them') + ', so the line will not run'
       + (!stock.length ? '. ' : same ? '; ' + (one ? 'it also has' : 'they also have') + canned + '. ' : '. ' + said(stock) + (stock.length === 1 ? ' has' : ' have') + canned + '. ')
