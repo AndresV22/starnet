@@ -123,9 +123,13 @@ function makeRemoteHost(d) {
       const parts = runParts.get(String(turn.sourceRunId)) || [];
       parts.push(text); runParts.set(String(turn.sourceRunId), parts);
     }
-    const committedAggregate = (row, runId) => {
-      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return false;
-      const parts = runParts.get(runId) || [], text = String(row.content || '');
+    /* EXPLICIT RUN IDENTITY, HARNESS BYTES ASIDE (rc walk 2026-10-14: a reload showed a reply twice — its durable turns AND
+       the page's saved aggregate). The page's aggregate of a run differs from that run's durable turns only by what the
+       harness itself adds or removes: the paragraph break streamed after a hidden Task Brief step (loop.js TURN BREAK) and
+       the choice marker the chat strips before saving. Only for a row that names its run (an unattributed one stays exact).
+       Self-contained (the phone runs this same function): the marker rule is fork.js's — keyword, colon, `||` options. */
+    const squash = s => String(s == null ? '' : s).replace(/[*_`~]*(?:\bFORK|TASK_QUESTION)[*_`~]*[ \t]*:[^\n]*\|\|[^\n]*/gi, '').replace(/\s+/g, '');
+    const joinsTo = (parts, text) => {
       for (let start = 0; start < parts.length - 1; start++) {
         if (!text.startsWith(parts[start])) continue;
         let joined = parts[start];
@@ -136,6 +140,14 @@ function makeRemoteHost(d) {
         }
       }
       return false;
+    };
+    const committedAggregate = (row, runId, explicit) => {
+      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return false;
+      const parts = runParts.get(runId) || [], text = String(row.content || '');
+      if (joinsTo(parts, text)) return true;
+      if (!explicit) return false;
+      const target = squash(text);
+      return !!target && joinsTo(parts.map(squash), target);
     };
     const kept = [], buckets = new Map();
     let userRunId = '';
@@ -154,7 +166,7 @@ function makeRemoteHost(d) {
         finalSlots.set(id, kept.length);
       }
       if (row.role === 'user') userRunId = String(row.sourceRunId || '');
-      if (committedAggregate(row, String(row.sourceRunId || userRunId))) continue;
+      if (committedAggregate(row, String(row.sourceRunId || userRunId), !!row.sourceRunId)) continue;
       if (row.role === 'assistant' && !String(row.content == null ? '' : row.content).trim()) continue;
       const key = row.role + '\u0000' + String(row.content || '');
       const q = buckets.get(key) || []; q.push(kept.length); buckets.set(key, q);
