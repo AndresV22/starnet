@@ -653,10 +653,12 @@ const Onboarding = (() => {
         : 'i’m awake. let’s give this station a direction. start with ' + quickSays.replace(/ (question)/, ' setup $1') + ', or take time to tell me about your work. you can edit what we save in your dossier — the COMMANDER file of what the station knows about you.', 46, 0)],
       options: [
         ...(!interviewOnly ? [{ label: 'Quick setup — ' + quickSays, value: 'quick' }] : []),
-        // the pace hint rides IN the label (no sentence under a choice): the follow-up wallet each pace really gets —
-        // loose: followupsLeft = 1, deep: FOLLOWUP_BUDGET; the mind's ASK: NONE can end either one sooner
-        { label: 'A short conversation — at most one follow-up', value: 'loose' },
-        { label: 'Let’s talk it through — at most ' + (COUNT_WORD[FOLLOWUP_BUDGET] || FOLLOWUP_BUDGET) + ' follow-ups', value: 'deep' }
+        // the pace hint rides IN the label (no sentence under a choice). Only the quick path carries a count: the talks
+        // ask the opening, its follow-ups (loose 1, deep FOLLOWUP_BUDGET), the mission and the cadence, so a second
+        // "three" there read no longer than quick's three (P31 polish). The labels step up: short, then in depth, each one
+        // short enough to stay on one line of its choice key.
+        { label: 'A short conversation — your work and goals', value: 'loose' },
+        { label: 'Let’s talk it through — your goals, in depth', value: 'deep' }
       ]
     });
     if (!running) return;
@@ -921,7 +923,9 @@ const Onboarding = (() => {
     if (!works.length) return;
     const recId = S.recommend ? S.recommend(purposeSaid) : null, rec = works.find(c => c.id === recId) || null;
     const ordered = rec ? [rec].concat(works.filter(c => c !== rec)) : works;
-    stage('YOUR STATION', (quickTotal ? (++quickN) + ' of ' + quickTotal + ' · ' : '') + 'Where the work happens');
+    // on the quick path the station is its counted last question, so it keeps that stage's name ("GET ACQUAINTED · 3 of 3"):
+    // a switch to YOUR STATION read as step 3 of a three-step YOUR STATION run (P31 polish)
+    stage(quickTotal ? 'GET ACQUAINTED' : 'YOUR STATION', (quickTotal ? (++quickN) + ' of ' + quickTotal + ' · ' : '') + 'Where the work happens');
     const ask = 'last question: which station should i build for you? '
       + (rec ? 'from what you told me, i’d start with the ' + rec.name.toLowerCase() + ': ' + rec.pitch + '.'
              : 'pick the kind of work you’ll do most, or start with one room and build it yourself.')
