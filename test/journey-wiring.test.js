@@ -34,4 +34,12 @@ A.ok(/define\('journey',[\s\S]*path:\s*'\/api\/journey'/.test(spine), 'QuerySpin
 A.ok(/QuerySpine/.test(journeyStore) && !/fetch\(\s*'\/api\/journey'\s*,\s*\{\s*cache:\s*'no-store'/.test(journeyStore),
   'JourneyStore owns no private GET cache or poller outside QuerySpine');
 A.ok(/journey snapshot is unconfirmed/i.test(ui), 'cached journey proof is visibly labeled unconfirmed after a read failure');
+// org pass 10-14 (P19): automation doors land in the right AUTOMATE tab
+{
+  const tut = read('frontend/app/tutorial.js');
+  A.ok(/fmAction\('workflows', 'OPEN WORKFLOWS'\)/.test(tut) && !/'OPEN AUTOMATION'/.test(tut), 'FIELD MANUAL › LINES ends on OPEN WORKFLOWS (the window that runs lines), not SCHEDULES');
+  A.ok(/<b>Routines = WHEN\.<\/b>/.test(tut), '…and keeps Routines = WHEN (DECISIONS.md, Andrew’s call #4)');
+  A.ok(/type <code>\/away<\/code> in COMMS/.test(ui) && /<b>Build while away<\/b>/.test(ui) && !/<code>\/build-away<\/code>/.test(ui), 'the AWAY WORK queue names /away (canonical) beside the quest’s Build while away');
+  A.ok(/<small>workflows, schedules, goal loops &amp; away work<\/small>/.test(index), 'the AUTOMATE dock subtitle names all four tabs');
+}
 A.report('journey-wiring.test');

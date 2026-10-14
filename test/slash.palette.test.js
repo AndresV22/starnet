@@ -94,4 +94,47 @@ A.ok(/e\.key === 'Enter' && slashValueMode[\s\S]{0,400}commandFromLine\(input\.v
 A.ok(src.indexOf('c.isValue ? c.name') >= 0, 'a value row renders without a leading slash (it is an argument, not a command)');
 A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the palette leaves value mode');
 
-A.report('slash.palette.test');
+/* org P19 (2026-10-14): automation slash replies carry ONE door key into the right AUTOMATE tab — on the reply, never a new card */
+(async () => {
+  const opened = [];
+  const mkNode = () => { const kids = []; const body = { appendChild: n => kids.push(n) }; return { kids, querySelector: sel => sel === '.body' ? body : null }; };
+  const doc = { createElement: () => ({ type: '', className: '', textContent: '', onclick: null }), createTextNode: t => ({ text: t }) };
+  const SUI = { openTerm: (k, sec) => opened.push(k + ':' + sec) };
+  const doorOf = node => node.kids.find(k => k && /automate-door/.test(k.className || ''));
+  // /loop status keeps its note and adds the door to SCHEDULES (the lasting form of a loop is a schedule)
+  {
+    const loopSrc = A.fnBody(src, 'function loopCommand(');
+    const doorSrc = A.fnBody(src, 'function automateDoor(');
+    const node = mkNode(), lines = [];
+    const loop = new Function('StationUI', 'document', 'activeWs', 'loops', 'loopEnded', 'localLine', 'LOOP_MAX_ITERS',
+      doorSrc + '\n' + loopSrc + '\nreturn loopCommand;')(SUI, doc, { id: 'w' }, new Map([['w', { label: '5m', fired: 2, skipped: 0, prompt: 'check the build' }]]), new Map(), t => { lines.push(t); return node; }, 20);
+    loop('status');
+    A.ok(/It stops if you close StarNet; \/routine makes it permanent\.$/.test(lines[0]), '/loop status keeps its note: ' + lines[0]);
+    const d = doorOf(node);
+    A.ok(d && d.type === 'button' && /consent-btn/.test(d.className) && d.textContent === '▸ AUTOMATE › SCHEDULES', '/loop status carries one door key to SCHEDULES');
+    d.onclick(); A.eq(opened.pop(), 'automation:routines-create', '…which opens the New schedule form');
+  }
+  // the server-run /routine, /cron and /away replies gain their door client-side (sidecar/slash.js unchanged)
+  {
+    const body = ['let lastSaid = null, slashDispatchRefusal = null;', A.fnBody(src, 'function automateDoor('),
+      src.match(/const SERVER_SLASH_DOORS = \{[^\n]+\};/)[0], A.fnBody(src, 'function applySlashDirective('), A.fnBody(src, 'async function dispatchSlash('), 'return dispatchSlash;'].join('\n');
+    const run = async (name, directive) => {
+      const node = mkNode();
+      const dispatch = new Function('StationUI', 'document', 'fetch', 'systemCard', 'localLine', 'slashPlacedTypes', 'activeWs', 'localSlashActions', 'insertSlashText', body)(
+        SUI, doc, () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, directive }) }), () => node, () => node, () => [], { agentId: 'agent' }, () => ({}), () => true);
+      const ok = await dispatch({ name }, '/' + name);
+      return { ok, door: doorOf(node) };
+    };
+    const routine = await run('routine', { type: 'say', title: 'Routines', lines: ['1. Morning brief'] });
+    A.ok(routine.ok && routine.door && routine.door.textContent === '▸ AUTOMATE › SCHEDULES', '/routine reply carries the SCHEDULES door');
+    routine.door.onclick(); A.eq(opened.pop(), 'automation:routines', '…opening Scheduled jobs');
+    const cron = await run('cron', { type: 'say', text: 'scheduling is on' });
+    A.ok(cron.ok && cron.door && cron.door.textContent === '▸ AUTOMATE › SCHEDULES', '/cron reply carries the SCHEDULES door');
+    const away = await run('away', { type: 'say', text: 'queued: a small dashboard' });
+    A.ok(away.ok && away.door && away.door.textContent === '▸ AUTOMATE › AWAY WORK', '/away reply carries the AWAY WORK door');
+    away.door.onclick(); A.eq(opened.pop(), 'automation:away', '…opening AWAY WORK');
+    const other = await run('usage', { type: 'say', text: '$0.12 today' });
+    A.ok(other.ok && !other.door, 'any other server command\'s reply is unchanged (no door)');
+  }
+  A.report('slash.palette.test');
+})().catch(e => { console.error(e); process.exit(1); });

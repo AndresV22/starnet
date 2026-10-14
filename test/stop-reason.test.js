@@ -139,6 +139,7 @@ A.ok(/function noteStopReason\(/.test(chat) && /m\.stopped && m\.stopNote\) tool
     GoalLoop, { id: 'w' }, () => null, t => { lines.push(t); return row; }, () => {}, () => { kicked++; }, { openTerm: (k, sec) => opened.push(k + ':' + sec) }, doc);
   goal('ship the landing page');
   A.ok(/^⊙ goal set for this session only: ship the landing page/.test(lines[0]) && /lasting goal loops:$/.test(lines[0]), 'the /goal set line says session-only and points at lasting goal loops: ' + lines[0]);
+  A.ok(/It runs while StarNet is open \(it survives a reload\)\./.test(lines[0]), 'org P19: it says when it runs — while StarNet is open, across a reload');
   const door = kids.find(k => k && k.className && /goal-loops-door/.test(k.className));
   A.ok(door && door.type === 'button' && /consent-btn/.test(door.className) && door.textContent === '▸ AUTOMATE › GOAL LOOPS', 'a real door key rides the line (not a menu path)');
   door.onclick(); A.eq(opened, ['automation:loops'], 'the door opens AUTOMATE › GOAL LOOPS');

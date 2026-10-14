@@ -2634,6 +2634,7 @@ const Chat = (() => {
     if (open0) d.classList.add('open');
     d.appendChild(head); d.appendChild(bodyWrap);
     log.appendChild(d); autoscroll();
+    return d;
   }
 
   /* ---------- CELEBRATION broadcast: a terse station system line (level-up / quest / trophy) ----------
@@ -8537,7 +8538,7 @@ const Chat = (() => {
     activeWs.goalLoop = s; persistGoal();
     /* ONE MEANING FOR 'GOAL LOOP' (org pass 10-14, P29): /goal is a loop on THIS session only — not an AUTOMATE › GOAL LOOPS
        entry. Say so, and hand over a real door key (never a menu path) to where lasting goal loops live. */
-    const set = localLine('⊙ goal set for this session only: ' + s.goal + '  (budget ' + s.maxTurns + ' turns). Working toward it… · lasting goal loops:');
+    const set = localLine('⊙ goal set for this session only: ' + s.goal + '  (budget ' + s.maxTurns + ' turns). It runs while StarNet is open (it survives a reload). Working toward it… · lasting goal loops:');
     if (set && typeof StationUI !== 'undefined' && StationUI.openTerm) {
       const door = document.createElement('button'); door.type = 'button'; door.className = 'consent-btn goal-loops-door'; door.textContent = '▸ AUTOMATE › GOAL LOOPS';
       door.onclick = () => StationUI.openTerm('automation', 'loops');
@@ -8797,9 +8798,11 @@ const Chat = (() => {
         if (ended) { loopEnded.delete(wsId); return localLine(ended + ' /loop <interval> <prompt> to start another.'); }
         return localLine('No loop in this workstream. /loop <interval> <prompt> — e.g. /loop 5m check whether the build went green.');
       }
-      return localLine('Loop: every ' + cur.label + ', ' + cur.fired + '/' + LOOP_MAX_ITERS + ' runs done'
+      const st = localLine('Loop: every ' + cur.label + ', ' + cur.fired + '/' + LOOP_MAX_ITERS + ' runs done'
         + (cur.skipped ? ', ' + cur.skipped + ' tick' + (cur.skipped === 1 ? '' : 's') + ' skipped (a run, a question or another stream had the floor)' : '')
         + ' — "' + String(cur.prompt).slice(0, 60) + '". It stops if you close StarNet; /routine makes it permanent.');
+      automateDoor(st, '▸ AUTOMATE › SCHEDULES', 'routines-create');   // org P19: the lasting form of a loop is a schedule
+      return st;
     }
 
     const sp = raw.search(/\s/);
@@ -9591,13 +9594,28 @@ const Chat = (() => {
     // line. Nothing here re-derives or re-formats state, so this surface cannot disagree with the sidecar's.
     if (directive.type === 'say') {
       const lines = Array.isArray(directive.lines) ? directive.lines.filter(s => String(s || '').trim()) : [];
-      if (lines.length) systemCard(directive.title || 'Result', lines);
-      else localLine(String(directive.text || '').trim() || 'Done.');
+      lastSaid = lines.length ? systemCard(directive.title || 'Result', lines) : localLine(String(directive.text || '').trim() || 'Done.');
       return true;
     }
     return false;
   }
+  /* ONE DOOR KEY on an automation slash reply (org P19, 2026-10-14): a consent key on the reply itself — never a new card — into
+     the AUTOMATE tab where that command's lasting form lives. node = a localLine row or a systemCard; section = the AUTOMATE console
+     section (automation.js: routines / routines-create / loops / away). */
+  function automateDoor(node, label, section) {
+    if (!node || typeof StationUI === 'undefined' || !StationUI.openTerm) return null;
+    const door = document.createElement('button'); door.type = 'button'; door.className = 'consent-btn automate-door'; door.textContent = label;
+    door.onclick = () => StationUI.openTerm('automation', section);
+    const host = node.querySelector ? (node.querySelector('.body') || node) : node;
+    host.appendChild(document.createTextNode(' ')); host.appendChild(door);
+    return door;
+  }
+  // the server ran /routine, /cron or /away and printed its reply: the reply carries the door to the tab that holds that work
+  // (client-side only — sidecar/slash.js and its reply text are unchanged)
+  const SERVER_SLASH_DOORS = { routine: ['▸ AUTOMATE › SCHEDULES', 'routines'], cron: ['▸ AUTOMATE › SCHEDULES', 'routines'], away: ['▸ AUTOMATE › AWAY WORK', 'away'] };
+  let lastSaid = null;
   async function dispatchSlash(item, rawInput) {
+    lastSaid = null;
     try {
       const r = await fetch('/api/slash/dispatch', {
         method: 'POST',
@@ -9614,7 +9632,11 @@ const Chat = (() => {
       // the station ANSWERED no (a skill that was removed or pulled, gear not placed): remember its words, so the
       // caller reports what the station said instead of blaming the connection
       slashDispatchRefusal = (!r.ok || !j || !j.ok) && j && j.error ? { status: r.status, error: String(j.error) } : null;
-      return !!(r.ok && j && j.ok && applySlashDirective(j.directive));
+      const ok = !!(r.ok && j && j.ok && applySlashDirective(j.directive));
+      const door = ok && lastSaid && item && Object.prototype.hasOwnProperty.call(SERVER_SLASH_DOORS, item.name) ? SERVER_SLASH_DOORS[item.name] : null;
+      if (door) automateDoor(lastSaid, door[0], door[1]);
+      lastSaid = null;
+      return ok;
     } catch (_) { slashDispatchRefusal = null; return false; }
   }
   let slashDispatchRefusal = null;

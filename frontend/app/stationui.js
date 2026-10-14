@@ -2724,7 +2724,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '</label>' +
       '<div id="ag-workshop-msg" class="msg"></div>' +
       '<div id="ag-ws-live"><div class="dim" style="font-size:11px;">reading the build list…</div></div>' +
-      '<p class="ws-queue-help">Add work from a quest’s <b>Build while away</b> action, or type <code>/build-away</code> in COMMS.</p>' +
+      '<p class="ws-queue-help">Add work from a quest’s <b>Build while away</b> action, or type <code>/away</code> in COMMS.</p>' +
     '</div>';
   }
 
