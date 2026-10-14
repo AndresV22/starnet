@@ -11098,7 +11098,7 @@ const groupSessions = require('./group-sessions.js').makeGroupSessions({
         // the agent's own room gear (its dish = web, its cabinet = files …), exactly as its one-on-one chat gets it from
         // the durable floor (/api/run, savedPlacement): in a group a researcher could not search (2026-10-13 gap review)
         extraObjects: require('./capability/saved-placement.js').savedPlacement(saveStore.load('agent'), t.agentId),
-        prompt: (call, tool) => prompt({ tool: call.name, scope: tool?.scope || 'write', argsSummary: consentSummary(call), argsFull: consentArgsFull(call) }),
+        prompt: (call, tool) => prompt({ tool: call.name, scope: tool?.scope || 'write', argsSummary: consentSummary(call, { streamId: g.id, chat: 'group' }), argsFull: consentArgsFull(call) }),
         loginPrompt: prompt, reflect: false
       });
     } finally {
@@ -19267,7 +19267,7 @@ async function handleRun(req, res) {
   }
   function promptConsent(call, tool) {
     // an unanswered COMMS card is not a refusal: the broker's 'timeout' result says so (the card still gets expired:true)
-    return askHuman({ tool: call.name, scope: (tool && tool.scope) || 'write', argsSummary: consentSummary(call), argsFull: consentArgsFull(call), fresh: !!(tool && tool.freshConsent === true) }, { timeoutDecision: 'timeout' });
+    return askHuman({ tool: call.name, scope: (tool && tool.scope) || 'write', argsSummary: consentSummary(call, { streamId }), argsFull: consentArgsFull(call), fresh: !!(tool && tool.freshConsent === true) }, { timeoutDecision: 'timeout' });
   }
   // NS-5: the "work in <root>? always/once/no" channel — the SAME permission.prompt mechanism, so the browser's
   // existing consent card answers it (Always = record a standing path grant; Approve once = this access only;
@@ -21632,7 +21632,8 @@ async function runOnceCore(o) {
          recovery nudge follows (loop.js). */
       if (!postTaint.allow && humanAnswered && String(decision || '').toLowerCase() === 'deny') {
         return { ok: false, isError: true, summary: 'denied',
-          content: 'consent denied for ' + c.name + ': the Commander declined this call. Do NOT retry it or work around it with another tool; carry on without it and, if it mattered, say plainly that it was declined.' };
+          // said to the Commander as "you", the way registry.js words their No (the model repeats a result's framing)
+          content: 'consent denied for ' + c.name + ': the Commander said no on the approval card, so it was NOT run. Do NOT retry it or work around it with another tool; carry on without it and, if it mattered, say plainly that it was declined — to them directly ("you declined …"), never "the Commander declined".' };
       }
     }
     const postTaintConfirmed = postTaint.oneShot;
@@ -22083,8 +22084,15 @@ async function runOnceCore(o) {
   // SPAWN and CREW CONFIGURATION hold with or without crew too (clones need no crew; the lead configures its OWN Dossier),
   // and so does the project workspace: computed once, shared verbatim by both briefings.
   const spawnLine = '\n• SPAWN temporary same-identity subagents with team.spawn for one-off parallel subtasks when no named specialist is needed. '
-    + 'Use background:true for watchable long-running spawned workers, then inspect/control them with team.subagents, team.interrupt, and team.resume. '
-    + 'When a running background worker needs a mid-flight correction or new information, use team.steer (pass the id and generation from team.subagents) instead of interrupting and restarting it.';
+    + 'background:true makes them watchable: inspect/control them with team.subagents, team.interrupt and team.resume, and give a running one a mid-flight correction '
+    + 'or new information with team.steer (the id and generation from team.subagents) instead of interrupting and restarting it.';
+  /* CREW IN THIS CHAT (rc walk 10-14, Haiku 4.5): "bring two crew in to help me write a launch post" and "add them into this
+     chat" went to team.dispatch / team.summon — the chat never got them, and the lead said "Bringing COPY and STRATEGY into
+     this chat" while dispatching. Seating crew here is station.control group.add (deferred, so the search words ride along).
+     Only when this run holds it: the prompt never names a tool the run does not have. Paid for by the tighter SPAWN line
+     above and YOUR TEAM line below (payload.budget). */
+  const seatLine = resolved.tools.includes('station.control')
+    ? '\n• CREW IN THIS CHAT ("bring X in", "add them here"): station.control group.add (tool_search "group add"), never team.dispatch.' : '';
   const crewConfigLine = '\n• CREW CONFIGURATION: use team.config to read Dossier documents, then team.configure to edit the requested agent by exact ID. '
     + 'A notebook entry does not update another agent\'s Purpose or standing orders. Report a change only after the tool confirms it was saved. '
     + 'Dossier Purpose and standing orders describe the ongoing role; Bay briefs add the workflow-stage job. '
@@ -22113,7 +22121,7 @@ async function runOnceCore(o) {
       + '("create a research agent for me"), actually DO it with team.summon — don\'t just describe it or claim you cannot; '
       + 'it returns the new agentId, and team.dispatch becomes callable to hand it work. team.dispatch is granted but not loaded '
       + 'until then (tool_search "delegate subtasks" finds it); a background team.spawn makes its worker controls callable.'
-      + projectWorkspaceNote + spawnLine + crewConfigLine + sessionsNote;
+      + seatLine + projectWorkspaceNote + spawnLine + crewConfigLine + sessionsNote;
   } else if (isTask && resolved.tools.includes('team.dispatch')) {
     teamNote = '\n\n[ORCHESTRATION] You are the lead orchestrator. You can build and direct a crew for the Commander:';
     if (require('./overseer.js').isCoordinatorRun({ ...o, agentId, surface })) teamNote += '\nCoordinate the Commander\'s existing station crew from this conversation. Handle simple work directly. '
@@ -22138,8 +22146,8 @@ async function runOnceCore(o) {
       if (track) anyTrack = true;
       lines.push('  - ' + aid + ' (' + (ident.name || aid) + ')' + (ident.role ? ' — ' + ident.role : '') + (track ? ' [' + track + ']' : ''));
     }
-    if (lines.length) teamNote += '\n• YOUR TEAM — DELEGATE to your existing specialist crew with team.dispatch — call it with '
-      + 'workers:[{agentId, prompt}] and synthesize their returned results into your final answer. '
+    if (lines.length) teamNote += '\n• YOUR TEAM — DELEGATE to your existing specialist crew with team.dispatch (workers:[{agentId, prompt}]) '
+      + 'and synthesize their results into your final answer. '
       // THE DELIVERABLE IS A THING TO OPEN (rc walk #41: asked for a launch email, the lead listed two file names and asked
       // "want me to pull the actual email draft text?"). Each file a worker saved is already a card the Commander opens.
       + 'That answer hands the Commander what they asked for: name the deliverable and say it is ready to open on its card (every file a worker saved is one) — never answer with only a list of file names, and never ask whether to show or fetch it:\n' + lines.join('\n')
@@ -22148,14 +22156,14 @@ async function runOnceCore(o) {
       + (anyTrack ? '\n  A [bracketed] note is that specialist\'s REAL track record on this station — earned from work the '
         + 'Commander rated and runs the harness watched finish. Use it to pick the right worker; it is evidence, not a '
         + 'permission level, and an agent without one is simply new, not worse.' : '');
-    teamNote += spawnLine;
+    teamNote += seatLine + spawnLine;
     // Class Loadouts S1: the class list here is composed from the SHARED catalog (id + tagline), never hardcoded,
     // so the summon prose can't drift from the Recruitment Bay's actual classes as new ones are added.
     const classListLine = SPECIALIST_CLASSES.map(c => c.id + (c.tagline ? ' — ' + c.tagline : '')).join('; ');
     teamNote += '\n• SUMMON a NEW specialist with team.summon when the Commander wants an agent you don\'t have yet '
       + '(e.g. "create a research agent for me"): pass a class via specId — one of: ' + classListLine + ' — '
       + 'or a custom name + purpose. It returns the new '
-      + 'agentId, which you can immediately hand work to with team.dispatch. When the Commander asks you to create or '
+      + 'agentId: hand it work with team.dispatch, or seat it in this chat with group.add. When the Commander asks you to create or '
       + 'summon an agent, actually DO it with team.summon — don\'t just describe it or claim you cannot. '
       + 'For scheduled work, create StarNet routines with routine_create; if the work clearly belongs to a specialist '
       + '(research/news/latest => researcher/scout/analyst), target that agentId, or summon the specialist first.';
@@ -22165,7 +22173,7 @@ async function runOnceCore(o) {
     teamNote = '\n\n[STATION — you lead this group chat] Change StarNet through its own tools, in the background, never through the screen: '
       + 'read assembly lines with station.layout first and quote its status; tool_search "station builder" for station.map (see the floor), station.plan (plan any change on a copy), '
       + 'station.build (build a plan; it follows the Commander\'s approval setting), station.test_line and station.start_line; tool_search "station settings" for settings. '
-      + 'Claim only what those tools report. Hand work to the other participants with group.handoff.';
+      + 'Claim only what those tools report. Hand work to the other participants with group.handoff; bring more crew into this chat with station.control group.add.';
   } else if (isTask && o.delegatedBy && resolved.tools.includes('station.build')) {
     // THE LENT BUILDER (team.dispatch builder:true): this worker holds the floor tools for this job only. Without this
     // line a Build Manager handed "rebuild the lab" has deferred tools it never searches for, and says it cannot build.
@@ -22319,9 +22327,12 @@ async function runOnceCore(o) {
   // CREW CALL (crew-call.js): a request that names a crew member gets one closing line naming them and the exact
   // team.dispatch call. Only host-attested owner input may produce this directive; handoffs/workers are data.
   // Same grant gate as the [ORCHESTRATION] note: never ask for a tool this run does not have.
+  // A request that asks for crew IN THIS CHAT ("get ROOK in here") is a seat: its note names station.control group.add, so
+  // that one composes when this run holds station.control (crew-call.js HERE); the dispatch note still needs team.dispatch.
   let crewCallNote = '';
-  if (commanderWords && !internal && isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.includes('team.dispatch')) {
-    try { crewCallNote = CrewCall.crewCallNote(latestUserText(messages), agentRoster, agentId); } catch (e) { failNote('crew-call', e); }
+  const crewCallTools = resolved && Array.isArray(resolved.tools) ? { dispatch: resolved.tools.includes('team.dispatch'), seat: resolved.tools.includes('station.control') } : null;
+  if (commanderWords && !internal && isTask && crewCallTools && (crewCallTools.dispatch || crewCallTools.seat)) {
+    try { crewCallNote = CrewCall.crewCallNote(latestUserText(messages), agentRoster, agentId, crewCallTools); } catch (e) { failNote('crew-call', e); }
   }
   // SERVICE KEYS (KEYS tab): advertise the env-var NAMES of the Commander's connected platform keys — value never
   // rides the prompt. TRUTHFUL-TELEMETRY GATE: the block says "available to your shell commands", so it composes
@@ -25883,7 +25894,7 @@ function callOwnRoute(method, url, body) {
 }
 // a short, human-readable summary of WHAT a consent prompt is approving — the file path for fs.* (what the user
 // actually cares about), else the compact args. Never echoes secrets (redact() also runs on the emitted event).
-function consentSummary(call) {
+function consentSummary(call, where) {
   const a = (call && call.args) || {};
   // Approval is the place to inspect the proposed mutation, not the capped run-log digest.
   if (/^fs[._](?:write|append|edit|patch)$/.test(String(call && call.name || ''))) {
@@ -25903,7 +25914,8 @@ function consentSummary(call) {
     return ln + ': ' + how + ', with the job: "' + job.slice(0, 240) + (job.length > 240 ? '…' : '') + '". From then on it runs the line\'s agents unattended, within the line\'s budget.';
   }
   // station.control / station.power: the catalog's own sentence for the change (sidecar/tools/builtin/station-control.js)
-  if (/^station[._](?:control|power)$/.test(String(call && call.name || ''))) return stationControlCard(redact(a));
+  // …told who the crew are and what kind of chat this is, so group.add's card names people and the one true clause
+  if (/^station[._](?:control|power)$/.test(String(call && call.name || ''))) return stationControlCard(redact(a), { nameOf: crewNameOf, chat: (where && where.chat) || chatKindOf(where && where.streamId) });
   if (/^station[._]test_line$/.test(String(call && call.name || ''))) return 'the line ' + String(a.line || '').replace(/\s+/g, ' ').trim().slice(0, 48) + ', with this test job: "' + String(a.job || '').replace(/\s+/g, ' ').trim().slice(0, 240) + (String(a.job || '').length > 240 ? '…' : '') + '". It runs the line\'s agents and spends what they spend; the result lands in DELIVERABLES › TO REVIEW. If its OUTBOX has SEND TO, the downstream line also runs the result at its own cost.';
   if (/^station[._]make_prop$/.test(String(call && call.name || ''))) return '"' + String(a.describe || '').replace(/\s+/g, ' ').trim().slice(0, 60) + '", drawn with your StarNet credits (about $0.35' + (a.sideView ? ', and about $0.30 more for its side view' : '') + '). It joins your MADE BY YOU library; nothing is placed until a plan says so.';
   // a bare path names the call only when nothing else it carries could change what is approved (flags, counts)
@@ -25918,6 +25930,27 @@ function consentSummary(call) {
     const s = JSON.stringify(redact(a), null, 2);
     return s.length > FULL_MAX ? s.slice(0, FULL_MAX) + '\n… [' + (s.length - FULL_MAX) + ' more characters not shown: the request is too large for the card]' : s;
   } catch (_) { return ''; }
+}
+/* WHO and WHERE for a station.control card (rc walk 10-14: the group.add card read "copywriter", "strategist" and explained
+   General on a one-on-one chat). A crew reference -> the name the Commander knows (by id, then by exact name), '' when it is
+   no one on the roster (the card then shows what the model sent, quoted). A conversation -> its kind in the page's own
+   save: 'general' (the station's home line) | 'group' | 'direct'; '' when the save does not list it. */
+function crewNameOf(ref) {
+  const want = String(ref == null ? '' : ref).trim();
+  if (!want) return '';
+  const byId = agentRoster.get(want) || agentRoster.get(want.toLowerCase());
+  if (byId && byId.name) return String(byId.name);
+  for (const ident of agentRoster.values()) if (ident && ident.name && String(ident.name).trim().toLowerCase() === want.toLowerCase()) return String(ident.name);
+  return '';
+}
+function chatKindOf(streamId) {
+  const id = String(streamId || '');
+  if (!id) return '';
+  let save;
+  try { save = saveStore.load('agent') || {}; } catch (e) { failNote('consent.chat-kind', e); return ''; }
+  if (save.generalId === id) return 'general';
+  const w = (Array.isArray(save.workstreams) ? save.workstreams : []).find(x => x && x.id === id);
+  return !w ? '' : w.conversationMode === 'group' ? 'group' : 'direct';
 }
 // the WHOLE request behind a consent card (GET /api/consent/args), for the Commander who must see every character of a long
 // command or path before approving it. The SAME redaction as consentSummary; capped, and the cap says so honestly.

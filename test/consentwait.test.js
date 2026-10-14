@@ -192,6 +192,18 @@ async function settled(p) { let v, done = false; p.then(x => { v = x; done = tru
     const r = await reg.dispatch({ name: 'fs_write', args: {}, id: 'c1' }, { canRun: () => true, canUse: () => ({ ok: true }), agentId: 'a', room: 'office', consent: async () => g });
     A.ok(/approval timed out for fs_write/.test(r.content) && /not a refusal/i.test(r.content) && !/consent denied/.test(r.content), 'the model reads "timed out", never "denied": ' + r.content);
     A.eq(r.summary, 'denied', 'still a terminal non-run (the loop never routes around it)');
+    /* the Commander's own No reads as theirs, said to them (rc walk 10-14: "consent denied for team.dispatch: denied" came
+       back to the Commander as "The Commander declined the dispatch" — they ARE the Commander) */
+    const no = broker.grant('deny', { name: 'team_dispatch' }, { scope: 'execute', capability: 'orchestrator' });
+    A.ok(no.allow === false && no.reason === 'denied', 'a Deny on the card is the broker\'s "denied"');
+    let ran = false;
+    reg.register({ name: 'team_dispatch', requiresConsent: true, scope: 'execute', capability: 'orchestrator', schema: { type: 'object' }, run: async () => { ran = true; return 'ran'; } });
+    const d = await reg.dispatch({ name: 'team_dispatch', args: {}, id: 'c2' }, { canRun: () => true, canUse: () => ({ ok: true }), agentId: 'a', room: 'office', consent: async () => no });
+    A.ok(!ran && d.summary === 'denied', 'a denied call never runs and stays terminal');
+    A.ok(/^consent denied for team_dispatch: the Commander said no on the approval card, so it was NOT run\./.test(d.content), 'it says who said no: ' + d.content);
+    A.ok(/Say it to them directly \("you declined …"\), never "the Commander declined"/.test(d.content), 'and how to say it to them (second person)');
+    const other = await reg.dispatch({ name: 'team_dispatch', args: {}, id: 'c3' }, { canRun: () => true, canUse: () => ({ ok: true }), agentId: 'a', room: 'office', consent: async () => ({ allow: false, reason: 'no consent channel — interactive prompt not wired' }) });
+    A.ok(/consent denied for team_dispatch: no consent channel/.test(other.content) && !/said no/.test(other.content), 'a refusal nobody gave keeps its own reason (never "the Commander said no")');
   }
 
   A.report('consentwait');

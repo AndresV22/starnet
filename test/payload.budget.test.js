@@ -81,7 +81,11 @@ const HOST = '127.0.0.1';
    THE DELIVERABLE IS A THING TO OPEN 2026-10-14 (rc walk #41): the YOUR TEAM line now tells a lead with crew to name the
    deliverable as ready to open on its card, never a bare list of file names or an offer to fetch it (+196 chars, only on
    the crew>0 path; the crewless floors are unchanged). Intended growth: lead-with-crew measured 25,202 on the 0.13.5
-   candidate with both lanes merged, so its system budget moves to 25,280 (measurement + ~0.3%). */
+   candidate with both lanes merged, so its system budget moves to 25,280 (measurement + ~0.3%).
+   CREW IN THIS CHAT 2026-10-14 (rc walk: "bring two crew in" / "add them into this chat" went to team.dispatch): the
+   [ORCHESTRATION] seat line (station.control group.add, never team.dispatch) and the steer in team_dispatch / team_summon's
+   descriptions are paid for by tightening the SPAWN and YOUR TEAM lines and team_dispatch's own wording — no budget moved.
+   Measured: default 22,100 | fully 22,321 | crew 25,268 system chars; 61,334 / 61,334 / 66,164 tool bytes. */
 const BUDGET = {
   'default-new-install': { systemChars: 22140, tools: 79, toolBytes: 61350 },
   'fully-granted-floor': { systemChars: 22360, tools: 79, toolBytes: 61350 },

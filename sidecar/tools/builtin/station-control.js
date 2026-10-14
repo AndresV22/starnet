@@ -266,10 +266,24 @@
     const list = Array.isArray(raw) ? raw : String(raw == null ? '' : raw).split(/\s*(?:,|;|&|\band\b)\s*/i);
     return Array.from(new Set(list.map(x => String(x == null ? '' : x).trim()).filter(Boolean))).slice(0, 10);
   };
+  /* THE CARD (rc walk 10-14: it was a 7-line paragraph naming raw agent ids, with a "from General" clause on a one-on-one
+     chat). One short line: WHO joins, by the names the Commander knows (opts.nameOf, the host's roster), and WHICH chat —
+     its kind (opts.chat, read from the page's own save: 'direct' | 'group' | 'general') picks the one clause that is true
+     there. Unknown kind (a channel, a test): the plain line. What they see stays on the card: it is what is approved. */
+  const crewNames = (a, o) => {
+    const n = crewList(a).map(r => (o && typeof o.nameOf === 'function' && o.nameOf(r)) || q(r));
+    return n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : (n[0] || 'nobody named');
+  };
   def('group.add', { page: true, thisSession: true, caller: true, takes: '{agents: [crew names or ids], session? (default: this conversation)}',
     shape: a => Object.assign({}, a, { agents: crewList(a) }),
     needs: a => a.agents.length ? '' : 'group.add named no crew member (e.g. {"agents": ["NOVA", "ROOK"]})',
-    card: a => 'bring ' + (crewList(a).map(q).join(', ') || 'nobody named') + ' into ' + sess(a) + ': they see the whole conversation and its files. A one-on-one chat becomes a group chat (from General, a new group chat opens beside it with just this request in it); if I am still answering there, they join the moment my reply ends, and I then hand them their parts there.' });
+    card: (a, o) => {
+      const who = crewNames(a, o), chat = o && o.chat;
+      if (!(a.session == null || THIS_SESSION.test(String(a.session)))) return 'bring ' + who + ' into ' + sess(a) + ' (they see its history and files).';
+      return chat === 'group' ? 'add ' + who + ' to this group chat (they see its history and files).'
+        : chat === 'general' ? 'start a group chat with ' + who + ' beside General, carrying only this request.'
+        : 'bring ' + who + ' into this chat' + (chat === 'direct' ? ': it becomes a group chat when my reply ends, and they see its history and files.' : ' (they see its history and files).');
+    } });
   def('group.configure', { takes: '{group (its id or title), members? [the group\'s WHOLE member list, crew ids], leadId?, title?, instructions?, maxTurns? 1-100}',
     // members REPLACES the roster: the card says so, so "add NOVA" sent as {members:["nova"]} cannot quietly remove everyone else
     card: a => 'change the group chat ' + q(a.group) + ': ' + clip(['members', 'leadId', 'title', 'instructions', 'maxTurns'].filter(k => a[k] != null).map(k => k === 'members' && Array.isArray(a[k]) ? 'its WHOLE member list becomes ' + a[k].join(', ') + ' (anyone not listed leaves)' : k + ' ' + (Array.isArray(a[k]) ? a[k].join(', ') : a[k])).join('; ') || 'nothing named', 200) + '.',
@@ -368,12 +382,13 @@
   /* the approval card's words for a station.control / station.power call (index.js consentSummary) — host-written from
      the catalog, never the model's own framing. A verb phrase: the COMMS card reads "<AGENT> wants to <this>" and a
      paired phone's lock screen shows the same words. */
-  function cardFor(args) {
+  // opts (optional, host-supplied): { nameOf(ref) -> a crew member's display name or '', chat: this conversation's kind }
+  function cardFor(args, opts) {
     const call = readCall(args);
     const spec = A[call.action];
     if (!spec) return 'make an unknown station change (it will be refused, and nothing will change)';
     const a = argsFor(spec, call.args);
-    try { return spec.card(a).replace(/\.$/, ''); } catch (_) { return 'make the station change ' + spec.name; }
+    try { return spec.card(a, opts || {}).replace(/\.$/, ''); } catch (_) { return 'make the station change ' + spec.name; }
   }
 
   /* READS for station.settings: one section at a time, so a 32k model is not handed every store at once */
@@ -492,7 +507,7 @@
         freshConsent: isPower,
         description: isPower
           ? 'ESCALATE a station setting for the Commander — only what widens access or spending: agent.approval full, agent.reach trusted-project/this-computer, agent.away_work on, fullpower.set on, budget.set, budget.resume, autonomy.set, scheduler.set on, permission.grant, key.unattended on, key.set on, ability.set on, skill.install, deliverable.decide keep, project.trust, plugin.approve|revoke|delete, hook.approve|revoke|delete, limits.set. Only when the Commander asked for it in this conversation; refused on runs nobody is watching. Same {action, args} as station.control.'
-          : 'CHANGE a station setting for the Commander when they ask — the same change their button makes, proven saved. {action, args}: agent.model|personality|rename|skin|approval|reach|away_work|delete, session.rename|pin|archive|delete, look.set, fallback.set, permission.revoke, fullpower.set off, nightshift.focus|avoid, memory.forget|pin|edit|reset|settings, learning.set|wipe, connector.remove|refresh, ability.set, skill.set|install|uninstall, key.set|remove, spotify.disconnect, channels.notify, app.delete|rename, project.untrust|forget, checkpoint.restore, deliverable.decide, deliverables.cleanup|restore, away.queue|remove, quest.dismiss|later, channel.disconnect, browser.mode, group.add (bring crew into this chat: a one-on-one chat becomes a group chat, when your reply there ends), group.configure (an existing group chat; members = its WHOLE list), notifications.read|clear, estop.engage (the Commander alone resumes). station.settings section "actions" lists what each takes; read the current value first. Make the call BEFORE you say anything changed, and say only what its result says. Widening access or spending goes through station.power instead.',
+          : 'CHANGE a station setting for the Commander when they ask, or bring crew into this conversation (group.add) — the same change their button makes, proven saved. {action, args}: agent.model|personality|rename|skin|approval|reach|away_work|delete, session.rename|pin|archive|delete, look.set, fallback.set, permission.revoke, fullpower.set off, nightshift.focus|avoid, memory.forget|pin|edit|reset|settings, learning.set|wipe, connector.remove|refresh, ability.set, skill.set|install|uninstall, key.set|remove, spotify.disconnect, channels.notify, app.delete|rename, project.untrust|forget, checkpoint.restore, deliverable.decide, deliverables.cleanup|restore, away.queue|remove, quest.dismiss|later, channel.disconnect, browser.mode, group.add (bring crew into this chat: the agents named join it; a one-on-one chat becomes a group chat, when your reply there ends), group.configure (an existing group chat; members = its WHOLE list), notifications.read|clear, estop.engage (the Commander alone resumes). station.settings section "actions" lists what each takes; read the current value first. Make the call BEFORE you say anything changed, and say only what its result says. Widening access or spending goes through station.power instead.',
         schema: { type: 'object', properties: { action: { type: 'string', enum: Object.keys(A) }, args: { type: ['object', 'string'] } } },
         run: async (input, ctx) => {
           const call = readCall(input);

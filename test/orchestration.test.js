@@ -244,6 +244,9 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     const out = await dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'x' }], background: true }, { agentId: 'lead', emit: () => {} });
     const handle = JSON.parse(out.content)[0];
     A.ok(handle.id && handle.status === 'running', 'background dispatch returns a running durable handle immediately');
+    // the lead reads the handle it needs, never the run's internals (rc walk 10-14: "running under runId 8b7d03a9-…")
+    A.eq(Object.keys(handle).sort().join(','), 'agentId,generation,id,status', 'the start row is the handle (id, generation, who, state): ' + out.content);
+    A.ok(!/runId|parentRunId|leadId/.test(out.content), 'no run ids reach the model to be quoted');
     await tick();
     A.eq(ro.calls[0].maxIters, 0, 'background workers also have no default iteration ceiling');
     // its asks outlive the lead's turn (index.js askHuman): the lead ends right after the hand-off, the worker runs on
@@ -451,6 +454,25 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   A.ok(!('workstation' in parsed), 'a bare-id ack claims NO desk (the station never said it placed one)');
   A.ok(!/desk/i.test(out.summary), 'and the summary stays silent about furniture it cannot source');
   A.ok(/team\.dispatch/.test(out.summary), 'the summary nudges the lead to delegate to the new worker');
+  /* CREW INTO THIS CHAT (rc walk 10-14): "bring two crew in to help me write a launch post" summoned two, then background-
+     dispatched them — the chat never got them. The result names both next steps by the Commander's words, and reveals the
+     deferred station.control so seating the hire here is one call away. */
+  A.ok(/to work IN this chat with the Commander: station\.control \{"action": "group\.add", "args": \{"agents": \["Researcher"\]\}\}; a job in its own thread: team\.dispatch/.test(parsed.next), 'the result names group.add for this chat and team.dispatch for a job: ' + parsed.next);
+  A.eq(out.control && out.control.revealTools, ['team.dispatch', 'station.control'], 'and reveals both');
+}
+
+// ---- the always-loaded descriptions say where a worker works, and what seats crew in this chat ----
+{
+  const { dispatchTool, summonTool } = makeOrchestrationTools({ runOnce: fakeRunOnce(), roster: () => new Map(), key: 'k', model: 'm', newId: counter() });
+  A.ok(/^Delegate subtasks to your specialist crew, each worker in its own thread \(never in this chat\)\./.test(dispatchTool.description), 'team.dispatch\'s first sentence (tool_search\'s gist) says a worker never sits in this chat');
+  A.ok(/To bring crew INTO this chat to work with the Commander, use station\.control group\.add instead \(tool_search "group add"\)/.test(dispatchTool.description), 'and names the call that does');
+  A.ok(/Returns the new agentId: bring it INTO this chat with station\.control group\.add, or hand it work with team\.dispatch/.test(summonTool.description), 'team.summon names both next steps');
+}
+// the declined summon is said to the Commander, never about them
+{
+  const { summonTool } = makeOrchestrationTools({ runOnce: fakeRunOnce(), roster: () => new Map(), key: 'k', model: 'm', newId: counter() });
+  const out = await summonTool.run({ name: 'Ghost' }, { agentId: 'agent', summon: async () => null });
+  A.ok(!/the Commander declined/i.test(out.content.replace(/never "the Commander declined"/, '')) && /say it to the Commander as "you"/.test(out.content), 'a declined summon is said to the Commander as "you": ' + out.content);
 }
 
 // ---- THE DESK RIDES ALONG: the station acks { agentId, desk } and the tool reports WHERE it landed ----

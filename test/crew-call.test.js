@@ -113,9 +113,33 @@ A.ok(/only if the dispatch is refused/.test(note), 'advisory: the lead may still
 // unnamed delegation gets nothing: measured to change nothing on a small model (see crew-call.js)
 A.eq(crewCallNote('Delegate this to the other agents: find three facts about JWST', crew, 'chiefops'), '', 'an unnamed "delegate this" adds no prompt text');
 
-// wiring: composed only behind the team.dispatch grant, placed after the cached prefix (request-specific).
+/* INTO THIS CHAT (rc walk 10-14): a named ask that says WHERE the crew should be is a seat, never a dispatch. "get ROOK in
+   here" used to close the prompt with "Hand that part to them with team.dispatch" — a background worker in its own thread. */
+{
+  const both = { dispatch: true, seat: true };
+  for (const [text, want] of [
+    ['get Ada in here', ['researcher']], ['Bring Ada and Quill into this chat to help me write the launch post', ['researcher', 'writer']],
+    ['add Quill to this chat', ['writer']], ['Can you get Ada in here to help?', ['researcher']], ['invite Ada to join us', ['researcher']],
+    ['have Quill join the conversation', ['writer']]
+  ]) {
+    const seat = crewCallNote(text, crew, 'chiefops', both);
+    A.ok(/^\n\n\[CREW CALL\] The Commander wants .* IN THIS CHAT with them\. Seat them with station\.control \{"action": "group\.add", "args": \{"agents": \[/.test(seat), 'a seat ask names group.add: ' + text + ' -> ' + seat);
+    A.eq(JSON.parse(seat.match(/"agents": (\[[^\]]*\])/)[1]), want, 'and exactly who was asked for: ' + text);
+    A.ok(!/team\.dispatch, workers|Hand that part/.test(seat) && /team\.dispatch never puts anyone in this chat/.test(seat), 'never a dispatch directive: ' + text);
+    A.eq(crewCallNote(text, crew, 'chiefops', { dispatch: true, seat: false }), '', 'fail closed: without station.control a seat ask gets NO note (never the dispatch one): ' + text);
+    A.eq(crewCallNote(text, crew, 'chiefops'), '', 'and the legacy two-argument call never turns a seat ask into a dispatch: ' + text);
+  }
+  for (const text of ["Don't bring Ada in here", 'Maybe get Ada in here', 'no, get Ada in here later'])
+    A.eq(crewCallNote(text, crew, 'chiefops', both), '', 'the same veto holds for a seat: ' + text);
+  A.eq(crewCallNote('bring two crew in here', crew, 'chiefops', both), '', 'an unnamed seat ask adds no note (the briefing and tool descriptions carry it)');
+  A.ok(/team\.dispatch, workers:\[\{agentId:"researcher"/.test(crewCallNote('Have Ada research three facts about JWST', crew, 'chiefops', both)), 'a delegation with no WHERE still gets the dispatch note');
+  A.eq(crewCallNote('Have Ada research three facts about JWST', crew, 'chiefops', { dispatch: false, seat: true }), '', 'and needs team.dispatch granted');
+}
+
+// wiring: composed only behind the run's own grants (team.dispatch for a dispatch, station.control for a seat), placed after
+// the cached prefix (request-specific).
 const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
-A.ok(/if \(commanderWords && !internal && isTask && resolved && Array\.isArray\(resolved\.tools\) && resolved\.tools\.includes\('team\.dispatch'\)\) \{\s*try \{ crewCallNote = CrewCall\.crewCallNote\(latestUserText\(messages\), agentRoster, agentId\);/.test(idx), 'composed only for owner provenance and a task with team.dispatch granted');
+A.ok(/const crewCallTools = resolved && Array\.isArray\(resolved\.tools\) \? \{ dispatch: resolved\.tools\.includes\('team\.dispatch'\), seat: resolved\.tools\.includes\('station\.control'\) \} : null;\s*if \(commanderWords && !internal && isTask && crewCallTools && \(crewCallTools\.dispatch \|\| crewCallTools\.seat\)\) \{\s*try \{ crewCallNote = CrewCall\.crewCallNote\(latestUserText\(messages\), agentRoster, agentId, crewCallTools\);/.test(idx), 'composed only for owner provenance and a task holding the tool its note names');
 A.ok(/\+ deliverableNote \+ crewCallNote \+ runtimeBlock/.test(idx), 'rides the request-specific tail of the prompt, never the cached prefix');
 
 A.report('crew-call.test');

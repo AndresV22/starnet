@@ -21,10 +21,25 @@ const { makeStationControlTools, cardFor, ACTIONS } = require('../sidecar/tools/
 (async () => {
   /* ---- A. the tool ---- */
   A.ok(ACTIONS['group.add'] && !ACTIONS['group.add'].power({}), 'group.add is an ordinary station.control action (the same change the + key makes)');
-  const card = cardFor({ action: 'group.add', args: { agents: 'NOVA and SAM ALTMAN' } });
-  A.ok(/^bring "NOVA", "SAM ALTMAN" into this conversation: they see the whole conversation and its files/.test(card), 'the card names who joins and what they see: ' + card);
-  A.ok(/becomes a group chat/.test(card) && /beside it/.test(card) && /join the moment my reply ends/.test(card), 'the card says the chat changes shape, General opens beside it, and when it lands');
-  A.ok(/beside it with just this request in it/.test(card) && /I then hand them their parts there/.test(card), 'and it is truthful about General (only the request goes with it) and about what happens once they join');
+  /* THE CARD IS ONE GLANCE (rc walk 10-14: a 7-line paragraph naming "copywriter", "strategist" with a "from General" clause
+     on a one-on-one chat): who joins by NAME, which chat, and the one clause true for that chat's kind. */
+  const roster = { nova: 'NOVA', copywriter: 'COPY', strategist: 'STRATEGY', 'sam': 'SAM ALTMAN' };
+  const nameOf = r => roster[String(r).toLowerCase()] || Object.values(roster).find(n => n.toLowerCase() === String(r).toLowerCase()) || '';
+  const ids = { action: 'group.add', args: { agents: ['copywriter', 'strategist'] } };
+  const direct = cardFor(ids, { nameOf, chat: 'direct' });
+  A.eq(direct, 'bring COPY and STRATEGY into this chat: it becomes a group chat when my reply ends, and they see its history and files', 'a one-on-one chat: names, not ids, and the one clause true there: ' + direct);
+  A.ok(!/General|copywriter|strategist|"/.test(direct) && direct.length <= 120, 'no ids, no General clause, two short lines at most (' + direct.length + ' chars)');
+  A.eq(cardFor(ids, { nameOf, chat: 'group' }), 'add COPY and STRATEGY to this group chat (they see its history and files)', 'a group chat: they are added to it');
+  A.eq(cardFor(ids, { nameOf, chat: 'general' }), 'start a group chat with COPY and STRATEGY beside General, carrying only this request', 'General: a new group opens beside it with only the request');
+  A.eq(cardFor({ action: 'group.add', args: { agents: 'NOVA and SAM ALTMAN' } }, { nameOf }), 'bring NOVA and SAM ALTMAN into this chat (they see its history and files)', '"NOVA and SAM ALTMAN" reads as two names; an unknown chat kind gets the plain line');
+  A.eq(cardFor({ action: 'group.add', args: { agents: ['copywriter', 'ghost'] } }, { nameOf, chat: 'direct' }).split(':')[0], 'bring COPY and "ghost" into this chat', 'someone not on the roster shows exactly as the model sent it, quoted');
+  A.eq(cardFor({ action: 'group.add', args: { agents: ['nova'], session: 'Launch plan' } }, { nameOf, chat: 'direct' }), 'bring NOVA into the session "Launch plan" (they see its history and files)', 'another session is named, never "this chat"');
+  A.eq(cardFor({ action: 'group.add', args: { agents: ['copywriter'] } }), 'bring "copywriter" into this chat (they see its history and files)', 'with no host help the card still reads (the ids quoted)');
+  // the host hands the card its roster and the chat's kind from the page's own save (index.js consentSummary)
+  const host = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
+  A.ok(/return stationControlCard\(redact\(a\), \{ nameOf: crewNameOf, chat: \(where && where\.chat\) \|\| chatKindOf\(where && where\.streamId\) \}\);/.test(host), 'consentSummary passes the roster names and the chat kind');
+  A.ok(/argsSummary: consentSummary\(call, \{ streamId \}\)/.test(host) && /argsSummary: consentSummary\(call, \{ streamId: g\.id, chat: 'group' \}\)/.test(host), 'from the run\'s own conversation (a group turn is a group chat)');
+  A.ok(/if \(save\.generalId === id\) return 'general';/.test(host) && /w\.conversationMode === 'group' \? 'group' : 'direct'/.test(host), 'the chat kind is read from the page\'s save (General, group, direct)');
   A.ok(/WHOLE member list becomes nova \(anyone not listed leaves\)/.test(cardFor({ action: 'group.configure', args: { group: 'Launch', members: ['nova'] } })),
     'group.configure says its members REPLACE the roster (an "add NOVA" sent there cannot quietly remove everyone)');
 

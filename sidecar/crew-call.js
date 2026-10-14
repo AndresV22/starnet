@@ -26,11 +26,20 @@ const LEAD = '^(?:(?:please|hey|hi|ok(?:ay)?|so|now|also|and|can\\s+you|could\\s
 // Ids that are ordinary words in a sentence, never on their own a reference to one agent ("ask an agent").
 const GENERIC_IDS = new Set(['agent']);
 const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/* INTO THIS CHAT (rc walk 10-14). "get ROOK in here" names ROOK with "get", and this note used to answer it with "Hand that
+   part to them with team.dispatch" — a worker in its own thread, when the Commander asked for ROOK HERE. A request that says
+   WHERE the crew should be (in here, into / to this chat, join us) asks for a seat, not a dispatch: the note names
+   station.control group.add when the run holds it, and says nothing otherwise (a missed note leaves the lead to decide; a
+   wrong one sends the agent off to a thread of its own). Its verbs are the ones a seat is asked with ("bring ROOK in here",
+   "add Ada to this chat"). The same QUALIFIED veto applies. */
+const HERE = /\b(?:in\s+here|(?:in|into|to)\s+(?:this|the|our)\s+(?:chat|conversation|thread|group(?:\s+chat)?)|join\s+(?:us|me|in|this|the\s+(?:chat|conversation|group)))\b/i;
+const SEAT_ASK = '(?:have|get|bring|add|invite|pull|let|loop in|bring in)';
 
-/* crewMentions(text, crew, leadId) -> [{ agentId, name }]
+/* crewMentions(text, crew, leadId, ask?) -> [{ agentId, name }]
    crew: Map/iterable of [agentId, { name }]. A member counts when its display name or (non-generic) agentId
-   appears as a whole word AND the request asks for work (a delegation verb, or "Name, …" / "Name: …" up front). */
-function crewMentions(text, crew, leadId) {
+   appears as a whole word AND the request asks for work (a delegation verb, or "Name, …" / "Name: …" up front).
+   ask: the verb pattern (default ASK; the seat note passes SEAT_ASK). */
+function crewMentions(text, crew, leadId, ask) {
   const t = String(text || '').trim();
   if (!t || !crew || QUALIFIED.test(t.replace(REASSURANCE, ' '))) return [];
   const members = [];
@@ -49,7 +58,7 @@ function crewMentions(text, crew, leadId) {
   const list = target + '(?:' + separator + target + ')*';
   // Match the whole target span before rejecting possession, so regex backtracking cannot
   // turn "Have Ada and Quill's report" into a directive for just Ada.
-  const action = new RegExp(LEAD + ASK + '\\s+(' + list + ')', 'i').exec(t);
+  const action = new RegExp(LEAD + (ask || ASK) + '\\s+(' + list + ')', 'i').exec(t);
   const tail = action ? t.slice(action[0].length) : '';
   const targets = new Set(action && !/^(?:['’]|\s*(?:,|&|and\b))/i.test(tail)
     ? Array.from(action[1].matchAll(new RegExp('(?:^|' + separator + ')' + target, 'ig')), m => m[1].toLowerCase())
@@ -63,8 +72,21 @@ function crewMentions(text, crew, leadId) {
 /* Only a NAMED crew call gets a note. Measured 2026-10-11 on qwen3:8b (Ollama): "Have Ada research…" went from
    0/4 delegated (trunk) to 4/4 with this note. An unnamed "delegate this to the other agents" was already ~50%
    (4/8), and neither a generic note (3/7) nor one spelling out the call (3/6) moved it, so none is sent: prompt
-   text that changes nothing is not worth its tokens. */
-function crewCallNote(text, crew, leadId) {
+   text that changes nothing is not worth its tokens.
+   opts (index.js, from this run's granted tools): { dispatch: team.dispatch is granted, seat: station.control is granted }.
+   Absent opts = the dispatch note only, as before. A request that says WHERE (HERE) never gets the dispatch note. */
+function crewCallNote(text, crew, leadId, opts) {
+  const o = opts || {};
+  if (HERE.test(String(text || ''))) {
+    if (!o.seat) return '';
+    const seated = crewMentions(text, crew, leadId, SEAT_ASK).slice(0, 4);
+    if (!seated.length) return '';
+    const names = seated.map(m => m.name === m.agentId ? m.agentId : m.name + ' (agentId ' + m.agentId + ')').join(', ');
+    return '\n\n[CREW CALL] The Commander wants ' + names + ' IN THIS CHAT with them. Seat them with station.control '
+      + '{"action": "group.add", "args": {"agents": [' + seated.map(m => JSON.stringify(m.agentId)).join(', ') + ']}} '
+      + '(tool_search "group add" if it is not in your list); team.dispatch never puts anyone in this chat.';
+  }
+  if (o.dispatch === false) return '';
   const named = crewMentions(text, crew, leadId).slice(0, 4);
   if (!named.length) return '';
   const who = named.map(m => m.name === m.agentId ? m.agentId : m.name + ' (agentId ' + m.agentId + ')').join(', ');
