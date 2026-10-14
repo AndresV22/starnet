@@ -3448,8 +3448,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (dossierWindow) dossierWindow.classList.add('agent-dossier');
     if (!present.length) {
       // shared empty-state vocabulary rather than a bare paragraph (no agents = nothing to dossier)
+      // org P10: the empty dossier carries the RECRUIT door itself (the same App.openSummonBay the CREW dock's RECRUIT opens)
+      const canRecruit = typeof App !== 'undefined' && !!App.openSummonBay;
       body.innerHTML = '<div class="empty-state" style="margin:32px auto;">' + NO_AGENTS_MARK +
-        '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div>';
+        '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span>' +
+        (canRecruit ? '<button type="button" class="bb sm" data-act="empty-recruit" style="margin-top:14px;">▸ OPEN RECRUIT</button>' : '') + '</div>';
+      const recruitKey = body.querySelector('[data-act="empty-recruit"]');
+      if (recruitKey) recruitKey.addEventListener('click', () => { sfx('click'); try { App.openSummonBay(); } catch (e) { console.warn('[dossier] recruit door failed:', (e && e.message) || e); } });
       return;
     }
     if (sel >= present.length) sel = 0;
