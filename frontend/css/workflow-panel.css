@@ -347,7 +347,7 @@ textarea.wf-io:focus { outline: none; border-color: var(--ph); box-shadow: var(-
 .wf-md .md-b { color: var(--ph-bright); }
 .wf-md .md-list { margin: .35em 0; padding-left: 1.6em; }
 .wf-md .md-list li { margin: .15em 0; }
-.wf-md .md-code { padding: 0 4px; border-radius: 4px; background: rgba(var(--ph-rgb),.08); }
+.wf-md .md-code { font-family: inherit; padding: 0 4px; border-radius: 4px; background: rgba(var(--ph-rgb),.08); }   /* the station face, as COMMS — never the browser's monospace */
 .wf-md a { color: var(--wf-cyan); }
 /* …its fenced blocks, quotes and tables too (walk 10-14: DELIVERABLES draws replies through it now) — COMMS' own rules on the
    panel scale: a code block keeps its lines and its working ⧉ copy key (chat.js wires .wf-md .md-copy), a table scrolls in place */

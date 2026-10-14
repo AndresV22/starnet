@@ -102,6 +102,7 @@ const rendered = n => /<span class="md-h"[^>]*>Findings<\/span>/.test(n.innerHTM
   pending++;
   const wfcss = rd('frontend/css/workflow-panel.css');
   A.ok(/\.wf-md \.md-pre \{[^}]*white-space: pre;/.test(wfcss) && /\.wf-md \.md-copy \{[^}]*position: absolute;/.test(wfcss) && /\.wf-md \.md-table th, \.wf-md \.md-table td/.test(wfcss), 'code blocks keep their lines, the copy key sits on the block, tables are ruled (wf-md)');
+  A.ok(/\.wf-md \.md-code \{ font-family: inherit;/.test(wfcss), 'a code span keeps the station face (live: it fell back to the browser monospace, bigger than its line)');
 }
 
 /* ---------- #3 the COMMS INBOX card's quote ---------- */
