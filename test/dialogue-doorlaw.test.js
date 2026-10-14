@@ -46,7 +46,7 @@ A.ok(typeof Dialogue.say === 'function' && typeof Dialogue.node === 'function', 
   A.ok(/start: true/.test(line('recruit')) && !/jobs:|how:/.test(line('recruit')), 'RECRUIT starts online, with no milestone or how-line');
   A.ok(/start: true/.test(line('connect')) && !/jobs:|how:/.test(line('connect')), 'CONNECT starts online, with no milestone or how-line');
   A.ok(!/start: true/.test(line('automate')) && !/start: true/.test(line('stepin')), 'AUTOMATE and STEP-IN stay staged');
-  A.ok(/tip: 'Recruit a class, or re-spec your agent'/.test(line('recruit')) && /<b>RECRUIT<\/b><small>recruit a class, or re-spec your agent<\/small>/.test(idx), 'the RECRUIT tip and dock line drop "summon"');
+  A.ok(/tip: 'Pick a class, or re-spec your agent'/.test(line('recruit')) && /<b>RECRUIT<\/b><small>pick a class, or re-spec your agent<\/small>/.test(idx), 'the RECRUIT tip and dock line drop "summon" and say what is inside, not the title again');
   A.ok(/tip: 'Services your agents use, and where you message them'/.test(line('connect')) && /<b>CONNECT<\/b><small>services your agents use, and where you message them<\/small>/.test(idx), 'the CONNECT tip and dock line say services');
   A.ok(/these <b>docks<\/b>/.test(idx) && !/4 docks/.test(idx), 'the nav coach says "these docks" (APPS can make a fifth)');
   A.ok(!/DELIVERABLES · OUTBOX · RECIPES/.test(idx), 'the MY WORK comment no longer lists an OUTBOX tab');

@@ -96,7 +96,7 @@ A.ok(/model:\s*\(pin && pin\.model\)\s*\|\|\s*agent\.model/.test(read('frontend/
 A.ok(!/AS A SPECIALTY|SAVE SPECIALTY|EDIT SPECIALTY|none of your specialists|as a specialty above|before summoning|its own <span data-hint="workstream">chat thread/.test(MKT) &&
   MKT.includes('＋ SAVE THIS AGENT AS A CLASS') && MKT.includes("'none of your classes match your search — '") && MKT.includes('before recruiting') &&
   MKT.includes('its own <span data-hint="workstream">session</span>'), 'P22 fix: the hints, save key, name helper and CTA sub-line speak RECRUIT / CLASS / session too');
-A.ok(read('frontend/index.html').includes('<small>recruit a class, or re-spec your agent</small>') && /Recruitment Bay and RECRUIT one/.test(MAN), 'P22: the dock subtitle and the manual say RECRUIT');
+A.ok(read('frontend/index.html').includes('<b>RECRUIT</b><small>pick a class, or re-spec your agent</small>') && /Recruitment Bay and RECRUIT one/.test(MAN), 'P22: the dock subtitle and the manual say RECRUIT');
 
 /* ---------- P26: name the open session in the COMMS title (behaviour, run in a vm against the shipped functions) ---------- */
 const CHAT = read('frontend/app/chat.js');

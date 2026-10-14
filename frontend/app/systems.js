@@ -28,7 +28,7 @@ const Systems = (() => {
      is offline; tip = what it is (the hover tip, never a sentence under a tile). */
   const LIST = [
     { id: 'agents', label: 'AGENTS', group: 'crew', sel: '.bb[data-term="agents"]', terms: ['agents', 'logbook', 'rewind'], start: true, tip: 'Each crew member’s dossier — config, memory, record' },
-    { id: 'recruit', label: 'RECRUIT', group: 'crew', sel: '#bb-recruit', words: ['RECRUIT', 'RECRUITMENT BAY'], start: true, tip: 'Recruit a class, or re-spec your agent' },
+    { id: 'recruit', label: 'RECRUIT', group: 'crew', sel: '#bb-recruit', words: ['RECRUIT', 'RECRUITMENT BAY'], start: true, tip: 'Pick a class, or re-spec your agent' },
     { id: 'commander', label: 'YOU', group: 'crew', sel: '.bb[data-term="commander"]', terms: ['commander'], start: true, tip: 'What the station has learned about you' },
     { id: 'stepin', label: 'STEP-IN', group: 'crew', sel: '.bb[data-term="stepin"]', terms: ['stepin'], words: ['STEP-IN'], how: 'when an agent needs you to take its browser', tip: 'Take an agent’s browser when it needs you to sign in' },
     // ONE MENU (2026-10-01): MY WORK / AUTOMATE / CONNECT are each one dock button over several windows (stationui
