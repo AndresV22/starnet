@@ -309,7 +309,7 @@ const Build = (() => {
     equipmentAgentId = ''; equipmentAccessKey = ''; equipmentAccessView = null; equipmentAccessTicket++;
     tool = 'select';   // SELECT is the default mode — a fresh BUILD MODE session never opens with a placement tool armed
     escExitArmedAt = 0;   // a fresh session never inherits a half-pressed exit
-    ridePending = false; rideAgentId = null; ridePrevReach = null; rideFresh = false;   // the auto first-ride re-arms (and re-baselines its reach snapshot) from THIS session's compile, never a stale one
+    ridePending = false; rideAgentId = null; ridePrevReach = null;   // the auto first-ride re-arms (and re-baselines its reach snapshot) from THIS session's compile, never a stale one
     // finish-the-line: fresh session state (the registry itself persists in localStorage) + one seam probe
     wfHighlightId = null; wfPaused = null; wfHostMemo = null; wfKitAuto = false;
     finSample = null; finKeySel = null; finEngaged = false; finSig = ''; finCardEl = null; finComp = null; valComps = null; lastStampIds = null; finPollTs = 0; finSampleRes = null;
@@ -4139,13 +4139,12 @@ const Build = (() => {
   const RIDE_KEY = () => 'starnet.refit.firstride.' + stationKeyOf(station);
   function rideSeen() { try { return !!localStorage.getItem(RIDE_KEY()); } catch (e) { return true; } }   // broken storage → never risk a repeat
   function markRide() { try { localStorage.setItem(RIDE_KEY(), '1'); } catch (e) {} }
-  let ridePending = false, rideTimer = 0, rideAgentId = null, ridePrevReach = null, rideFresh = false;
+  let ridePending = false, rideTimer = 0, rideAgentId = null, ridePrevReach = null;
   function maybeFirstRide() {
     /* THE RIDE NAMES ITS LINE (conveyor-audit 2026-08-10). "Complete" used to be any reach=true
        plus any doc-order intake — on a floor with an older decorative intake, the one narrated
        ride entered the WRONG line and sank. Now the arm records WHICH dock powered on (prefer
-       the reach that flipped true THIS compile — that bind is the teachable moment; a session's
-       first compile baselines against nothing, so an already-complete floor still narrates), and
+       the reach that flipped true THIS compile — that bind is the teachable moment), and
        fireFirstRide rides THAT dock's own front door via rideMouthFor. */
     const prev = ridePrevReach || {}, now = {}, entry = !ridePrevReach;
     // a line counts once it is COMPLETE: its dock reached by an intake lane AND every step of it crewed (2026-09-30: it
@@ -4154,17 +4153,16 @@ const Build = (() => {
     if (valPlan && valPlan.reach) for (const a in valPlan.reach) if (valPlan.reach[a] && crewed(a)) now[a] = true;
     ridePrevReach = now;
     /* A RIDE ONLY ANSWERS THE EDIT THAT POWERED ITS LINE (2026-10-14, the busy-station walk: one lone INBOX placed, and the
-       floor said "LINE READY — a test crate rides it now" over the foreman's untouched line across the station). A ride
-       armed at entry (the session's first compile: an already-complete floor) that something coach-like held back is
-       dropped by the next compile that powers nothing new — fired then, it reads as the answer to an edit it has nothing
-       to do with. Its one shot is not burned (it arms again at the next entry, or on a line the user powers on). A ride the
-       user's own edit armed stays armed until it narrates. */
-    if (ridePending && !rideFresh && !entry) { ridePending = false; rideAgentId = null; }
-    if (ridePending || rideSeen()) return;
+       floor said "LINE READY — a test crate rides it now" over the foreman's untouched line across the station). The
+       session's first compile only takes the baseline: a line that was already complete when BUILD MODE opened is nobody's
+       edit, and a ride armed for it played over the floor as the editor opened (or, held back by a card, after the user's
+       first unrelated edit). Its one shot is not burned — the ride arms on the first line a compile completes after an edit,
+       and stays armed until it narrates. */
+    if (entry || ridePending || rideSeen()) return;
     let rideA = null;
-    for (const a in now) if (!prev[a]) { rideA = a; break; }   // the line this compile completed (at entry: any complete one)
+    for (const a in now) if (!prev[a]) { rideA = a; break; }   // the line this compile completed
     if (!rideA || !rideMouthFor(rideA)) return;   // complete = an intake lane reaches a bound bay, entered through ITS OWN mouth
-    rideAgentId = rideA; rideFresh = !entry;
+    rideAgentId = rideA;
     ridePending = true;   // armed — frame() fires it once nothing coach-like is up
   }
   function fireFirstRide() {

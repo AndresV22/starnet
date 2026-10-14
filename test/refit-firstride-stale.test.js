@@ -4,12 +4,11 @@
    and the floor said "LINE READY — a test crate rides it now … WATCH IT replays it" over the FOREMAN's untouched line on the
    far side of the station, and a test ride started there).
 
-   The cause: a session's first compile baselines against nothing, so an already-complete floor arms its one narrated ride
-   at entry (by design — a station whose lines were finished elsewhere still gets the ride once). When something coach-like
-   held it back at entry (the presets list, the first-run card), it stayed armed — and fired after the user's NEXT edit,
-   whatever that edit was, on a line it had nothing to do with. Now a compile that powers nothing new drops an entry-armed
-   ride that has not fired (its one shot is not burned: it arms again at the next entry, or on a line the user powers on),
-   while a ride armed by the edit that powered its line stays armed until it narrates.
+   The cause: a session's first compile judged every line against nothing, so an already-complete floor armed its one
+   narrated ride as BUILD MODE opened — it played over the untouched foreman line before the user did anything, or (held
+   back by a card) after the user's first edit, whatever that edit was. Now the first compile only takes the baseline: the
+   ride arms on the first line a compile completes after an edit (its one shot is not burned meanwhile) and stays armed
+   until it narrates.
 
    build.js is a browser IIFE; the production maybeFirstRide runs here in a vm with the plan and the latch stubbed. */
 const assert = require('node:assert/strict');
@@ -19,7 +18,7 @@ const vm = require('node:vm');
 const build = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'build.js'), 'utf8');
 const start = build.indexOf('  function maybeFirstRide() {'), end = build.indexOf('  function fireFirstRide() {');
 assert.ok(start > 0 && end > start, 'maybeFirstRide is where the test reads it');
-const declared = /let ridePending = false, rideTimer = 0, rideAgentId = null, ridePrevReach = null(, rideFresh = false)?;/.exec(build);
+const declared = /let ridePending = false, rideTimer = 0, rideAgentId = null, ridePrevReach = null(, rideFresh = false)?;/.exec(build);   // (rideFresh: the 10-14 first pass)
 assert.ok(declared, 'the ride state is declared as the test expects');
 
 const lines = { foreman: true, nova: true };   // agents whose lines have their own reaching mouth and a full crew
@@ -34,14 +33,14 @@ const compile = (...reaching) => {
   vm.runInContext('maybeFirstRide()', ctx);
 };
 
-// entry on a floor whose FOREMAN line is already complete: armed at entry, not yet fired (the presets list is up)
+// entry on a floor whose FOREMAN line is already complete: the first compile is the baseline, nobody's edit
 compile('foreman');
-assert.equal(ctx.ridePending, true, 'an already-complete floor still arms its one narrated ride at entry');
-assert.equal(ctx.rideAgentId, 'foreman', '…on the line that is complete');
+assert.equal(ctx.ridePending, false, 'BUILD MODE opening on an already-complete line arms no ride (it would play over the untouched line)');
+assert.equal(ctx.rideAgentId, null, '…and names no line');
 
 // the user places a lone INBOX: the plan recompiles, nothing new powers on
 compile('foreman');
-assert.equal(ctx.ridePending, false, 'an edit that powers nothing new drops the entry-armed ride — it never fires on an untouched line after it');
+assert.equal(ctx.ridePending, false, 'an edit that completes nothing arms no ride on the line that was already complete');
 assert.equal(ctx.rideAgentId, null, '…and names no line');
 
 // the user finishes a line of their own: THAT is the teachable moment, and it stays armed through later edits until it narrates
@@ -77,4 +76,4 @@ vm.runInContext(build.slice(bStart, bEnd), editor);
 vm.runInContext('rebake()', editor);
 assert.equal(seenComps, comps, 'the first-ride check runs on the lines THIS compile grouped, never on none (or the last edit\'s)');
 
-console.log('refit-firstride-stale: an entry-armed ride never fires after an unrelated edit; the line the user powers keeps its ride — PASS');
+console.log('refit-firstride-stale: BUILD MODE opening and an unrelated edit arm no ride; the line the user powers keeps its ride — PASS');
