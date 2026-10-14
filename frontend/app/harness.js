@@ -432,8 +432,12 @@ const Harness = (() => {
   // connect screen demanding an API key they deliberately do not have.
   //
   // Called again after a link/unlink so selecting STARNET does not wait for a page reload.
+  // creditsEpoch: every call is "the account may have changed" — SETTINGS' shared credits read (stationui.js
+  // creditsRead) never serves an answer from an older epoch, whichever screen did the linking (review 10-14).
+  let creditsEpoch = 0;
   async function refreshCreditsConfigured() {
     selectionRevision++;
+    creditsEpoch++;
     try {
       // probe=1: an unconfigured station answers 200 { configured:false } instead of the STORE's 404 (no console error on every load)
       const r = await fetch('/api/credits?history=0&probe=1', { cache: 'no-store' });
@@ -1656,7 +1660,7 @@ const Harness = (() => {
     pingEngine, engineState, restartEngine,
     canRestartEngine: () => !!tauriCoreNow(),
     isDesktop: () => DESKTOP,   // lets the UI tell a desktop keychain-store failure (token saved locally) from a browser no-op
-    getSelectionRevision, getKey, setKey, setKeyPool, validateAndSetKeyPool, keyPoolSize, storeChannelToken, getModel, setModel, getProv, setProv, getBaseUrl, setBaseUrl, getReasoningEffort, setReasoningEffort, clearLegacyReasoningOff, normalizeReasoningEffort, init, configured, refreshCreditsConfigured, hasStoredCredential, setDesktopConfigured,
+    getSelectionRevision, getKey, setKey, setKeyPool, validateAndSetKeyPool, keyPoolSize, storeChannelToken, getModel, setModel, getProv, setProv, getBaseUrl, setBaseUrl, getReasoningEffort, setReasoningEffort, clearLegacyReasoningOff, normalizeReasoningEffort, init, configured, refreshCreditsConfigured, creditsEpoch: () => creditsEpoch, hasStoredCredential, setDesktopConfigured,
     listModels, probeProvider, validateAndSetKey, priceOf, contextLimitOf, contextState, chat, cancel, haltAll, consent, consentAck, consentArgs, consentAnswer, summonAck, notebook,
     runRecoveries, prepareAutomaticRecovery, resolveRunRecovery, prepareReviewedRecovery,
     memoryProposals, memoryTurnin, memoryVeto, memoryReset, memoryRecords, memoryDeclined, memoryRestore, memoryPending, memoryPin, memoryEdit, memoryForget,

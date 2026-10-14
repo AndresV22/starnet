@@ -5045,11 +5045,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      read in flight share its one request. LINK / UNLINK / RETRY / REFRESH / the STORE key call forgetCreditsReads(). */
   const CREDITS_FRESH_MS = 60000;
   const CREDITS_UNLINKED_MS = 10 * 60000;
-  const _creditsReads = new Map();   // url -> { at, pending, notLinked, p }
+  const _creditsReads = new Map();   // url -> { at, epoch, pending, notLinked, p }
   function creditsRead(url, opts) {
-    const now = Date.now(), hit = _creditsReads.get(url);
-    if (hit && (hit.pending || now - hit.at < (hit.notLinked ? CREDITS_UNLINKED_MS : CREDITS_FRESH_MS))) return hit.p;
-    const rec = { at: now, pending: true, notLinked: false, p: null };
+    // Harness.creditsEpoch moves on EVERY link/unlink/switch (refreshCreditsConfigured), the connect screen's included
+    const now = Date.now(), epoch = Harness.creditsEpoch ? Harness.creditsEpoch() : 0, hit = _creditsReads.get(url);
+    if (hit && hit.epoch === epoch && (hit.pending || now - hit.at < (hit.notLinked ? CREDITS_UNLINKED_MS : CREDITS_FRESH_MS))) return hit.p;
+    const rec = { at: now, epoch, pending: true, notLinked: false, p: null };
     rec.p = Harness.api.get(url, opts).then(v => { rec.pending = false; rec.at = Date.now(); return v; }, e => {
       rec.pending = false; rec.at = Date.now();
       rec.notLinked = /http 404\b/.test(String((e && e.message) || e));

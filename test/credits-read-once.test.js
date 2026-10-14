@@ -17,7 +17,8 @@ A.ok(readFn && forgetFn && readFn.length < 4000, 'the shared credits read exists
 let now = 1.8e12;
 const calls = [];
 let answer = () => Promise.reject(new Error('http 404 not found'));
-const Harness = { api: { get: (url) => { calls.push(url); return answer(url); } } };
+let epoch = 0;   // Harness.creditsEpoch(): moves on every account change anywhere (Harness.refreshCreditsConfigured)
+const Harness = { api: { get: (url) => { calls.push(url); return answer(url); } }, creditsEpoch: () => epoch };
 const consts = (/const CREDITS_FRESH_MS = [^;]+;/.exec(ui) || [''])[0] + '\n' + (/const CREDITS_UNLINKED_MS = [^;]+;/.exec(ui) || [''])[0];
 const api = new Function('Harness', 'Date', consts + '\nconst _creditsReads = new Map();\n' + readFn + '\n' + forgetFn + '\nreturn { creditsRead, forgetCreditsReads };')(Harness, { now: () => now });
 
@@ -35,6 +36,22 @@ const api = new Function('Harness', 'Date', consts + '\nconst _creditsReads = ne
   api.forgetCreditsReads();
   await settle(api.creditsRead('/api/credits'));
   A.eq(calls.length, 3, 'LINK / UNLINK / RETRY / REFRESH forget it and read afresh');
+  // an account change OUTSIDE the STORE (review 10-14: the connect screen's link/switch flows in app.js) — every path
+  // that links or unlinks ends in Harness.refreshCreditsConfigured, which moves the epoch; a kept answer from before
+  // it is never served again ("Link this station…" must not outlive the link by ten minutes)
+  now += 1000; await settle(api.creditsRead('/api/credits'));
+  A.eq(calls.length, 3, '(still held before the change)');
+  epoch++;
+  await settle(api.creditsRead('/api/credits'));
+  A.eq(calls.length, 4, 'an account change anywhere reads afresh');
+  await settle(api.creditsRead('/api/credits'));
+  A.eq(calls.length, 4, '…and that fresh answer is held again');
+  {
+    const hs = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'harness.js'), 'utf8');
+    const refresh = A.fnBody(hs, 'async function refreshCreditsConfigured()');
+    A.ok(/creditsEpoch\+\+/.test(refresh), 'Harness.refreshCreditsConfigured moves the credits epoch');
+    A.ok(/creditsEpoch:\s*\(\)\s*=>\s*creditsEpoch/.test(hs), 'Harness exposes it');
+  }
 
   // concurrent callers share one request in flight
   answer = () => new Promise(r => setTimeout(() => r({ configured: true, balanceUsd: 3 }), 5));
