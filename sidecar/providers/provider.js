@@ -569,7 +569,7 @@
      'system' at index > 0 — and strict chat templates refuse exactly that ("System message must be at the beginning",
      #102), as do role-order validators that reject a system message after an assistant or tool turn. With the run
      context now on EVERY message, every run on such an endpoint would fail. So on a non-Claude chat wire the notes
-     leave their system messages and become ONE fenced leading text part of the NEWEST user message: the request keeps
+     leave their system messages and become ONE fenced leading text part of the Commander's user message (noteCarrier, below): the request keeps
      exactly one leading system message (byte-stable across a conversation's messages), user/assistant alternation is
      untouched (never a separate message), and the request still ends on that user turn. The <crew_call> note is the
      one exception to "leading": it becomes that turn's CLOSING text part, after the Commander's words (CREW CALL NOTE
@@ -595,7 +595,7 @@
      Commander's words (and on a Claude route as adjacent user text), a "</run_context>" or "<recalled-memory>" typed by
      a user, pasted by a channel guest, or returned in a tool result (a web page, a file, an email) could close a
      genuine note early or open a forged one — text that reads as host context. The claude-cli pattern (inertTags):
-     every host-fence open/close tag in user and tool content is written with &lt; so it stays text, and so is every
+     every host-fence open/close tag in user, tool and assistant content is written with &lt; so it stays text, and so is every
      one inside a note's own body (its task brief quotes the Commander; recall quotes saved memories; the summary quotes
      the conversation). A note keeps exactly its own outer fence: the open tag it starts with and the close tag it ends
      with. Only <recalled-memory> is ever made of several blocks (recall + taste, joined "</recalled-memory>\n
@@ -636,7 +636,9 @@
     const out = messages.map((m, i) => {
       if (!m || typeof m !== 'object') return m;
       let fn = null;
-      if (m.role === 'user' || m.role === 'tool') fn = inertHostTags;
+      // assistant text too (review 2026-10-12): a reply that echoed a fetched page's "<run_context>…</run_context>" is sent
+      // back on every later turn, where a live fence would read as host context; tool_calls are untouched (not content)
+      if (m.role === 'user' || m.role === 'tool' || m.role === 'assistant') fn = inertHostTags;
       else if (m.role === 'system' && i > 0) fn = isHostNote(m) ? inertNoteBody : inertHostTags;
       if (!fn || m.content == null) return m;
       const content = inertContent(m.content, fn);
@@ -670,14 +672,46 @@
     else content = text;
     return Object.assign({}, message, { content });
   }
+  /* WHICH USER TURN CARRIES THE NOTES (review 2026-10-12). index.js injects the run-context note and recall right BEFORE
+     the Commander's message, so the carrier is the first user turn after the last of those notes — not simply the newest
+     user turn: mid-run the loop appends user turns of its own (the screen-capture turn, loop.js shotTurn), and moving the
+     notes onto one would change the Commander's message bytes mid-run (one prefix-cache miss) and hang the Task Brief
+     and recall off a screenshot. With no such note (a summary or crew call alone), or nothing after it, the newest user
+     turn carries them, as before. */
+  function noteCarrier(messages) {
+    let anchor = -1, newest = -1;
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (!m) continue;
+      if (m.role === 'user') newest = i;
+      else if (isHostNote(m) && !isCrewCallNote(m) && !isSummaryHead(m)) anchor = i;
+    }
+    if (anchor >= 0) for (let i = anchor + 1; i < messages.length; i++) if (messages[i] && messages[i].role === 'user') return i;
+    return newest;
+  }
+  function isSummaryHead(m) { return headText(m.content).indexOf('<conversation_summary>') === 0; }
   function userSideHostNotes(messages) {
     if (!Array.isArray(messages) || !messages.some(isHostNote)) return messages;
-    let target = -1;
-    for (let i = messages.length - 1; i >= 0; i--) if (messages[i] && messages[i].role === 'user') { target = i; break; }
-    if (target < 0) return messages;   // nothing to carry them (no user turn at all): the old placement
+    const target = noteCarrier(messages);
     const lead = [], trail = [];
     for (const m of messages) if (isHostNote(m)) { const t = contentText(m.content).trim(); if (t) (isCrewCallNote(m) ? trail : lead).push(t); }
     const out = [];
+    if (target < 0) {
+      /* NO USER TURN AT ALL (review 2026-10-12): a fold keeps the first non-system message, and a transcript or window
+         slice can start on a reply, so a folded request may hold no user message. The notes still never go out as a
+         system message after index 0: they become ONE user turn of their own right after the leading system prompt,
+         before the first non-system message. */
+      const notes = lead.concat(trail).join('\n\n');
+      let placed = false;
+      for (let i = 0; i < messages.length; i++) {
+        const m = messages[i];
+        if (isHostNote(m)) continue;
+        if (!placed && !(m && m.role === 'system')) { if (notes) out.push({ role: 'user', content: notes }); placed = true; }
+        out.push(m);
+      }
+      if (!placed && notes) out.push({ role: 'user', content: notes });
+      return out;
+    }
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i];
       if (isHostNote(m)) continue;
