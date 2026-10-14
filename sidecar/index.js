@@ -199,7 +199,7 @@ const WorkspaceReserved = require('./workspace-reserved.js');   // agent ids tha
 const { runRouteFailure } = require('./runroute.js');   // a failure escaping handleRun must never read as an empty 200
 const { json: respondJson, readJsonBody, isAgentId } = require('./respond.js');   // canonical json()/body/agent-id helpers — adopt incrementally, don't mass-migrate
 const { readBody, readBodyBuffer } = require('./http-body.js');
-const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveDeliverable, parseRange } = require('./file-response.js');
+const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveDeliverable, parseRange, isTextDocument, documentViewHtml, DOC_VIEW_CSP, DOC_VIEW_MAX_BYTES } = require('./file-response.js');
 const { reflect, reflectSalient, recordFromProposal, feedbackFor, highStakes } = require('./reflect.js');
 const FeedbackMemory = require('./feedbackmemory.js');   // THE COMMANDER'S TASTE: verdicts + corrections -> durable like/dislike memory
 const TasteRef = require('./tasteref.js');   // DESIGN ANCHOR: the rated run's real files / palette / fonts / image args / method, captured on a verdict
@@ -26019,9 +26019,10 @@ async function handleAttachmentUpload(req, res) {
 // STREAMS the bytes (createReadStream, never the whole file in memory) and honors HTTP Range so the COMMS
 // <video>/<audio> elements can seek — the Node analogue of Starlette's FileResponse in the reference gateway.
 async function serveWorkspaceFile(req, res) {
-  let abs;
+  let abs, docView = false;
   try {
     const u = new URL(req.url, 'http://127.0.0.1');
+    docView = u.searchParams.get('view') === 'doc';   // the readable document view (file-response.js documentViewHtml)
     const agent = u.searchParams.get('agent') || 'agent';
     const rel = u.searchParams.get('path') || '';
     const project = u.searchParams.get('project') || '';
@@ -26054,6 +26055,19 @@ async function serveWorkspaceFile(req, res) {
   if (!st.isFile()) { res.writeHead(404); return res.end('not found'); }
 
   const ext = path.extname(abs).toLowerCase();
+  /* ?view=doc on a TEXT deliverable (live walk 10-14): the station's dark reading page instead of raw text on a white tab.
+     Inert by construction (escaped into one <pre>, sandboxed, no script, loads nothing). A file too large, or one that is
+     not really text (a NUL byte), falls through to the plain bytes below. */
+  if (docView && req.method === 'GET' && isTextDocument(abs) && st.size <= DOC_VIEW_MAX_BYTES) {
+    let text = null;
+    try { text = await fsp.readFile(abs, 'utf8'); } catch (e) { failNote('file.doc-view', e); text = null; }
+    if (text != null && text.indexOf('\0') === -1) {
+      const html = documentViewHtml(abs, text);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': DOC_VIEW_CSP,
+        'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Length': Buffer.byteLength(html) });
+      return res.end(html);
+    }
+  }
   const active = isActiveDeliverable(abs);
   const headers = {
     'Content-Type': active ? 'application/octet-stream' : (MIME[ext] || 'text/plain; charset=utf-8'),
