@@ -94,7 +94,7 @@
     if (state.blobUrl) try { URL.revokeObjectURL(state.blobUrl); } catch (_) {}
     state.blobUrl = '';
   }
-  async function openDesktop(r, f, href, say, folderKey) {
+  async function openDesktop(r, f, href, say, folderKey, inLibrary) {
     const core = tauriCore();
     if (!core || !core.invoke) return false;
     if (f.sandboxed) {
@@ -109,10 +109,13 @@
       if (/declined at the host/i.test(String(err || ''))) return true;
       // re-mint: the host confirmation above may have outlasted the first ticket's few-minute life
       try { await core.invoke('open_external_url', { url: fileHref(f) }); }
-      // the file row's own folder key takes over (org pass 10-14, P24): reveal it in its folder, or copy its full path
+      // the file row's own folder key takes over (org pass 10-14, P24): reveal it in its folder, or copy its full path.
+      // No key on this row: a TO REVIEW FILES row (outbox.js) has no key slot, but its run is filed in the library below,
+      // whose drawer row carries one; a library row whose key never wired keeps the old real places to look.
       catch (_) {
         if (folderKey && folderKey.click) { folderKey.click(); if (say) say('Could not open that file — showing where it is saved instead.', true); }
-        else if (say) say('Could not open that file — its folder key shows where it is saved.', true);
+        else if (say && !inLibrary) say('Could not open that file — open its run in the library below; the folder key on its file row shows where it is saved.', true);
+        else if (say) say('Could not open that file — use its session or workspace folder to find it on disk.', true);
       }
     }
     return true;
@@ -205,7 +208,10 @@
     if ((!core || !core.invoke) && (!f.preview || f.sandboxed)) { try { link.href = fileHref(f); } catch (_) {} return false; }
     ev.preventDefault();
     ev.stopPropagation();
-    if (core && core.invoke) { const li = link.closest('li'); return openDesktop(r, f, fileHref(f), say, li && li.querySelector ? li.querySelector('.dlv-floc .deliverable-folder') : null); }
+    if (core && core.invoke) {
+      const li = link.closest('li'); const slot = li && li.querySelector ? li.querySelector('.dlv-floc') : null;
+      return openDesktop(r, f, fileHref(f), say, slot ? slot.querySelector('.deliverable-folder') : null, !!slot);
+    }
     return previewInCard(f, card.querySelector('[data-preview]'), state || {}, say);
   }
 
