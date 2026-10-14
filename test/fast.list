@@ -1200,3 +1200,4 @@ test/desktop-custom-truth.test.js
 test/comms-press-sound.test.js
 test/rc-final-seams.test.js
 test/run-context.compaction.test.js
+test/comms-stop-queue-tips.test.js

@@ -127,6 +127,13 @@ const group = (members, extra = {}) => ({ id: 'direct', title: 'Direct', members
   assert.equal(homeCreate.body.history, undefined, 'General history is not copied into the group');
   assert.equal(homeCreate.body.title, 'Lead + Peer');
   assert.deepEqual(home.opened, [homeCreate.body.id], 'COMMS opens the new group');
+  // org(P27): in General the @ row says the pick opens a NEW group beside General (General is never converted)
+  const homeAt = await boot({ general: true });
+  await homeAt.type('ask @pe');
+  const homeRows = walk(homeAt.find('gc-mentions')).filter(e => e.attrs.role === 'option');
+  assert.equal(homeRows.length, 1);
+  assert.match(text(homeRows[0]), /opens a group chat with Lead beside General/, 'the General @ row names the group that opens beside it');
+  assert.doesNotMatch(text(homeRows[0]), /starts a group with/, 'General never reads as converting');
 
   // ---- @ in a DIRECT chat: lists the crew, keyboard picks, picking starts the group ----
   const at = await boot();

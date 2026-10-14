@@ -8027,7 +8027,9 @@ const Chat = (() => {
     const arr = (activeWs && queued.get(activeWs.id)) || [];
     strip.innerHTML = '';
     arr.forEach((t, i) => {
-      const pill = document.createElement('span'); pill.className = 'queued-pill'; pill.title = t;
+      const pill = document.createElement('span'); pill.className = 'queued-pill';
+      // the pill shows the text; its tip says what queuing DOES (it is a follow-up, not a mid-run edit)
+      pill.setAttribute('data-tip', 'sends after this run · /steer changes the running task');
       const label = document.createElement('span'); label.className = 'queued-text'; label.textContent = t;
       const x = document.createElement('button'); x.className = 'queued-x'; x.type = 'button'; x.textContent = '✕';
       x.setAttribute('aria-label', 'Cancel queued message');
@@ -8328,7 +8330,14 @@ const Chat = (() => {
   // show the Stop control + the queued pills for whatever stream is on screen. Called from syncStatus (covers
   // switch + turn-end) and at send() start (status goes 'thinking…' without a syncStatus).
   function updateControls() {
-    const stop = el('chat-stop'); if (stop) stop.hidden = !isBusy();
+    const stop = el('chat-stop');
+    if (stop) {
+      stop.hidden = !isBusy();
+      // in a group ■ is stop-all (GroupChat.stop), so its tip says it stops every agent, not one turn
+      const groupStop = activeWs?.conversationMode === 'group';
+      stop.setAttribute('data-tip', groupStop ? 'Stop every agent in this chat (Esc)' : 'Stop the running turn (Esc)');
+      stop.setAttribute('aria-label', groupStop ? 'Stop every agent in this chat' : 'Stop the running turn');
+    }
     // CONCURRENT SESSIONS: a peer run on this agent no longer disables the composer — the backend admits
     // concurrent same-agent runs (workspace lease guards the real collision). The peer surfaces as the soft
     // status row + a tooltip; send stays live.
