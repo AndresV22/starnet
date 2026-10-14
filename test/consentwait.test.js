@@ -201,9 +201,48 @@ async function settled(p) { let v, done = false; p.then(x => { v = x; done = tru
     const d = await reg.dispatch({ name: 'team_dispatch', args: {}, id: 'c2' }, { canRun: () => true, canUse: () => ({ ok: true }), agentId: 'a', room: 'office', consent: async () => no });
     A.ok(!ran && d.summary === 'denied', 'a denied call never runs and stays terminal');
     A.ok(/^consent denied for team_dispatch: the Commander said no on the approval card, so it was NOT run\./.test(d.content), 'it says who said no: ' + d.content);
-    A.ok(/Say it to them directly \("you declined …"\), never "the Commander declined"/.test(d.content), 'and how to say it to them (second person)');
+    A.ok(/If you mention it, say it to them as "you" \("you declined …"\)\./.test(d.content) && !/the Commander declined/i.test(d.content), 'and how to say it to them (second person), never planting the third-person words: ' + d.content);
     const other = await reg.dispatch({ name: 'team_dispatch', args: {}, id: 'c3' }, { canRun: () => true, canUse: () => ({ ok: true }), agentId: 'a', room: 'office', consent: async () => ({ allow: false, reason: 'no consent channel — interactive prompt not wired' }) });
     A.ok(/consent denied for team_dispatch: no consent channel/.test(other.content) && !/said no/.test(other.content), 'a refusal nobody gave keeps its own reason (never "the Commander said no")');
+  }
+
+  /* A WITHDRAWN ASK IS NOT A NO (review 10-14): an ask whose run stopped (abort) or that was never shown resolves with the
+     caller's abortDecision; the capability consent passes 'cancelled', the broker keeps it CLOSED but withdrawn, and the
+     model reads "withdrawn — nobody said no", never "the Commander said no" (a worker would tell them "you declined"). */
+  {
+    const clock = makeClock(), sig = makeSignal(), pending = new Map();
+    const wait = makeConsentWait({ pending, signal: sig, timeoutMs: 1000, extendMs: 5000, timeoutDecision: 'timeout', abortDecision: 'cancelled',
+      uuid: () => 'pc', setTimeoutFn: clock.setTimeout.bind(clock), clearTimeoutFn: clock.clearTimeout.bind(clock), emitPrompt: () => {} });
+    const p = wait.ask();
+    A.eq(pending.get('pc').abortDecision, 'cancelled', 'the finisher carries its withdrawn word (the host teardown answers with it)');
+    sig.abort();
+    A.eq((await settled(p)).v, 'cancelled', 'an abort settles with the withdrawn word of the caller');
+    const shut = makeSignal(); shut.abort();
+    const never = makeConsentWait({ pending: new Map(), signal: shut, timeoutMs: 1000, extendMs: 5000, abortDecision: 'cancelled',
+      uuid: () => 'pn', setTimeoutFn: clock.setTimeout.bind(clock), clearTimeoutFn: clock.clearTimeout.bind(clock), emitPrompt: () => {} }).ask();
+    A.eq((await settled(never)).v, 'cancelled', 'a prompt never shown is withdrawn too');
+    const plain = makeConsentWait({ pending: new Map(), signal: shut, timeoutMs: 1000, extendMs: 5000,
+      uuid: () => 'pp', setTimeoutFn: clock.setTimeout.bind(clock), clearTimeoutFn: clock.clearTimeout.bind(clock), emitPrompt: () => {} }).ask();
+    A.eq((await settled(plain)).v, 'deny', 'no abortDecision = a plain deny (path.trust, browser.login, brief.ask read any other word as "not refused")');
+    const { makeConsentBroker } = require('../sidecar/permissions.js');
+    const broker = makeConsentBroker({ surface: 'interactive' });
+    for (const tool of [{ scope: 'write', capability: 'cabinet' }, { scope: 'write', capability: 'station', freshConsent: true }]) {
+      const g = broker.grant('cancelled', { name: 'fs_write' }, tool);
+      A.ok(g.allow === false && g.cancelled === true && g.reason !== 'denied', 'the broker keeps a withdrawn ask CLOSED, never "denied"' + (tool.freshConsent ? ' (fresh-consent tool too)' : ''));
+    }
+    const { makeRegistry } = require('../sidecar/tools/registry.js');
+    const reg = makeRegistry();
+    let ran = false;
+    reg.register({ name: 'fs_write', requiresConsent: true, scope: 'write', capability: 'cabinet', schema: { type: 'object' }, run: async () => { ran = true; return 'wrote'; } });
+    const r = await reg.dispatch({ name: 'fs_write', args: {}, id: 'c9' }, { canRun: () => true, canUse: () => ({ ok: true }), agentId: 'a', room: 'office', consent: async () => broker.grant('cancelled', { name: 'fs_write' }, { scope: 'write', capability: 'cabinet' }) });
+    A.ok(!ran && /^approval withdrawn for fs_write: the request ended before anyone answered it, so it was NOT run\. Nobody said no/.test(r.content) && !/declined|said no on/.test(r.content), 'the model reads "withdrawn", never a No: ' + r.content);
+    A.eq(r.summary, 'cancelled', 'a terminal non-run (loop terminalHumanDecision), not counted as a denial');
+    const host = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+    A.ok(/\{ timeoutDecision: 'timeout', abortDecision: 'cancelled' \}\);/.test(host) && /timeoutDecision: opts && opts\.timeoutDecision, abortDecision: opts && opts\.abortDecision,/.test(host), 'the capability consent asks with the withdrawn word');
+    A.ok(/try \{ f\(\(f && f\.abortDecision\) \|\| 'deny'\); \}/.test(host), 'the run teardown answers each open ask with its own withdrawn word');
+    A.ok(/=== 'cancelled'\) \{\s*return \{ ok: false, isError: true, summary: 'cancelled',/.test(host), 'and a withdrawn post-taint confirmation never reads as the taint lock');
+    const gs = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'sidecar', 'group-sessions.js'), 'utf8');
+    A.ok(/const onAbort = \(\) => finish\('cancelled'\);/.test(gs), 'a stopped group turn withdraws its ask the same way');
   }
 
   A.report('consentwait');

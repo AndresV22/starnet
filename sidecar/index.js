@@ -19217,7 +19217,7 @@ async function handleRun(req, res) {
     if (detached && pendingByRun.get(runId) !== pending) pendingByRun.set(runId, pending);   // the turn already ended: reopen its answer slot
     const sessionOver = (d) => (detached && leadOver && d === 'session') ? 'once' : d;
     return makeConsentWait({
-      timeoutDecision: opts && opts.timeoutDecision,
+      timeoutDecision: opts && opts.timeoutDecision, abortDecision: opts && opts.abortDecision,
       // Node 18 / 20.0-20.2 have no AbortSignal.any: the ask then rides the run's own signal and the timeout (still
       // fail-closed; only the instant withdrawal when that one worker stops is lost)
       pending, signal: detached ? by.signal : (by && by.signal && typeof AbortSignal.any === 'function') ? AbortSignal.any([ac.signal, by.signal]) : ac.signal, timeoutMs: CONSENT_TIMEOUT_MS, extendMs: CONSENT_ACK_EXTEND_MS,
@@ -19267,7 +19267,8 @@ async function handleRun(req, res) {
   }
   function promptConsent(call, tool) {
     // an unanswered COMMS card is not a refusal: the broker's 'timeout' result says so (the card still gets expired:true)
-    return askHuman({ tool: call.name, scope: (tool && tool.scope) || 'write', argsSummary: consentSummary(call, { streamId }), argsFull: consentArgsFull(call), fresh: !!(tool && tool.freshConsent === true) }, { timeoutDecision: 'timeout' });
+    // …and one withdrawn by a stop or teardown is not one either ('cancelled': the broker's withdrawn result, never "you declined")
+    return askHuman({ tool: call.name, scope: (tool && tool.scope) || 'write', argsSummary: consentSummary(call, { streamId }), argsFull: consentArgsFull(call), fresh: !!(tool && tool.freshConsent === true) }, { timeoutDecision: 'timeout', abortDecision: 'cancelled' });
   }
   // NS-5: the "work in <root>? always/once/no" channel — the SAME permission.prompt mechanism, so the browser's
   // existing consent card answers it (Always = record a standing path grant; Approve once = this access only;
@@ -19442,7 +19443,8 @@ async function handleRun(req, res) {
     const p = pendingByRun.get(runId);   // deny any prompt still open (belt-and-suspenders; the loop normally awaits)
     if (p) {
       // ...except a background worker's ask: it outlives this turn (askHuman) and closes the slot when it settles
-      for (const f of p.values()) { if (f && f.detached) continue; try { f('deny'); } catch (e) { failNote('run.finally.denyOpenAsk', e); } }
+      // each with its own withdrawn word (consentwait abortDecision): a capability ask reads "withdrawn", never "you declined"
+      for (const f of p.values()) { if (f && f.detached) continue; try { f((f && f.abortDecision) || 'deny'); } catch (e) { failNote('run.finally.denyOpenAsk', e); } }
       if (!p.size) pendingByRun.delete(runId);
     }
     const ps = pendingSummonByRun.get(runId);   // settle any summon request still open → null (no agent created)
@@ -21633,7 +21635,12 @@ async function runOnceCore(o) {
       if (!postTaint.allow && humanAnswered && String(decision || '').toLowerCase() === 'deny') {
         return { ok: false, isError: true, summary: 'denied',
           // said to the Commander as "you", the way registry.js words their No (the model repeats a result's framing)
-          content: 'consent denied for ' + c.name + ': the Commander said no on the approval card, so it was NOT run. Do NOT retry it or work around it with another tool; carry on without it and, if it mattered, say plainly that it was declined — to them directly ("you declined …"), never "the Commander declined".' };
+          content: 'consent denied for ' + c.name + ': the Commander said no on the approval card, so it was NOT run. Do NOT retry it or work around it with another tool; carry on without it and, if it mattered, say plainly that it was declined, to them as "you" ("you declined …").' };
+      }
+      // withdrawn before anyone answered (the run stopped): not a No, and not the taint lock either
+      if (!postTaint.allow && humanAnswered && String(decision || '').toLowerCase() === 'cancelled') {
+        return { ok: false, isError: true, summary: 'cancelled',
+          content: 'approval withdrawn for ' + c.name + ': the request ended before anyone answered it, so it was NOT run. Nobody said no; do NOT retry it yourself.' };
       }
     }
     const postTaintConfirmed = postTaint.oneShot;

@@ -1307,7 +1307,7 @@
         const newId = (ack && typeof ack === 'object') ? ack.agentId : ack;
         const desk = (ack && typeof ack === 'object' && ack.desk) ? String(ack.desk) : '';
         // said to the Commander in the second person: the model echoes a result's wording ("The Commander declined …", rc walk 10-14)
-        if (!newId) return { content: 'No agent was created: the summon was declined on its card, or the station did not respond. If you mention it, say it to the Commander as "you" (never "the Commander declined").', summary: 'declined' };
+        if (!newId) return { content: 'No agent was created: the summon was declined on its card, or the station did not respond. If you mention it, say it to the Commander as "you".', summary: 'declined' };
         // DESK: a summoned specialist needs a workstation to sit and work at, so the station sorts its desk as
         // part of THIS summon. Reported only when the station named a room — never assumed, so the reply can't
         // promise furniture the floor doesn't have (and can't tell the Commander to go build a second one).
