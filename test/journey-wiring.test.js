@@ -16,7 +16,12 @@ A.ok(goals.indexOf('JourneyStore.noteMilestone') >= 0, 'verified goal milestones
 A.ok(host.indexOf("exact: '/api/journey'") >= 0 && /journeyStore\.adaptationBlock\(agentId[,)]/.test(host), 'HTTP proof and per-agent adaptation are wired into the real host');
 // the cache-stable system prompt carries the tier-only block; the STARNET_STABLE_PREFIX=0 kill switch keeps the counted one
 A.ok(host.indexOf('journeyStore.adaptationBlock(agentId, { counts: !stablePrefix })') >= 0, 'the stable system prompt gets the count-free adaptation block');
-A.ok(ui.indexOf('AGENT GROWTH') >= 0 && ui.indexOf('COMMANDER JOURNEY') >= 0 && ui.indexOf('STATION EVOLUTION') >= 0, 'the UI keeps all three progression tracks distinct');
+A.ok(ui.indexOf('STATION XP') >= 0 && ui.indexOf('COMMANDER JOURNEY') >= 0 && ui.indexOf('STATION EVOLUTION') >= 0, 'the UI keeps all three progression tracks distinct');
+// org pass 10-14 (P28): one number, one name — the station-XP meter mislabelled AGENT GROWTH is gone, approvals read as thumbs-up
+A.ok(!/gx-title">AGENT GROWTH</.test(ui) && !/data-open-growth/.test(ui), 'QUESTS › Progress no longer repeats STATION XP as a second AGENT GROWTH meter');
+A.ok(/<span class="ttl">STATION XP<\/span>/.test(ui) && /' THUMBS-UP &middot;/.test(ui) && !/' APPROVALS &middot;/.test(ui), 'STATION XP counts thumbs-up by that name');
+A.ok(/<summary><span>MILESTONES<\/span><span class="q-section-count">[\s\S]{0,120}data-open-trophies>OPEN THE TROPHY CASE ▸<\/button><\/summary>/.test(ui), 'the TROPHY CASE door sits on the folded MILESTONES summary row');
+A.ok(/if \(b\.closest\('summary'\)\) ev\.preventDefault\(\);/.test(ui), 'clicking that door does not also fold the milestones');
 A.ok(ui.indexOf('STOP USING THIS') >= 0 && ui.indexOf('RESUME ADAPTATION') >= 0, 'adaptation receipts have Commander correction controls');
 A.ok(world.indexOf('PropSprites.setJourneyStage') >= 0 && props.indexOf('journeyStage') >= 0, 'distinct reached goals physically transform the trophy case crown');
 A.ok(xp.indexOf('SIZE_MULT') < 0 && ratings.indexOf('const verdictDelta = 3') >= 0, 'tool/spend size can no longer weight new XP verdicts upstream or downstream');

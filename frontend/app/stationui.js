@@ -2158,14 +2158,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const nAg = present.length || 1;
     return s ? (
       '<div class="gx-station" style="margin-top:18px;">' +
-      '<div class="hd"><span class="badge">●</span><span class="ttl">Station prestige</span><span class="agents">&Sigma; ' + nAg + ' AGENT' + (nAg === 1 ? '' : 'S') + '</span></div>' +
+      '<div class="hd"><span class="badge">●</span><span class="ttl">STATION XP</span><span class="agents">&Sigma; ' + nAg + ' AGENT' + (nAg === 1 ? '' : 'S') + '</span></div>' +
       '<div class="body">' +
         '<div class="lv"><div class="gx-lbl" style="font-size:9px;">STATION</div><div class="n">' + s.level + '</div><div class="gx-lbl" style="font-size:9px;">LEVEL</div></div>' +
         '<div style="flex:1;">' +
           '<div class="gx-row" style="margin-bottom:6px;"><span class="gx-val" style="font-size:13px;">' + s.xp.toLocaleString() + ' <span class="gx-dim">/</span> ' + Xp.xpForLevel(s.level + 1).toLocaleString() + ' <span class="gx-dim" style="font-size:11px;">XP</span></span><span class="gx-val" style="color:var(--gold);font-size:13px;">' + s.pct + '%</span></div>' +
           '<div class="gx-trk"><div class="gx-gfill" style="width:' + s.pct + '%;"></div></div>' +
           '<div class="gx-row" style="margin-top:7px;"><span class="gx-val gx-dim" style="font-size:11px;">' + s.toNext.toLocaleString() + ' XP TO LV ' + (s.level + 1) + '</span>' +
-            '<span class="gx-mono" style="font-size:10px;color:var(--ph-dim);">' + s.positiveFeedback + ' APPROVALS &middot; <span style="color:var(--ph);">' + (s.known ? s.band.toUpperCase() : 'CALIBRATING') + '</span></span></div>' +
+            '<span class="gx-mono" style="font-size:10px;color:var(--ph-dim);">' + s.positiveFeedback + ' THUMBS-UP &middot; <span style="color:var(--ph);">' + (s.known ? s.band.toUpperCase() : 'CALIBRATING') + '</span></span></div>' +
         '</div>' +
       '</div></div>'
     ) : '';
@@ -10480,7 +10480,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   // The three progression tracks stay deliberately separate:
-  //   AGENT GROWTH = explicit feedback XP (the existing meter below)
+  //   STATION XP = explicit feedback XP, station-wide (stationPrestigeHtml; each agent's own share lives in its dossier's GROWTH)
   //   COMMANDER JOURNEY = real-world goal metrics + verified outcomes
   //   STATION EVOLUTION = expressive history of distinct goals reached, never a capability gate
   function journeyHtml() {
@@ -10707,7 +10707,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (QSS && QSS.sync) { try { QSS.sync(); } catch (_) {} }   // never render a stale diff — the log always reflects the memory it just folded
     const v = (typeof QuestStore !== 'undefined' && QuestStore.view) ? QuestStore.view() : null;
     if (!v) { body.innerHTML = '<p class="dim">Quest log unavailable.</p>'; return; }
-    const m = v.meter, all = Array.isArray(v.quests) ? v.quests : [];
+    const all = Array.isArray(v.quests) ? v.quests : [];
     const qs = (QSS && QSS.visible) ? QSS.visible(all) : all;   // dismissed = gone forever (degrades to the raw list if the store is absent)
     /* THE GOAL ARC IS RENDERED AS A TRACK, NOT AS CARDS. Its header + milestone steps are pulled out of the
        card grid here and drawn by questTrackHtml as one continuous path at the top of the panel. They are
@@ -10819,9 +10819,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         + '<div class="sub">' + esc(q.status === 'done' ? ('▸ ' + q.reward) : q.desc) + '</div>'
         + cwHtml + (q.status === 'done' ? '' : rewardHtml) + attestHtml + declineHtml + actionRow + lifeActions + '</div>';
     };
-    const meterHtml = m
-      ? '<div class="gx-sec"><span class="gx-title">AGENT GROWTH</span> <span class="gx-tag">Lv ' + m.level + ' &middot; ' + m.pct + '% to next</span> <button type="button" class="bb xs" data-open-growth>OPEN IN THE DOSSIER</button></div>'
-      : '';
+    // (org pass 10-14, P28: the 'AGENT GROWTH Lv N' meter that sat here was Xp.compute(stationStats) — the SAME number as
+    // STATION XP above it, under a second, false name. It is gone; each agent's own growth stays in its dossier's GROWTH.)
     // G4 feature 2 — PROPOSALS: pending autojob proposals the agent pinned to the MISSION BOARD. A distinct
     // amber card with APPROVE (→ the real POST /api/cron) / DECLINE (→ dropped forever). Rendered above OPEN so
     // the "the agent wants to run this for you" ask reads first. Only shown when the ledger has cards.
@@ -10840,9 +10839,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       : '';
     const milestoneDone = milestones.filter(q => q.status === 'done').length;
     const milestonesHtml = milestones.length
-      ? '<details class="q-milestones q-progress-section"><summary><span>Station milestones</span><span class="q-section-count">' + milestoneDone + ' / ' + milestones.length + '</span></summary>'
-        + '<div class="q-section-body"><div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div>'
-        + '<p class="q-trophy-door"><button type="button" class="bb xs" data-open-trophies>OPEN THE TROPHY CASE</button></p></div></details>'
+      // folded, with the TROPHY CASE door on the summary row itself so it is reachable without unfolding (org pass 10-14, P28)
+      ? '<details class="q-milestones q-progress-section"><summary><span>MILESTONES</span><span class="q-section-count">' + milestoneDone + ' / ' + milestones.length + '</span>'
+        + '<button type="button" class="bb xs q-trophy-door" data-open-trophies>OPEN THE TROPHY CASE ▸</button></summary>'
+        + '<div class="q-section-body"><div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div></div></details>'
       : '';
     // Selection is presentation state only. Keep it on the stable window body across background data pokes;
     // if a selected quest completes/disappears, fall back to the first remaining quest in this category.
@@ -10896,7 +10896,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       + '</section><section id="q-view-goals" class="q-view-panel q-journal-planning" role="tabpanel" aria-labelledby="q-tab-goals">'
       + questTrackHtml(arcs) + lifeGoalsHtml() + '<details class="q-refresh-options"><summary>Quest suggestions <span class="q-section-note">Direction &amp; refresh</span></summary>' + questRefreshHtml() + '</details>'
       + '</section><section id="q-view-progress" class="q-view-panel q-journal-progress" role="tabpanel" aria-labelledby="q-tab-progress">'
-      + systemsHtml() + journeyHtml() + stationPrestigeHtml() + milestonesHtml + meterHtml
+      + systemsHtml() + journeyHtml() + stationPrestigeHtml() + milestonesHtml
       + '</section><section id="q-view-completed" class="q-view-panel q-journal-history" role="tabpanel" aria-labelledby="q-tab-completed">'
       + journeyChaptersHtml() + '<div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<div class="q-journal-empty"><h3>No completed quests yet</h3><p>Finished quests and their results will appear here.</p></div>') + '</div></section></div>';
     // Stable field identities keep a background refresh from transplanting a draft into another chapter.
@@ -11474,14 +11474,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const k = b.dataset.term, def = BUILDERS[k];
         if (def) toggleTerm(k, def[0], def[1], def[2]);
       }));
-    // ONE PROGRESS HOME doors: an agent's GROWTH points at the station's progress, the station's progress at an agent's
-    // GROWTH and at the TROPHY CASE (until now reachable only by clicking its prop on the floor)
+    // ONE PROGRESS HOME doors: an agent's GROWTH points at the station's progress, the station's progress at the TROPHY CASE
+    // (until now reachable only by clicking its prop on the floor). The TROPHY CASE door rides a <summary>: its click must
+    // not also fold the milestones.
     document.addEventListener('click', ev => {
-      const b = ev.target && ev.target.closest && ev.target.closest('[data-open-progress],[data-open-growth],[data-open-trophies]');
+      const b = ev.target && ev.target.closest && ev.target.closest('[data-open-progress],[data-open-trophies]');
       if (!b || !b.closest('#terms')) return;
+      if (b.closest('summary')) ev.preventDefault();
       sfx('click');
       if (b.hasAttribute('data-open-progress')) openTerm('quests', 'progress');
-      else if (b.hasAttribute('data-open-growth')) openTerm('agents', 'growth');
       else openTerm('trophies');
     });
     // ONE MENU dock buttons (MY WORK / AUTOMATE / CONNECT): open the menu's last-used tab
