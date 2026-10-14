@@ -77,7 +77,7 @@ A.ok(/pruneLegacyNotifs\(\)/.test(win), 'pre-10-02 toast-shaped history is clear
 A.ok(/function badges\(\)[\s\S]{0,200}isWaiting\(x\) \|\| !x\.read/.test(win), 'the badge counts everyone waiting on you + anything new');
 
 /* ---- the call sites that matter carry a kind and a door ---- */
-A.ok(/needs approval to ' \+ actionPhrase\(p\)[^\n]*kind: 'needs', go: \{ ws: ws\.id \}, key: 'needs:' \+ ws\.id/.test(chat), 'an approval (open session) is a NEEDS YOU door to its session');
+A.ok(/ wants to ' \+ actionPhrase\(p\)[^\n]*kind: 'needs', go: \{ ws: ws\.id \}, key: 'needs:' \+ ws\.id/.test(chat), 'an approval (open session) is a NEEDS YOU door to its session');
 A.ok(/function backgroundPermissionNotify[\s\S]{0,900}kind: 'needs', go: \{ ws: ws\.id \}, key: 'needs:' \+ ws\.id/.test(chat), 'an approval (background session) is a NEEDS YOU door');
 A.ok(/' finished'\) \+ sessionNote\(ws\)/.test(chat) && /kind: 'result', go: \{ ws: ws\.id \}/.test(chat), 'a background session that finished says so and opens it');
 // (2026-10-14) through settleRunNeeds: the run's own waits end with it; a background worker's ask filed on the same
