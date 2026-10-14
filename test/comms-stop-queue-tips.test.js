@@ -24,6 +24,15 @@ A.ok(/GroupChat\.stop\(\)/.test(chat.slice(chat.indexOf('function stopActive('),
 
 const rq = chat.slice(chat.indexOf('function renderQueued()'), chat.indexOf('function renderQueued()') + 1200);
 A.ok(!/pill\.title\s*=/.test(rq), 'the queued pill no longer uses a native title');
-A.ok(rq.includes("setAttribute('data-tip', 'sends after this run · /steer changes the running task')"), 'the queued pill tip says it sends after the run and points at /steer');
+A.ok(rq.includes("const QHINT = 'sends after this run · /steer changes the running task'"), 'the queued pill tip says it sends after the run and points at /steer');
+{
+  // run the tip line for real: the clipped pill's whole message is readable in its tip, and the hint always survives the cap
+  const line = rq.slice(rq.indexOf('      const QHINT'), rq.indexOf("const label = document.createElement('span')"));
+  const tipOf = t => { let tip = null; const pill = { setAttribute: (k, v) => { if (k === 'data-tip') tip = v; } }; new Function('pill', 't', line)(pill, t); return tip; };
+  const long = 'please also rewrite the onboarding copy so it matches the new pricing page and keep it short';
+  A.eq(tipOf(long), '“' + long + '” · sends after this run · /steer changes the running task', 'the tip carries the full queued text the pill clips (it was the native title before)');
+  const huge = 'x'.repeat(2000), ht = tipOf(huge);
+  A.ok(ht.length <= 400 && /…” · sends after this run · \/steer changes the running task$/.test(ht), 'a message past the tip cap gives way, never the hint (tooltip.js keeps 400 chars)');
+}
 A.ok(/['"]\/steer['"]|\/steer\b/.test(chat.slice(chat.indexOf('SLASH COMMANDS'))), '/steer still exists, so the tip points at a real command');
 A.report('comms-stop-queue-tips.test');

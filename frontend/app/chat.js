@@ -8046,8 +8046,10 @@ const Chat = (() => {
     strip.innerHTML = '';
     arr.forEach((t, i) => {
       const pill = document.createElement('span'); pill.className = 'queued-pill';
-      // the pill shows the text; its tip says what queuing DOES (it is a follow-up, not a mid-run edit)
-      pill.setAttribute('data-tip', 'sends after this run · /steer changes the running task');
+      // the pill clips the text (.queued-text max-width), so its tip carries the whole message — then what queuing DOES (a
+      // follow-up, not a mid-run edit). The tip card keeps 400 chars (tooltip.js MAX_LEN): the message gives way, the hint never does
+      const QHINT = 'sends after this run · /steer changes the running task', room = 400 - QHINT.length - 5;
+      pill.setAttribute('data-tip', '“' + (t.length > room ? t.slice(0, room - 1) + '…' : t) + '” · ' + QHINT);
       const label = document.createElement('span'); label.className = 'queued-text'; label.textContent = t;
       const x = document.createElement('button'); x.className = 'queued-x'; x.type = 'button'; x.textContent = '✕';
       x.setAttribute('aria-label', 'Cancel queued message');
