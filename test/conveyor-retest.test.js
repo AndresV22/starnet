@@ -166,6 +166,7 @@ A.ok(/const RING_DOCK_T = \{ bay: 1, intake: 1, outbox: 1 \}/.test(build) && /'C
   A.ok(/\(4 - panX\) \/ scale/.test(fitSrc), '…and on the visible stage, never past its frame');
   A.ok(/nagLabelBoxes\.some\(hit\)/.test(fitSrc) && /return null;/.test(fitSrc), 'a spot on a routing callout (NO FEED — CLICK) is refused, so the caption moves to its next spot');
   A.ok(/nagLabelBoxes = labels\.map\(/.test(world), 'drawRoutingNags records where its labels landed');
+  A.ok(/bayPlateBox\(d\)/.test(fitSrc), '…and never on the name plate of a bay (its agent name)');
   A.ok(/const capPx = 14 \* \(window\.devicePixelRatio \|\| 1\) \* \(\(typeof U !== 'undefined' && U\.uiZoom && U\.uiZoom\(\)\) \|\| 1\) \/ \(scale \|\| 1\);/.test(world), '…and it reads at 14px on screen whatever the zoom (never a plate twice the size of the floor\'s own nags)');
   const pos = build.slice(build.indexOf('  function positionFinCard() {'), build.indexOf('  /* the delivery-retirement hook'));
   A.ok(/const FIN_AVOID = \{ intake: 1, bay: 1, outbox: 1, filter: 1, splitter: 1, merger: 1, joiner: 1, loop: 1 \}/.test(pos) && /spots\.find\(clear\) \|\| spots\[0\]/.test(pos), 'the FINISH card takes the first spot that covers no workflow machine');

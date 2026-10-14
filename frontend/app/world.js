@@ -9711,6 +9711,8 @@ const World = (() => {
     if (b.h <= v.h) b.y = Math.max(v.y, Math.min(v.y + v.h - b.h, b.y));
     const hit = o => !!o && b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y;
     if (nagLabelBoxes.some(hit) || (plates || []).some(p => hit(p.box))) return null;
+    // a bay's name plate is its agent's name: a caption never covers it either
+    for (const d of (routingPlan && routingPlan.dockBays) || []) { if (!d.agentId) continue; const q = bayPlateBox(d); if (hit({ x: q.left, y: q.top, w: q.width, h: q.h })) return null; }
     return b;
   }
   // the station's floor extent (every room's floor rect, local px) — what "inside the station" means for a world label
