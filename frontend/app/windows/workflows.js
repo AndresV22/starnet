@@ -546,8 +546,14 @@ const WorkflowsWindow = (() => {
       const bp = bpOf(id); if (!bp) return '';
       const roles = bayRoles(bp), art = lineArt(id), on = pk && pk.bp === id, isGoal = !!goal && goal.id === id, purpose = (words().purpose || {})[id] || '';
       const tip = (isGoal ? '“' + goal.quote + '” — ' + goal.why + '\n' : '') + (purpose ? purpose.charAt(0).toUpperCase() + purpose.slice(1) + '.' : plainName(id));
-      return '<button type="button" class="wfw-tile' + (on ? ' on' : '') + (isGoal ? ' wfw-goal' : '') + '" data-starter="' + esc(id) + '" aria-pressed="' + !!on + '" data-tip="' + esc(tip) + '">'
-        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + roles.length + ' step' + (roles.length === 1 ? '' : 's') + (bp.props.some(p => p.t === 'loop') ? ' · reviewed' : '') + '</span></button>';
+      // (org D2 polish) the stat names the line's shape, not only its count: a SPLITTER's two steps work side by side, so the goal
+      // tile no longer reads '2 steps' like Research + write while its picture draws two parallel bays
+      const shape = bp.props.some(p => p.t === 'loop') ? ' · reviewed' : bp.props.some(p => p.t === 'splitter') ? ' · side by side' : '';
+      return (isGoal ? '<div class="wfw-tgroup wfw-goalhd">FOR YOUR GOAL</div>' : '')
+        + '<button type="button" class="wfw-tile' + (on ? ' on' : '') + (isGoal ? ' wfw-goal' : '') + '" data-starter="' + esc(id) + '" aria-pressed="' + !!on + '" data-tip="' + esc(tip) + '">'
+        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + roles.length + ' step' + (roles.length === 1 ? '' : 's') + shape + '</span></button>'
+        // the four starters under the goal tile get the shelf's second heading, so FOR YOUR GOAL heads only its own tile
+        + (isGoal ? '<div class="wfw-tgroup">COMMON WORKFLOWS</div>' : '');
     }).join('');
     let h = '<header class="wfw-head">' + (first ? '' : '<button type="button" class="bb sm" data-act="back">‹ ALL WORKFLOWS</button>')
       + '<h2 class="wfw-title">' + (first ? 'Make your first workflow' : 'New workflow') + '</h2></header>'
