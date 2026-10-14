@@ -2895,7 +2895,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<button type="button" class="ov-vchip' + (sel ? ' sel' : '') + '" data-approval="' + id + '" data-name="' + esc(label) + '" data-tip="' + esc(desc) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' + esc(label) + '</button>';
     return '<div class="cf-card" id="ag-approval-card">' +
       '<div class="cf-head"><span class="cf-file">✋ approval prompts</span></div>' +
-      '<div class="cf-desc">The asking half of the answer above: CHECK WITH ME and LET IT WORK both ask first, FULL POWER does not. ASKS FIRST stops to check with you before risky steps and stays inside the reach you set. FULL POWER stops the approval prompts and authorizes the whole local computer: every tool, file, command and app, plus your screen, mouse and keyboard. <code>/yolo</code> is the full-power shortcut.</div>' +
+            // org pass P08-a: two names, one per chip, in the chips' own caps — no create-screen names repeated and no pointer
+      // to a control outside the card; /yolo is named as what it is (a COMMS toggle of this same FULL POWER).
+      '<div class="cf-desc">ASKS FIRST checks with you before risky steps and stays inside the reach you set. FULL POWER never asks and authorizes the whole local computer: every tool, file, command and app, plus your screen, mouse and keyboard. <code>/yolo</code> in COMMS toggles FULL POWER.</div>' +
       '<div class="ov-vchips" id="ag-approval-chips">' +
         chip('ask', 'ASKS FIRST', 'stops to check with you before it writes, runs, or reaches out', !full) +
         chip('full', 'FULL POWER', 'never asks first — covers the whole local computer, not just its reach profile', full) +

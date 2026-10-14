@@ -79,9 +79,10 @@ ok(/accWrap\.querySelectorAll\('\[data-access-posture\]'\)/.test(src) && /if \(P
   ok(!!ap, 'the dossier asking pair is still its own card');
   ok(ap && /chip\('ask', 'ASKS FIRST'/.test(ap[0]) && /chip\('full', 'FULL POWER', '[^']*whole local computer/.test(ap[0]), 'the fold reads ASKS FIRST / FULL POWER, and FULL POWER warns it covers the whole computer');
   ok(ap && !/ASK FOR APPROVAL|NEVER ASKS|never-ask/.test(ap[0]), 'the fold carries no retired name (ASK FOR APPROVAL, NEVER ASKS, never-ask)');
-  ok(ap && /FULL POWER stops the approval prompts and authorizes the whole local computer/.test(ap[0]), 'the fold says FULL POWER authorizes the whole local computer');
+  ok(ap && /FULL POWER never asks and authorizes the whole local computer/.test(ap[0]), 'the fold says FULL POWER authorizes the whole local computer');
+  ok(ap && !/answer above|full-power shortcut|CHECK WITH ME|LET IT WORK/.test(ap[0]), 'the fold names only its own two chips, in their caps (org pass P08-a)');
   ok(ap && /data-tip="' \+ esc\(desc\)/.test(ap[0]) && !/title="/.test(ap[0]), 'the whole-computer warning is a station data-tip, never a native title');
-  ok(ap && /<code>\/yolo<\/code> is the full-power shortcut/.test(ap[0]), 'the fold names /yolo as the full-power shortcut');
+  ok(ap && /<code>\/yolo<\/code> in COMMS toggles FULL POWER/.test(ap[0]), 'the fold names /yolo as the COMMS toggle of FULL POWER');
   ok(/chip\.textContent = 'FULL POWER — SURE\?'/.test(src) && !/NEVER ASKS — SURE/.test(src), 'FULL POWER keeps its two-press confirm');
   // a custom mix on approvalMode full: the saved reach limits nothing (unrestrictedHostNow), so the row never says
   // "it reaches <reach> and never asks" — reach wording is kept for the asks-first case only
