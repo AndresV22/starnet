@@ -289,7 +289,7 @@
     // a four-line paragraph sat (TO REVIEW still lands right after this p.muted — stationui's deliverables builder)
     body.innerHTML = '<div class="cfg dlv"><p class="muted dlv-lead" title="Previews open safely inside StarNet in a browser; desktop OPEN uses your file app.">Everything your crew made, filed by project — open one for the ask, the answer and every file.</p>' +
       '<div id="dl-head" class="dlv-head-strip"></div><div id="dl-run-scope" class="cfg-block" hidden></div>' +
-      '<div class="deliverables-toolbar"><input id="dl-query" aria-label="Search deliverables" placeholder="search title, agent, project"><select id="dl-status" aria-label="Filter deliverables"><option value="">ALL</option><option value="pending">NEEDS A DECISION</option><option value="produced">DONE</option><option value="kept">KEPT</option><option value="implemented">IMPLEMENTED</option><option value="failed">FAILED</option><option value="discarded">DISCARDED</option></select><button class="bb sm" id="dl-clear-shown" data-tip="Takes these cards out of the library (not TO REVIEW&rsquo;s rating list) — the files stay on disk, and UNDO brings them back" hidden>CLEAR ALL</button>' +
+      '<div class="deliverables-toolbar"><input id="dl-query" aria-label="Search deliverables" placeholder="search title, agent, project"><select id="dl-status" aria-label="Filter deliverables"><option value="">ALL</option><option value="pending">NEEDS A DECISION</option><option value="produced">DONE</option><option value="kept">KEPT</option><option value="implemented">IMPLEMENTED</option><option value="failed">FAILED</option><option value="discarded">DISCARDED</option></select><button class="bb sm" id="dl-clear-shown" data-tip="Takes these cards out of the library (not TO REVIEW&rsquo;s rating list) — the files stay on disk, and UNDO brings them back." hidden>CLEAR ALL</button>' +
         // the two upkeep keys fold behind ONE quiet MORE key (org pass 10-14, P13): search, the status filter, the KIND chips and
         // CLEAR ALL/THESE stay in view (FOLD BY FREQUENCY); the fold opens inline in this row — never a popover.
         '<details class="dlv-tools" id="dl-tools"><summary class="bb sm" aria-label="More library tools">MORE <span class="dlv-tools-car" aria-hidden="true">▸</span></summary>' +
@@ -634,11 +634,13 @@
         // belongs to the desktop key that really opens the folder)
         const keys = [tauriCore() ? Chat.folderButton(loc.agentId, loc.path) : Chat.copyPathButton(loc.agentId, loc.path)];
         if (tauriCore()) keys.push(Chat.copyPathButton(loc.agentId, loc.path));
-        const lead = loc.inProject === false ? 'saved in ' + agentLabel(loc.agentId) + ' workspace, not in ' + projLeaf(r.project) : '';
+        // each tip line reads as a sentence, like the window's other key tips ('Copy the full saved path.') — P24 polish 2
+        const sentence = t => { const v = String(t || '').trim(); return v ? v.charAt(0).toUpperCase() + v.slice(1) + (/[.!?…]$/.test(v) ? '' : '.') : ''; };
+        const lead = loc.inProject === false ? sentence('saved in ' + agentLabel(loc.agentId) + ' workspace, not in ' + projLeaf(r.project)) : '';
         /* ICON KEYS (org pass 10-14, P24 polish): the row's width belongs to the file NAME — labelled keys squeezed it to nothing.
            Each key is its glyph alone at the row's end; what it does rides its tip and aria-label, and its feedback word
            ('path copied', 'opened', 'no path') still shows on the key while it lasts (.fb-live). */
-        const verbs = keys.map(k => k.getAttribute('title') || '');
+        const verbs = keys.map(k => sentence(k.getAttribute('title') || ''));
         /* the tip is a PATH card (data-tip-path → tooltip.js widens it and keeps these line breaks): what the key does, the
            outside-the-project note, then the path on lines of its own — breaking only after a folder separator, never mid-name */
         const breakable = p => String(p || '').replace(/([\\/])(?=.)/g, '$1\u200b');
