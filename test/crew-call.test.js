@@ -132,6 +132,27 @@ A.eq(crewCallNote('Delegate this to the other agents: find three facts about JWS
   for (const text of ["Don't bring Ada in here", 'Maybe get Ada in here', 'no, get Ada in here later'])
     A.eq(crewCallNote(text, crew, 'chiefops', both), '', 'the same veto holds for a seat: ' + text);
   A.eq(crewCallNote('bring two crew in here', crew, 'chiefops', both), '', 'an unnamed seat ask adds no note (the briefing and tool descriptions carry it)');
+  /* WHERE THE RESULT LANDS IS NOT A SEAT (review 10-14): the where-clause counts only when it is the named target's OWN
+     verb phrase ("get Ada in here"). An ordinary hand-off that says where the RESULT should go still gets the measured
+     dispatch note (0/4 -> 4/4 on qwen3:8b) — a seat note there would turn a delegation into a chat conversion. */
+  for (const text of [
+    'Have Ada research JWST and post the results in this chat', 'Have Ada summarize the report in this chat',
+    'Get Quill to write the launch post and paste it in here', 'have Quill draft the tagline in this conversation',
+    'Let Ada handle the research in the thread', 'Ask Ada to research JWST and reply in this thread',
+    'Have Ada join the two tables and post the summary', 'get Ada to bring the numbers in here'
+  ]) {
+    const n = crewCallNote(text, crew, 'chiefops', both);
+    A.ok(/team\.dispatch, workers:\[\{agentId:"(?:researcher|writer)"/.test(n) && !/IN THIS CHAT|group\.add/.test(n), 'a result that lands here is still a dispatch: ' + text + ' -> ' + n.slice(0, 80));
+  }
+  // and a bare "the thread" is never here: a worker's own thread is "the thread"
+  A.eq(crewCallNote('get Ada in the thread', crew, 'chiefops', both).indexOf('IN THIS CHAT'), -1, 'bare "the thread" is not a seat');
+  // a seat ask with a filler word before WHERE still seats ("bring Ada in to this chat", "get Ada over here too")
+  for (const text of ['bring Ada in to this chat', 'get Ada over here', 'bring Ada and Quill in here too', 'add Ada into the chat'])
+    A.ok(/IN THIS CHAT/.test(crewCallNote(text, crew, 'chiefops', both)), 'a seat with a filler word: ' + text);
+  const t0 = process.hrtime.bigint();
+  crewMentions('bring Ada ' + 'in '.repeat(100000), crew, 'chiefops', 'seat');
+  crewMentions('bring Ada and Quill and '.repeat(20000) + 'here', crew, 'chiefops', 'seat');
+  A.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 1000, 'the seat parse stays linear on a long request');
   A.ok(/team\.dispatch, workers:\[\{agentId:"researcher"/.test(crewCallNote('Have Ada research three facts about JWST', crew, 'chiefops', both)), 'a delegation with no WHERE still gets the dispatch note');
   A.eq(crewCallNote('Have Ada research three facts about JWST', crew, 'chiefops', { dispatch: false, seat: true }), '', 'and needs team.dispatch granted');
 }
