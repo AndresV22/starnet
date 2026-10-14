@@ -5944,6 +5944,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         baseBlock;
     });
     if (providerAcceptsKey(addProvider) && !hasAddProvider && !cardOffersAdd(addProvider)) rows.push(addKeyHtml(addProvider, false));
+    // org P04: the selected provider's card holds its ＋ ADD KEY, but API KEYS still says the selected provider has no key yet
+    // (only when addProvider IS the selection: under CHATGPT it is the openrouter stand-in, which is not selected)
+    else if (addProvider === active && providerAcceptsKey(addProvider) && !hasAddProvider) rows.push('<div class="key-empty"><p>The selected provider, ' + esc(provName(addProvider)) + ', has no key yet. Add it on its card above.</p></div>');
     return rows.join('');
   }
   // edit-in-place / guarded remove for a stored key. Mirrors the CLEAR arm/confirm pattern
