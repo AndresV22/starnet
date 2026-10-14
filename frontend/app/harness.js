@@ -435,7 +435,8 @@ const Harness = (() => {
   async function refreshCreditsConfigured() {
     selectionRevision++;
     try {
-      const r = await fetch('/api/credits?history=0', { cache: 'no-store' });
+      // probe=1: an unconfigured station answers 200 { configured:false } instead of the STORE's 404 (no console error on every load)
+      const r = await fetch('/api/credits?history=0&probe=1', { cache: 'no-store' });
       const j = (r && r.ok) ? await r.json() : null;
       _configuredByProvider.starnet = !!(j && j.configured);
     } catch (_) { _configuredByProvider.starnet = false; }

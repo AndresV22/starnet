@@ -13412,7 +13412,12 @@ function budgetUnsettledRuns() {
    dead balance. Never emits a secret (no api key, no account internals beyond the display id). Read-only. ---- */
 async function handleCredits(req, res) {
   const heal = await retryCreditsSelfHealIfDue();
-  if (!credits.configured()) { res.writeHead(404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ configured: false })); }
+  /* THE BOOT PROBE (rc walk: a red "404 /api/credits" line in the console on EVERY page load): Harness's boot-time "configured?"
+     question (?probe=1) is answered 200 { configured:false } — a station with no managed credits is an answer, not a failed
+     request. Every other read keeps the 404 contract (no STORE surface) its callers and tests are built on. The self-heal
+     above has already run either way. */
+  const probe = /(?:\?|&)probe=1(?:&|$)/.test(String(req && req.url || ''));
+  if (!credits.configured()) { res.writeHead(probe ? 200 : 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ configured: false })); }
   const summaryOnly = /(?:\?|&)history=0(?:&|$)/.test(String(req && req.url || ''));
   // History is display-only. Start it beside the authoritative balance read so a slow activity endpoint cannot
   // double the STORE wait; the creator/WAKE summary path skips it entirely.
