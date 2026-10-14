@@ -483,6 +483,7 @@
     for (const x of stepsOut) if (!x.brief) {
       const st = env.WorkflowLine.starters ? env.WorkflowLine.starters(x.role) : [];
       x.brief = ((st[0] && st[0].does) || '') + (purpose ? ' This line is for: "' + purpose + '".' : '');
+      x.stock = !purpose;   // the role's stock instructions alone, nothing of this workflow (planNext names it)
     }
     return { ok: true };
   }
@@ -490,15 +491,28 @@
   /* THE NEXT STEP OF A PLAN WITH NOBODY ON A STEP (the third live re-run, 10-14): the lead planned Draft + review with no crew,
      built it, then staffed it with a second plan on guessed ids and a SECOND approval card. A plan whose steps (line, room or
      build) have nobody on them says, before anything is built, how to staff them in the same plan; null keeps the usual word.
-     Never staffs anyone itself: who works a step is the Commander's call, or the lead's on the Commander's words. */
+     Never staffs anyone itself: who works a step is the Commander's call, or the lead's on the Commander's words.
+     STOCK INSTRUCTIONS (the fix round's live run, 10-14): asked to "draft the post, then review it", the lead staffed Draft +
+     review with no instructions, so COPY's Bay was told the Writer's stock "Turn the notes into a 200-word newsletter blurb…
+     Keep every link" while the reply said "COPY drafts the post". A step with only its role's stock instructions (no
+     instructions, no purpose) is named too, in the same one re-plan. */
   function planNext(p, crewNames) {
-    const idle = ((p && p.steps) || []).filter(s => s && s.step != null && !s.agent);
-    if (!idle.length) return null;
-    const one = idle.length === 1, names = (crewNames || []).filter(Boolean);
-    const list = idle.map(s => s.step + ' (' + s.role + ')'), said = one ? list[0] : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
-    return 'Nothing is built yet. ' + (one ? 'Step ' : 'Steps ') + said + (one ? ' has nobody to work it' : ' have nobody to work them') + ', so the line will not run. '
-      + 'If the Commander said who works ' + (one ? 'it' : 'them') + (names.length ? ', or someone on the crew (' + names.join(', ') + ') is right for ' + (one ? 'it' : 'them') : '') + ', plan again with the same request plus steps: [ '
-      + idle.map(s => '{ "step": ' + s.step + ', "agent": "…" }').join(', ') + ' ], so ONE approval builds it ready to run. Otherwise tell the Commander the summary, call station.build with this planId, and say which steps still need crew.';
+    const steps = ((p && p.steps) || []).filter(s => s && s.step != null), stockAt = (p && Array.isArray(p.stock)) ? p.stock : [];
+    const idle = steps.filter(s => !s.agent), stock = steps.filter(s => stockAt.indexOf(s.step) >= 0);
+    if (!idle.length && !stock.length) return null;
+    const names = (crewNames || []).filter(Boolean);
+    const said = xs => { const l = xs.map(s => s.step + ' (' + s.role + ')'); return (xs.length === 1 ? 'Step ' : 'Steps ') + (l.length === 1 ? l[0] : l.slice(0, -1).join(', ') + ' and ' + l[l.length - 1]); };
+    const first = String((stock[0] || {}).instructions || '').replace(/\s+/g, ' ').trim(), quote = (first.match(/^[^.!?]{1,70}[.!?]/) || [first.slice(0, 60) + '…'])[0];
+    const canned = stock.length ? ' only ' + (stock.length === 1 ? "its role's" : "their roles'") + ' stock instructions (step ' + stock[0].step + ': "' + quote + "\"), not this workflow's" : '';
+    const form = '[ ' + steps.filter(s => idle.indexOf(s) >= 0 || stock.indexOf(s) >= 0).map(s => '{ "step": ' + s.step + ', "agent": ' + (s.agent ? JSON.stringify(String(s.agent)) : '"…"') + (stock.indexOf(s) >= 0 ? ', "instructions": "…"' : '') + ' }').join(', ') + ' ]';
+    const why = stock.length ? ' (instructions: what that step does in the workflow the Commander described)' : '';
+    if (!idle.length) return 'Nothing is built yet. ' + said(stock) + (stock.length === 1 ? ' has' : ' have') + canned + '. If the line is for work the Commander described, plan again with the same request plus steps: '
+      + form + why + ', so its Bays are told the real work and ONE approval builds it. Otherwise tell the Commander the summary and call station.build with this planId.';
+    const one = idle.length === 1, same = stock.length && stock.every(s => idle.indexOf(s) >= 0) && idle.every(s => stock.indexOf(s) >= 0);
+    return 'Nothing is built yet. ' + said(idle) + (one ? ' has nobody to work it' : ' have nobody to work them') + ', so the line will not run'
+      + (!stock.length ? '. ' : same ? '; ' + (one ? 'it also has' : 'they also have') + canned + '. ' : '. ' + said(stock) + (stock.length === 1 ? ' has' : ' have') + canned + '. ')
+      + 'If the Commander said who works ' + (one ? 'it' : 'them') + (names.length ? ', or someone on the crew (' + names.join(', ') + ') is right for ' + (one ? 'it' : 'them') : '') + ', plan again with the same request plus steps: '
+      + form + why + ', so ONE approval builds it ready to run. Otherwise tell the Commander the summary, call station.build with this planId, and say which steps still need crew.';
   }
 
   function plan(doc, req, env) {
@@ -522,6 +536,16 @@
       /* (rc walk 10-14) a real model sent { line: "review_loop", shape: [...] }: a line name that is no line beside a shape is
          the shape (the card's notes say the name was not used); a REAL line beside a shape is refused with both forms written out */
       const named = req.line != null ? resolveLine(WM, req.line) : null, shelf = named ? catalog(WM).find(l => l.id === named.id) : null;
+      /* …unless the shape IS that line's own steps (the fix round's live run: { line: "draft_review", shape: [{ role: "WRITER" },
+         { role: "REVIEWER" }] } named revision_loop, "Draft + review", by its own name): both say one line, so it is laid, and
+         the notes say so — never a refusal that costs a call to say the same thing back */
+      const asked = Array.isArray(req.shape) ? req.shape.map(x => x && typeof x === 'object' && !Array.isArray(x) && typeof x.role === 'string' && Object.keys(x).length === 1 ? x.role : x) : null;
+      if (named && asked && asked.every(x => typeof x === 'string') && asked.map(x => x.toUpperCase().replace(/[^A-Z]/g, '')).join() === shelf.roles.join()) {
+        const rest = Object.assign({}, req); delete rest.shape;
+        const r = plan(doc, rest, env);
+        if (r.ok) r.plan.notes = (r.plan.notes || []).concat('the shape is ' + named.id + "'s own steps (" + shelf.roles.map(titleCase).join(' → ') + '), so that ready-made line was laid');
+        return r;
+      }
       if (named) return refuse('Give a line from the menu or a shape of its own, not both: { "line": "' + named.id + '", "steps": […] } builds that ready-made line (' + shelf.roles.map(titleCase).join(' → ') + '); { "shape": ["WRITER", "REVIEWER"], "steps": […] } lays your own.');
       const unused = req.line != null ? 'there is no line called "' + String(req.line).slice(0, 40) + '", so the shape was laid' : '';
       const into = req.where != null && !/^(a )?new( room)?$/i.test(String(req.where).trim());
@@ -704,7 +728,8 @@
     return { ok: true, plan: {
       floorSig: sigOf(doc), resultSig: sigOf(finalProbe.serialize()), spec, preview: previewOf(WM, doc, finalProbe.serialize(), [], target ? target.id : null),
       line: { id: bp.id, name: plain, label: hasIntake ? label : null }, where: whereText,
-      steps: stepsView, ready: rd.ready, blocking: rd.blocking, notes, summary, recruits: recruits.map(r => r.role), picked
+      steps: stepsView, ready: rd.ready, blocking: rd.blocking, notes, summary, recruits: recruits.map(r => r.role), picked,
+      stock: stepsOut.filter(x => x.stock).map(x => x.step)
     } };
   }
 
@@ -2936,7 +2961,7 @@
       rp.assignPropAgent(built.parts[rc.part].lines[rc.line].idOf[rc.node], id); crewIds.push(id);
     });
     const allLines = [].concat(...rooms.map(r => r.view.filter(v => v.kind === 'line')));
-    const lines = [], steps = [], equipProps = [], zonesView = [];
+    const lines = [], steps = [], stock = [], equipProps = [], zonesView = [];
     const roomText = rooms.map(r => {
       const Wd = r.R.x2 - r.R.x1 + 1, Hd = r.R.y2 - r.R.y1 + 1;
       const where = r.existing ? r.name + ' (' + Wd + ' × ' + Hd + ')'
@@ -2954,6 +2979,7 @@
         const recruitNodes = new Set(spec.recruits.filter(x => x.part === r.part && x.line === v.line).map(x => x.node));
         const stepsView = v.stepsOut.map(x => ({ step: x.step, role: titleCase(x.role), agent: recruitNodes.has(x.node) ? 'a new recruit' : x.agentId ? nameOf(env, x.agentId) : null, instructions: x.brief }));
         stepsView.forEach(s => steps.push(Object.assign({}, s, { role: s.role + (allLines.length > 1 ? ' on ' + (v.z.label || v.z.plain) : '') })));
+        if (allLines.length === 1) v.stepsOut.forEach(x => { if (x.stock) stock.push(x.step); });   // one line's stock-only steps (planNext)
         const capP = ids.map(id => fp.propById(id)).find(p => p && p.t === 'intake'), capNow = capP && capP.limits ? capP.limits.maxUsdPerDay : null;
         lines.push({ label: v.z.label, plain: v.z.plain, room: r.name, area: v.area, part: r.part, line: v.line, ready: rd.ready, blocking: rd.blocking, picked: v.z.picked });
         equipProps.push(...ids.map(id => fp.propById(id)).filter(Boolean));
@@ -2980,7 +3006,7 @@
     const fpd = fp.serialize();
     const preview = previewOf(WM, doc, fpd, zonesView, null);
     for (const r of rooms) if (r.existing) { const pr = preview.rooms[fpd.order.indexOf(spec.parts[r.part].roomId)]; if (pr) pr.mine = true; }
-    return { ok: true, plan: { floorSig: sigOf(doc), resultSig: sigOf(fpd), spec, summary, notes, steps,
+    return { ok: true, plan: { floorSig: sigOf(doc), resultSig: sigOf(fpd), spec, summary, notes, steps, stock,
       rooms: rooms.map(r => ({ name: r.name, where: r.where, existing: r.existing })), hallways: halls,
       where: rooms.map(r => r.where).concat(halls.map(h => 'a hallway between ' + h.from + ' and ' + h.to)).join('; '), lines, preview, line: null } };
   }

@@ -80,13 +80,29 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   const st = walkerStation(), names = crew.map(a => a.name);
   const bare = SB.plan(st.serialize(), { line: 'revision_loop', where: 'HOME', name: 'draft_and_review' }, env);
   const next = bare.ok ? SB.planNext(bare.plan, names) : null;
-  A.ok(/^Nothing is built yet\. Steps 1 \(Writer\) and 2 \(Reviewer\) have nobody to work them, so the line will not run\. /.test(next || '')
-    && /If the Commander said who works them, or someone on the crew \(NOVA, COPY, STRATEGY\) is right for them, plan again with the same request plus steps: \[ \{ "step": 1, "agent": "…" \}, \{ "step": 2, "agent": "…" \} \], so ONE approval builds it ready to run\. Otherwise tell the Commander the summary, call station\.build with this planId, and say which steps still need crew\.$/.test(next || ''), 'an unstaffed plan says how to staff it before building: ' + next);
+  /* the fix round's live run: staffed from that advice with agents only, COPY's Bay kept the Writer's stock "Turn the notes into a
+     200-word newsletter blurb" while the reply said "COPY drafts the post". The one re-plan asks for each step's instructions too. */
+  A.ok(/^Nothing is built yet\. Steps 1 \(Writer\) and 2 \(Reviewer\) have nobody to work them, so the line will not run; they also have only their roles' stock instructions \(step 1: "Turn the notes into a 200-word newsletter blurb\."\), not this workflow's\. /.test(next || '')
+    && /If the Commander said who works them, or someone on the crew \(NOVA, COPY, STRATEGY\) is right for them, plan again with the same request plus steps: \[ \{ "step": 1, "agent": "…", "instructions": "…" \}, \{ "step": 2, "agent": "…", "instructions": "…" \} \] \(instructions: what that step does in the workflow the Commander described\), so ONE approval builds it ready to run\. Otherwise tell the Commander the summary, call station\.build with this planId, and say which steps still need crew\.$/.test(next || ''), 'an unstaffed plan says how to staff it, and tell it the work, before building: ' + next);
   const half = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ step: 1, agent: 'COPY' }] }, env);
-  A.ok(/^Nothing is built yet\. Step 2 \(Reviewer\) has nobody to work it, so the line will not run\. /.test(SB.planNext(half.plan, names) || ''), 'one empty step, in the singular');
+  A.ok(/^Nothing is built yet\. Step 2 \(Reviewer\) has nobody to work it, so the line will not run\. Steps 1 \(Writer\) and 2 \(Reviewer\) have only their roles' stock instructions/.test(SB.planNext(half.plan, names) || '')
+    && /\[ \{ "step": 1, "agent": "COPY", "instructions": "…" \}, \{ "step": 2, "agent": "…", "instructions": "…" \} \]/.test(SB.planNext(half.plan, names) || ''), 'one empty step, in the singular, and the staffed one keeps its crew in the form: ' + SB.planNext(half.plan, names));
   const full = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ step: 1, agent: 'COPY' }, { step: 2, agent: 'STRATEGY' }] }, env);
-  A.eq(SB.planNext(full.plan, names), null, 'a staffed plan keeps the usual next step');
+  A.ok(/^Nothing is built yet\. Steps 1 \(Writer\) and 2 \(Reviewer\) have only their roles' stock instructions \(step 1: "Turn the notes into a 200-word newsletter blurb\."\), not this workflow's\. If the line is for work the Commander described, plan again with the same request plus steps: \[ \{ "step": 1, "agent": "COPY", "instructions": "…" \}, \{ "step": 2, "agent": "STRATEGY", "instructions": "…" \} \]/.test(SB.planNext(full.plan, names) || ''),
+    'a staffed plan with only stock instructions names them, with its crew kept: ' + SB.planNext(full.plan, names));
+  const told = SB.plan(st.serialize(), { line: 'revision_loop', steps: [{ step: 1, agent: 'COPY', instructions: COPY_DRAFT }, { step: 2, agent: 'STRATEGY', instructions: STRAT_REVIEW }] }, env);
+  A.eq(SB.planNext(told.plan, names), null, 'a staffed plan told its work keeps the usual next step');
+  const aimed = SB.plan(st.serialize(), { line: 'revision_loop', purpose: 'launch posts for StarNet', steps: [{ step: 1, agent: 'COPY' }, { step: 2, agent: 'STRATEGY' }] }, env);
+  A.eq(SB.planNext(aimed.plan, names), null, 'a purpose carries the work into the stock instructions, so that plan keeps it too');
+  const custom = SB.plan(st.serialize(), { shape: ['WRITER', 'REVIEWER'], steps: [{ step: 1, agent: 'COPY' }, { step: 2, agent: 'STRATEGY' }] }, env);
+  A.ok(/^Nothing is built yet\. Steps 1 \(Writer\) and 2 \(Reviewer\) have only their roles' stock instructions/.test(SB.planNext(custom.plan, names) || ''), 'a custom line with stock instructions is named the same: ' + SB.planNext(custom.plan, names));
   A.eq(SB.planNext({ steps: [] }, names), null, 'a plan with no steps (an edit, a room) keeps it too');
+  /* the fix round's live run's first plan, { line: "draft_review", shape: [{ role: WRITER }, { role: REVIEWER }] }: "draft_review"
+     IS revision_loop ("Draft + review"), and the shape is its own steps — both say one line, so it is laid, never refused */
+  const same = SB.plan(st.serialize(), { line: 'draft_review', shape: [{ role: 'WRITER' }, { role: 'REVIEWER' }], where: 'HOME', name: 'Draft & Review' }, env);
+  A.ok(same.ok && same.plan.line && same.plan.line.id === 'revision_loop' && same.plan.notes.some(n => /the shape is revision_loop's own steps \(Writer → Reviewer\), so that ready-made line was laid/.test(n)), 'a line named beside its own shape is that line: ' + (same.error || JSON.stringify(same.plan.notes)));
+  const other = SB.plan(st.serialize(), { line: 'draft_review', shape: ['RESEARCHER', 'WRITER'] }, env);
+  A.ok(!other.ok && /not both/.test(other.error), 'a line beside a DIFFERENT shape is still refused with both forms: ' + (other.error || 'PLANNED'));
   const cmds = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'frontend', 'app', 'stationcommands.js'), 'utf8');
   const lineVerb = cmds.slice(cmds.indexOf("'station.plan_line': (a) => {"), cmds.indexOf("'station.plan_room': (a) => {"));
   A.ok((cmds.match(/next: planNextOf\(p\.plan\)/g) || []).length === 1 && /next: planNextOf\(p\.plan\)/.test(lineVerb), 'the page hands it on for a line plan (the one whose request takes top-level steps)');
