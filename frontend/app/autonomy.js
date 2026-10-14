@@ -135,7 +135,7 @@
 
   // one-line plain-English posture for the dial header + the digest. This describes the ENFORCED reality (NS-1): the
   // night shift is server-owned — while you're away it considers ONE beat about every 45 minutes, the daily leash is
-  // actually counted and enforced, and each act leaves a draft on your desk to review. Legibility (you always see
+  // actually counted and enforced, and each act arrives as a new ⚒ session (a draft shows in LAST REPORT). Legibility (you always see
   // what it did, next time you're back) is the universal tail — true at every level, including Reach-out.
   function describe(state) {
     const s = normalize(state);
@@ -145,7 +145,7 @@
       : s.reach === 'sandbox' ? 'builds locally, nothing leaves the machine'
       : 'can send, publish, or contact external services';
     const how = s.initiative === 'leash' ? ('up to ' + s.leashPerDay + ' small jobs a day') : ('freely toward your goals (up to ' + s.leashPerDay + ' jobs a day)');
-    return 'While you’re away it works on its own ' + how + ' — one small job about every 45 min — ' + reachWord + ', leaving each one on your desk to review. You see everything it did.';
+    return 'While you’re away it works on its own ' + how + ' — one small job about every 45 min — ' + reachWord + '. Each finished job arrives as a new ⚒ session; drafts show in SETTINGS › AUTONOMY › LAST REPORT. You see everything it did.';
   }
 
   return {

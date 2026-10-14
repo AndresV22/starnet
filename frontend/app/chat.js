@@ -5953,7 +5953,7 @@ const Chat = (() => {
     text.textContent = String(spec.proposal == null ? '' : spec.proposal);
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     item.appendChild(text);
-    // the note is CONSEQUENCE, not evidence ("raises the dial to FREE") — a dim aside between the
+    // the note is CONSEQUENCE, not evidence ("raises ON ITS OWN to FREE") — a dim aside between the
     // proposal and the buttons, so the card still ENDS on the two taps.
     const note = String(spec.note == null ? '' : spec.note).trim();
     if (note) { const n = document.createElement('div'); n.className = 'turnin-evidence'; n.textContent = '↳ ' + note; item.appendChild(n); }
@@ -6243,6 +6243,8 @@ const Chat = (() => {
     if (typeof TrustStore.markShown === 'function') TrustStore.markShown();   // spend the one session-cap slot
     // the ask, composed from the REAL track record (task count + satisfaction %) — never fabricated.
     const pv = offer.provenance || {};
+    // the rung by the name the ON ITS OWN dial renders (SMALL JOBS, FREE…), never the stored id ('leash') — call #57
+    const rung = (typeof StationUI !== 'undefined' && StationUI.initiativeLabel) ? StationUI.initiativeLabel(offer.to) : String(offer.to || '').toUpperCase();
     const ask = offer.kind === 'grant'
       ? 'trust me to write files on my own?'
       : 'grant me free rein on small jobs?';
@@ -6255,7 +6257,7 @@ const Chat = (() => {
       kind: 'trust', evidence: evLine,
       label: offer.kind === 'grant' ? 'GRANT' : 'AUTONOMY',
       proposal: ask,
-      note: offer.kind === 'grant' ? 'writes stay jailed + reversible' : 'raises the dial to ' + String(offer.to).toUpperCase()
+      note: offer.kind === 'grant' ? 'writes stay jailed + reversible' : 'raises ON ITS OWN to ' + rung
     });
     if (!card0) return false;
     const r = { d: card0.row };
@@ -6284,10 +6286,10 @@ const Chat = (() => {
         Promise.resolve(TrustStore.accept(offer)).then(ok => {
           if (!card.isCurrent()) return;
           if (!ok) { settle('✕ couldn’t apply', true); return; }   // honest: never flash "✓ granted" on a failed/unverified apply
-          settle(offer.kind === 'grant' ? '✓ granted' : '✓ ' + String(offer.to).toLowerCase(), false);
+          settle(offer.kind === 'grant' ? '✓ granted' : '✓ raised to ' + rung.toLowerCase(), false);
           recAccept('trust', '', false);   // recorded only on the VERIFIED apply — never on an attempt
           if (typeof SFX !== 'undefined' && SFX.level) { try { SFX.level(); } catch (_) {} }
-          if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(offer.kind === 'grant' ? '◈ earned — it may write files on its own now (revoke any time in Settings)' : '◈ earned — autonomy raised to ' + String(offer.to).toUpperCase() + ' (adjust any time in Settings)', 'gold');
+          if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(offer.kind === 'grant' ? '◈ earned — it may write files on its own now (revoke any time in Settings)' : '◈ ON ITS OWN raised to ' + rung + ' (adjust any time in SETTINGS › AUTONOMY)', 'gold');
           // if the Settings AUTONOMY panel is open, repaint its EARNED badge live (fail-open no-op otherwise).
           if (typeof StationUI !== 'undefined' && StationUI.repaintAutonomy) { try { StationUI.repaintAutonomy(); } catch (_) {} }
         }).catch(() => { if (card.isCurrent()) settle('✕ couldn’t apply', true); });

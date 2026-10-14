@@ -96,7 +96,7 @@ const Onboarding = (() => {
         options: [
           { label: 'Wait for me', value: 'wait' },
           { label: 'Line up suggestions', value: 'suggest' },
-          { label: 'Quietly build & leave on my desk', value: 'build' },
+          { label: 'Quietly do small jobs — each one a new ⚒ session', value: 'build' },
           { label: 'Run free toward my goals', value: 'free' },
           { label: 'Decide later', value: '', skip: true }
         ],

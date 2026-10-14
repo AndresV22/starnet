@@ -232,12 +232,21 @@ A.eq(NR.postureOutlook({}), '', 'a status with no buildMode/readiness detail →
 // cold-start build pick with no away-workshop grant: it will only DRAFT, and it's still learning — say BOTH.
 const outCold = NR.postureOutlook(Object.assign({}, stBase, { buildMode: 'draft', draftReason: 'no-workshop-grant', readiness: rdWarm }));
 A.ok(/while you.re away/i.test(outCold), 'the outlook is framed as what happens WHILE AWAY');
-A.ok(/drafts only/i.test(outCold) && /grant/i.test(outCold), 'a build pick that can only draft says so + names the missing grant');
-A.ok(/still learning you/i.test(outCold) && /3 of 4 areas/.test(outCold), 'the cold-start readiness caveat rides the same line');
-// a fully-hot, granted build station: the outlook is the plain "beats BUILD…" truth, no readiness caveat.
+A.ok(/draft small jobs, not build them/i.test(outCold) && /grant/i.test(outCold), 'a build pick that can only draft says so + names the missing grant');
+A.ok(/LAST REPORT in SETTINGS › AUTONOMY/.test(outCold), 'draft mode names where the drafts really surface (LAST REPORT), not a desk');
+// call #57 (org pass 10-14): a readiness hold reads as ONE plain reason, never a counter or an unlock ladder…
+A.ok(/I’ll start once I’ve seen a few of your runs/.test(outCold), 'the cold-start hold is one plain present-tense reason');
+A.ok(!/\d+ of \d+/.test(outCold) && !/reaching either|lets it act|set REACH/i.test(outCold), 'the readout carries no N-of-M counter and no unlock instruction');
+// …and the exact counts are never dropped: readinessText keeps them for SETTINGS › AUTONOMY and LAST REPORT.
+A.ok(/still learning you/i.test(NR.readinessText(rdWarm)) && /3 of 4 areas/.test(NR.readinessText(rdWarm)), 'readinessText still carries the exact N-of-M counts');
+A.eq(NR.readinessPlain({ tier: 'hot' }), '', 'a hot station has no hold-back reason');
+// a fully-hot, granted build station: present tense, the real pace from leashPerDay, each job a new ⚒ session.
 const outBuild = NR.postureOutlook(Object.assign({}, stBase, { buildMode: 'build', draftReason: null, workshopGranted: true, readiness: { tier: 'hot' } }));
-A.ok(/jobs build real deliverables/i.test(outBuild), 'a granted, hot station promises real building');
-A.ok(!/still learning/i.test(outBuild), 'a hot station adds no still-learning caveat');
+A.eq(outBuild, 'While you’re away I’ll do up to 3 small jobs a day; each arrives as a new ⚒ session.', 'a granted, hot station says what it will do, at the status pace');
+A.ok(/up to 7 small jobs a day/.test(NR.postureOutlook({ buildMode: 'build', leashPerDay: 7 })), 'the job count follows status.leashPerDay, never a fixed number');
+A.ok(!/\d/.test(NR.postureOutlook({ buildMode: 'build', leashPerDay: null })), 'an unknown leashPerDay drops the number instead of inventing one');
+A.ok(!/still learning|I’ll start once/i.test(outBuild), 'a hot station adds no still-learning caveat');
+A.ok(/set REACH to LOCAL ONLY/.test(NR.modeText({ buildMode: 'draft', draftReason: 'reach' })), 'the panel MODE line names the REACH rung by its rendered label, LOCAL ONLY');
 A.eq(NR.postureOutlook(outBuild) === outBuild, false, 'postureOutlook takes a status object, not its own string (sanity)');
 
 /* ---------- unseenDrafts(): the live-session nudge predicate (NS visibility 2026-07-13) ----------

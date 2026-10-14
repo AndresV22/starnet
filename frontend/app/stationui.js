@@ -2760,6 +2760,18 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        a posture may not put a crew member somewhere the harness has not confirmed it can run.
      · Applying counts what actually changed and reports THAT number (an agent deleted from another
        surface mid-click must not be counted as converted). */
+  /* THE ON ITS OWN RUNGS (org pass 10-14, call #57): the dial's rendered names in ONE place. The ids are the stored
+     autonomy.js INITIATIVE values and never change; the labels are what the Commander reads, so a trust offer or a
+     PERMISSIONS notice that names a rung reads it from here and can never print the internal id ('leash').
+     'leash' reads SMALL JOBS (its own tip's words): BUILD clashed with the BUILD dock, and DRAFT is untrue once
+     the away workshop is on and jobs build real deliverables. */
+  const INITIATIVE_RUNGS = [
+    { id: 'wait', label: 'WAIT', tip: 'nothing runs unless you ask' },
+    { id: 'propose', label: 'SUGGEST', tip: 'lines up suggestions you approve — never acts on its own' },
+    { id: 'leash', label: 'SMALL JOBS', tip: 'does a few small grounded jobs a day on its own' },
+    { id: 'free', label: 'FREE', tip: 'picks & does work toward your goals while you’re away' }
+  ];
+  const initiativeLabel = (id) => { const r = INITIATIVE_RUNGS.find(x => x.id === id); return r ? r.label : String(id || '').toUpperCase(); };
   const STATION_POSTURES = [
     { id: 'careful', label: 'CHECK WITH ME', approval: 'ask', profile: 'station-gear', level: 'suggest',
       blurb: 'It asks you before every risky step, and only touches what you placed on the station.',
@@ -7467,17 +7479,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
          be three equal rows plus a fold, which read as four questions a newcomer had to answer. */
       '<div class="set-sub"><span class="set-sub-k">ON ITS OWN</span><span class="set-sub-d">what it does while you are away</span></div>' +
       '<div class="set-themes" id="auto-init">' +
-        '<button class="set-theme" data-init="wait" title="nothing runs unless you ask">WAIT</button>' +
-        '<button class="set-theme" data-init="propose" title="lines up suggestions you approve — never acts on its own">SUGGEST</button>' +
-        '<button class="set-theme" data-init="leash" title="does a few small grounded jobs a day on its own">BUILD</button>' +
-        '<button class="set-theme" data-init="free" title="picks &amp; does work toward your goals while you’re away">FREE</button>' +
+        // rung names come from INITIATIVE_RUNGS (the ONE table trust offers and PERMISSIONS notices read too)
+        INITIATIVE_RUNGS.map(r => '<button class="set-theme" data-init="' + r.id + '" data-tip="' + esc(r.tip) + '">' + esc(r.label) + '</button>').join('') +
       '</div>' +
       '<p class="mc-hint">The three answers in PERMISSIONS set this too.</p>' +
       '<details class="cf-group set-fold" id="auto-direction-fold"><summary><h4 class="ms-h">FINE-TUNE <span class="dim">— how far, how often, and where</span></h4></summary>' +
       '<div class="set-sub"><span class="set-sub-k">REACH</span><span class="set-sub-d">how far an unattended action may go</span></div>' +
       '<div class="set-themes" id="auto-reach">' +
         '<button class="set-theme" data-reach="observe" title="read / research only — writes nothing">OBSERVE</button>' +
-        '<button class="set-theme" data-reach="sandbox" title="build &amp; write locally — nothing leaves the machine">SANDBOX</button>' +
+        // LOCAL ONLY (org pass 10-14): "sandbox" read as a restriction, not as "stays on this machine"; the stored value is unchanged
+        '<button class="set-theme" data-reach="sandbox" title="build &amp; write locally — nothing leaves the machine">LOCAL ONLY</button>' +
         '<button class="set-theme" data-reach="reach" title="the highest rung: unattended actions may leave the machine — send, publish, or contact external services">SEND &amp; PUBLISH</button>' +
       '</div>' +
       '<div class="set-sub"><span class="set-sub-k">PACE</span><span class="set-sub-d">how many unattended jobs per day</span></div>' +
@@ -8566,8 +8577,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           const ledger = (ledgerRes && Array.isArray(ledgerRes.entries)) ? ledgerRes.entries : [];
           const drafts = (draftsRes && Array.isArray(draftsRes.drafts)) ? draftsRes.drafts : [];
           let rep; try { rep = NightReport.compose({ status, ledger, drafts, awaySince, nowMs: now, tzOffsetMin: tzMin() }); } catch (_) { rep = null; }
+          // the exact readiness counts (call #57): the awakening readout gives one plain reason, so the N-of-M numbers
+          // live HERE — straight from the same status read, '' once the station is hot (never an invented line).
+          const readyLine = NightReport.readinessText ? NightReport.readinessText(status && status.readiness) : '';
           if (!rep || !rep.hasReport) {
-            nsReport.innerHTML = '<p class="set-about">no report to show — autonomy recorded no acts or declines in the last 24h.</p>';
+            nsReport.innerHTML = '<p class="set-about">no report to show — autonomy recorded no acts or declines in the last 24h.</p>' +
+              (readyLine ? '<div class="set-row"><span class="dim">' + esc(readyLine) + '</span></div>' : '');
             return;
           }
           const lines = [];
@@ -8576,6 +8591,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           for (const l of (rep.actLines || [])) lines.push(l);
           for (const l of (rep.declineLines || [])) lines.push(l);
           if (rep.idleReason) lines.push(rep.idleReason);
+          if (readyLine) lines.push(readyLine);
           nsReport.innerHTML = lines.map(l => '<div class="set-row"><span class="dim">' + esc(l) + '</span></div>').join('');
           // surfaced → mark the drafts seen so the live unseen-drafts nudge won't re-announce them.
           try {
@@ -11724,7 +11740,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // GROWTH Tier 3: repaint the Settings AUTONOMY panel's EARNED badge if it is open (no-op otherwise — the paint fn
   // queries its own (possibly detached) host nodes, so a closed panel costs nothing). Called after a trust accept.
   const repaintAutonomy = () => { try { if (repaintAutonomyDial) repaintAutonomyDial(); } catch (_) {} };
-  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
+  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { visibleTerminalRect, clampTerminalSize };

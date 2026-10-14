@@ -256,7 +256,7 @@
     if (!s || (s.buildMode !== 'build' && s.buildMode !== 'draft')) return '';
     if (s.buildMode === 'build') return 'jobs build real deliverables — each arrives as a new ⚒ session in your rail';
     if (s.draftReason === 'no-workshop-grant') return 'drafts only — the away-workshop grant is off, so jobs can only draft';
-    return 'drafts only — to let it build real things while you’re away, set REACH to SANDBOX under FINE-TUNE in SETTINGS › AUTONOMY';
+    return 'drafts only — to let it build real things while you’re away, set REACH to LOCAL ONLY under FINE-TUNE in SETTINGS › AUTONOMY';
   }
 
   // the cold-start explanation behind a 'readiness' stand-down: how far the station is from EITHER hot bar
@@ -267,25 +267,48 @@
     const dimsBar = Number.isFinite(Number(rd.hotDimsMin)) ? Number(rd.hotDimsMin) : 4;
     const runsBar = Number.isFinite(Number(rd.hotRunsMin)) ? Number(rd.hotRunsMin) : 4;
     const runs = Number(rd.activityCount) || 0;
-    return 'still learning you — it knows ' + dims + ' of ' + dimsBar + ' areas and has ' + runs + ' of ' + runsBar + ' recent runs; reaching either lets it act';
+    return 'still learning you — it knows ' + dims + ' of ' + dimsBar + ' areas and has ' + runs + ' of ' + runsBar + ' recent runs; it starts acting on its own once either is complete';
+  }
+
+  // THE PLAIN HOLD-BACK REASON (org pass 10-14, call #57): the readout's one sentence for a cold-start station — what
+  // happens, never a counter or an unlock ladder. The exact counts stay in readinessText (SETTINGS › AUTONOMY and LAST
+  // REPORT). '' when the station is hot / the route sent no detail, exactly when readinessText is ''.
+  function readinessPlain(rd) {
+    if (!readinessText(rd)) return '';
+    return 'I’ll start once I’ve seen a few of your runs or learned a little more about you.';
+  }
+
+  // THE PRESENT-TENSE MODE LINE for the readout (org pass 10-14, call #57): what an away job WILL do, in the agent's
+  // own voice, composed only from status fields (buildMode, draftReason, leashPerDay). '' for an older sidecar
+  // without buildMode — never a guess. A null leashPerDay drops the number rather than inventing one.
+  function modePlain(s) {
+    if (!s || (s.buildMode !== 'build' && s.buildMode !== 'draft')) return '';
+    if (s.buildMode === 'build') {
+      const n = Number(s.leashPerDay);
+      const jobs = Number.isFinite(n) && n > 0 ? 'up to ' + plural(n, 'small job') + ' a day' : 'small jobs';
+      return 'While you’re away I’ll do ' + jobs + '; each arrives as a new ⚒ session.';
+    }
+    const why = s.draftReason === 'no-workshop-grant' ? ' (the away-workshop grant is off)' : '';
+    return 'While you’re away I’ll draft small jobs, not build them' + why + ' — see LAST REPORT in SETTINGS › AUTONOMY.';
   }
 
   // THE DIAL-RAISE OUTLOOK (NS visibility 2026-07-13): the one honest sentence shown the INSTANT the Commander raises
   // the autonomy dial (the awakening cadence beat / the station panel) — what a beat will ACTUALLY do while they're
   // away (build vs draft) and how far the station still is from being allowed to act (cold-start readiness). Composed
-  // straight from a /api/nightshift/status payload via the SAME modeText/readinessText the panel uses — so the dial
+  // straight from a /api/nightshift/status payload via modePlain/readinessPlain, which read the SAME fields (and the
+  // same readinessText test) the panel's modeText/readinessText use — so the dial
   // feedback and the panel can never disagree (truthful telemetry). Returns '' when there is nothing honest to add:
   // an unreachable/absent status, OR a fully-hot build-capable station whose only truthful line ('beats BUILD…') the
   // caller may still choose to show. NEVER invents — every clause maps to a status field. Pure + node-testable.
+  // PRESENT TENSE (org pass 10-14, call #57): it says what WILL happen — "I’ll do up to 3 small jobs a day; each
+  // arrives as a new ⚒ session" — never an unlock ladder ("set REACH to…", "reaching either lets it act"). The
+  // exact N-of-M readiness counts are not dropped: they stay on readinessText, shown in SETTINGS › AUTONOMY and LAST
+  // REPORT. Still composed only from status fields; '' when the status carries nothing to say.
   function postureOutlook(status) {
     if (!status || typeof status !== 'object') return '';
-    const mode = modeText(status);                       // build-vs-draft, straight from status.buildMode/draftReason
-    const ready = readinessText(status && status.readiness);   // '' once a hot bar is cleared (nothing to caveat)
-    const parts = [];
-    if (mode) parts.push(mode);
-    if (ready) parts.push(ready);
-    if (!parts.length) return '';
-    return 'here’s what that means while you’re away: ' + parts.join('; ') + '.';
+    const mode = modePlain(status);                      // build-vs-draft, straight from status.buildMode/draftReason/leashPerDay
+    const ready = readinessPlain(status && status.readiness);   // '' once a hot bar is cleared (nothing to caveat)
+    return [mode, ready].filter(Boolean).join(' ');
   }
 
   // THE UNSEEN-DRAFTS PREDICATE (NS live-session nudge 2026-07-13): the drafts a night-shift beat left on the desk
@@ -352,5 +375,5 @@
     });
   }
 
-  return { compose, panelModel, trailLine, collapseTrail, trailLines, awayRuleText, fmtLocalTime, bindingPhrase, plural, modeText, readinessText, postureOutlook, unseenDrafts, BINDING_PHRASE };
+  return { compose, panelModel, trailLine, collapseTrail, trailLines, awayRuleText, fmtLocalTime, bindingPhrase, plural, modeText, readinessText, modePlain, readinessPlain, postureOutlook, unseenDrafts, BINDING_PHRASE };
 });
