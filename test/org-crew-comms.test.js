@@ -4,7 +4,8 @@
      P20 — the crew row's DOSSIER key is always shown at every crew size; the manual stops claiming a row click focuses.
      P21 — the AGENT DOSSIER says where each per-agent setting lives, and station-wide switches say they are for every agent.
      P22 — RECRUIT speaks one language: RECRUIT a new agent from a CLASS, RE-SPEC an existing one.
-     P26 — the COMMS title names the open session ('COMMS · <session>'), with one writer. */
+     P26 — the COMMS title names the open session ('COMMS · <session>'), with one writer.
+     P25 — fewer empty sessions: a background hire mints none, a starter fills a blank open session, the busy row names who. */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('fs');
@@ -113,5 +114,19 @@ A.ok(/#chat-panel h3 #comms-title \{ flex: 1 1 auto; min-width: 0; white-space: 
   'P26: the title clamps to one line and a fault in #chat-status keeps its width first');
 const HTML = read('frontend/index.html');
 A.ok(!/class="comms-agent-wrap" title=/.test(HTML) && /class="comms-agent-wrap" data-tip="[^"]*switches to its latest session/.test(HTML), 'P26: the ON THE LINE tip is a data-tip, never a native title');
+
+/* ---------- P25: fewer empty sessions ---------- */
+const APP = read('frontend/app/app.js');
+const summonBody = (APP.match(/function summonAgent\(spec, opts\) \{[\s\S]*?\n  \}\n/) || [''])[0];
+A.ok(/const ws = \(activate && typeof Workstreams !== 'undefined'\) \? Workstreams\.create\(a\.name, \{ agentId: id, activate \}\) : null;/.test(summonBody),
+  'P25: only an ACTIVATED summon (the bay\'s RECRUIT) opens a session; a background hire mints none');
+A.ok(/summonAgent\(spec, \{ activate: false, desk: true \}\)/.test(APP) && /App\.summonAgent\(spec, \{ activate: false, desk: true \}\)/.test(read('frontend/app/build.js')),
+  'P25: team.summon and the workflow RECRUIT are the background hires');
+A.ok(/if \(!ws\) ws = Workstreams\.create\(a\.name, \{ agentId: id, activate: false \}\);/.test(APP), 'P25: ON THE LINE still mints a fresh session for an agent that has none (selectAgent)');
+A.ok(/start\.onclick = \(\) => newWorkstream\(\)/.test(APP) && /'sessions with ' \+ name \+ ' yet\.'/.test(APP), 'P25: the narrowed rail offers START ONE for an agent with no session yet');
+A.ok(!/switch to its stream to task it/.test(APP) && /pick it ON THE LINE in COMMS to talk to it/.test(APP), 'P25: the background-hire toast no longer promises a stream that does not exist');
+A.ok(/ws = blank \? cur : Workstreams\.create\(st\.label/.test(CHAT), 'P25: a starter on a blank open session fills it (behaviour in test/starters.test.js)');
+A.ok(/String\(busyName\)\.toUpperCase\(\) \+ ' IS BUSY IN ' \+ streamLabel\(peer\)\.toUpperCase\(\)/.test(CHAT) && !/'ALSO RUNNING IN '/.test(CHAT), 'P25: the busy row reads <NAME> IS BUSY IN <SESSION> · VIEW ACTIVE RUN');
+A.ok(/function\s+maybeEmptyState[\s\S]{0,300}busyPeerFor\(activeWs\)/.test(CHAT), 'P25: the busy row stays visible in an empty session (it explains why a first message queues)');
 
 A.report();

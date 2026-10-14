@@ -45,4 +45,9 @@ A.eq(loaded.id, original.id, 'Selection resumes original session'); A.eq(origina
 loaded = null; vm.runInContext('openStarter(idea, hint)', scope); A.eq(loaded, null, 'Existing draft never overwritten or moved');
 input.value = ''; scope.idea = S.defaults()[0]; prepared = null; vm.runInContext('openStarter(idea, hint)', scope);
 A.ok(loaded.id !== original.id && loaded.title === S.defaults()[0].label, 'General starter creates named session'); A.eq(prepared, null, 'General starter is not called personalized');
+// org P25 (2026-10-14): a starter picked on a BLANK open session fills THAT session — no second empty row
+const blank = W.create(null, { agentId: ctx.agentId || 'agent', projectRoot: ctx.projectRoot || undefined }); W.switch(blank.id);
+input.value = ''; const rowsBefore = W.list().length; scope.idea = S.defaults()[0]; loaded = null; vm.runInContext('openStarter(idea, hint)', scope);
+A.eq(loaded && loaded.id, blank.id, 'a starter on a blank open session fills it'); A.eq(W.list().length, rowsBefore, 'no new empty session is minted beside it');
+A.ok(input.value.length > 0, 'the starter prompt is prefilled into the blank session');
 A.report('starters');

@@ -1171,10 +1171,14 @@ const App = (() => {
     if (typeof StationUI !== 'undefined' && StationUI.setRoster) StationUI.setRoster(liveAgents());
     else console.warn('[summon] StationUI.setRoster missing — crew manifest not refreshed');
     try { if (window.__STARNET_DEV__) console.log('[summon]', JSON.stringify({ id, name: a.name, skin: a.skin, hadHero: !!agent, worldSpawn: _spawned, crew: (typeof World !== 'undefined' && World.crewCount) ? World.crewCount() : '?', roster: agents.size })); } catch (e) {}
-    // a fresh workstream BOUND to the new agent, but inactive by default. Activation is the explicit
-    // "talk to this specialist directly" action; summon itself only expands the crew/roster.
+    // ORG P25 — FEWER EMPTY SESSIONS: a session is made only when someone is going to talk in it. An ACTIVATED summon (the
+    // bay's RECRUIT: "talk to this specialist now") opens its own session; a background hire (the overseer's team.summon,
+    // a workflow RECRUIT) makes NONE — it only grows the crew. Its first session is minted when it is first needed:
+    // ON THE LINE (selectAgent's "a specialist that has no stream yet gets a fresh one"), the narrowed rail's START ONE,
+    // a delegation's own worker thread. Every reader takes "no session yet" (waitingSessionOf walks pending asks, the
+    // HUD falls back to selectAgent, channels are keyed by session id, group add is by agent id).
     const activate = opts.activate === true;
-    const ws = (typeof Workstreams !== 'undefined') ? Workstreams.create(a.name, { agentId: id, activate }) : null;
+    const ws = (activate && typeof Workstreams !== 'undefined') ? Workstreams.create(a.name, { agentId: id, activate }) : null;
     // the COMMS "who you're talking to" selector reads App.agents() but only rebuilds inside renderIdBar —
     // without this, a summon leaves the selector stale (missing the new agent) until some other stream
     // switch happens, while the toast says "switch to its stream". Refresh it the moment the roster grows.
@@ -1211,7 +1215,7 @@ const App = (() => {
       // "took the free desk" vs "desk placed": ensureWorkstation may ADOPT an unbound workstation instead of
       // building one, and saying "placed" for a desk that was already there is a small lie about the floor.
       const deskLine = (desk && desk.ok) ? ((desk.adopted ? 'took the free desk' : 'desk placed') + (deskRoom ? ' in ' + deskRoom : '') + '. ') : '';
-      _notify(a.name + ' summoned — ' + deskLine + 'switch to its stream to task it, or let the overseer delegate.', 'good');
+      _notify(a.name + ' summoned — ' + deskLine + 'pick it ON THE LINE in COMMS to talk to it, or let the overseer delegate.', 'good');
     }
     // ONE loadout beat: state plainly what the class summon actually applied — the skills enabled, the effort
     // applied, and the STATION GEAR the class draws on (honest present/missing under the overseer, NOT per-agent

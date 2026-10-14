@@ -2242,7 +2242,9 @@ const Chat = (() => {
     const rowEl = old || document.createElement('div');
     rowEl.id = 'comms-agent-busy'; rowEl.className = 'choice-row comms-agent-busy'; rowEl.textContent = '';
     const label = document.createElement('span'); label.className = 'dim';
-    label.textContent = peer ? ('ALSO RUNNING IN ' + streamLabel(peer).toUpperCase()) : String(detail || 'AGENT BUSY');
+    // ORG P25: say WHO is busy and WHERE — it explains why a first message here queues (kept visible in an empty session)
+    const busyName = peer ? ((typeof App !== 'undefined' && App.agentName && App.agentName(peer.agentId || 'agent')) || name || 'This agent') : '';
+    label.textContent = peer ? (String(busyName).toUpperCase() + ' IS BUSY IN ' + streamLabel(peer).toUpperCase()) : String(detail || 'AGENT BUSY');
     rowEl.appendChild(label);
     if (peer) {
       const view = document.createElement('button'); view.type = 'button'; view.className = 'choice'; view.textContent = 'VIEW ACTIVE RUN';
@@ -2339,7 +2341,15 @@ const Chat = (() => {
       const target = Workstreams.get(st.sessionId);
       if (!target || target.archived || Channels.isBusy(target.id)) return;
       ws = Workstreams.switch(target.id);
-    } else ws = Workstreams.create(st.label, { agentId: ctx.agentId, projectRoot: ctx.projectRoot || undefined });
+    } else {
+      // ORG P25: a starter picked on a BLANK open session (no history, no runs, not busy — same agent and project)
+      // fills THAT session instead of minting another empty row beside it. Anything with content keeps today's create.
+      const cur = Workstreams.active ? Workstreams.active() : null;
+      const blank = !!cur && !cur.archived && cur.conversationMode !== 'group' && cur.worker !== true
+        && !(cur.history && cur.history.length) && !(cur.runIds && cur.runIds.length) && !Channels.isBusy(cur.id)
+        && (cur.agentId || 'agent') === (ctx.agentId || 'agent') && (cur.projectRoot || '') === (ctx.projectRoot || '');
+      ws = blank ? cur : Workstreams.create(st.label, { agentId: ctx.agentId, projectRoot: ctx.projectRoot || undefined });
+    }
     if (!ws) return;
     load(ws);
     prefill(Starters.launchPrompt(st));
