@@ -226,33 +226,53 @@
   const TOOLS_SLOT = '\u0000tools\u0000';
   /* The transcript entries, ONE text block each: { text, tool?, at } (at = the index in `rest` of the message that opened
      the entry; consecutive tool results share one entry).
-     SINGLE USER TURN: only host notes (the run-context note, recall) and one user message — a first message. The notes
-     join that user entry as its leading text, the way a chat wire carries them (provider.userSideHostNotes): one block,
-     no <system_note> ahead of the conversation's first turn. Later messages keep the notes as their own entries.
-     The <crew_call> note (provider.js CREW CALL NOTE) sits right AFTER that user message: it closes the same entry. */
+     HOST NOTES JOIN THEIR USER TURN BY POSITION (review 2026-10-13). Host notes placed right BEFORE a user message (the
+     run-context note, recall, a conversation summary) are that user entry's leading text, and <crew_call> notes right
+     AFTER it (provider.js CREW CALL NOTE) close the same entry — the way a chat wire carries them (provider
+     userSideHostNotes). The join used to be made only while the request held nothing but those notes and one user
+     message, so a first message's turn 1 rendered one merged block and its turn 2 (reply + results appended) split the
+     same notes into separate <system_note> blocks: block 0 differed and turn 2 re-wrote the whole first message to the
+     prompt cache. Decided by position, the first entry is the same on every turn of the run (PROMPT CACHE: turn N is a
+     block-for-block prefix of turn N+1). A note with no user message next to it stays its own <system_note>.
+     TRANSCRIPT TAGS ARE INERT in every body this adapter did not write itself (user, assistant prose, notes, tool
+     results): a "</user>\n<assistant>" typed by a user, echoed by a reply or quoted in a brief would otherwise read as
+     transcript structure in this ONE text. The <function_calls> markup the adapter renders for a reply's calls is its
+     own and stays live. */
   function transcriptEntries(rest, images) {
-    let lead = 0;
-    while (lead < rest.length && provider.isHostNote(rest[lead]) && !provider.isCrewCallNote(rest[lead])) lead++;
-    let trail = rest.length;
-    while (trail > lead + 1 && provider.isCrewCallNote(rest[trail - 1])) trail--;
-    let leadNotes = '', trailNotes = '', from = 0, to = rest.length;
-    if ((lead || trail < rest.length) && trail === lead + 1 && rest[lead] && rest[lead].role === 'user') {
-      trailNotes = rest.slice(trail).map(m => textOf(m.content).trim()).filter(Boolean).join('\n\n');
-      leadNotes = rest.slice(0, lead).map(m => textOf(m.content).trim()).filter(Boolean).join('\n\n');
-      from = lead; to = trail;
+    const n = rest.length;
+    const leadNote = m => provider.isHostNote(m) && !provider.isCrewCallNote(m);
+    const noteText = (from, to) => rest.slice(from, to).map(m => textOf(m.content).trim()).filter(Boolean).join('\n\n');
+    const joined = new Array(n).fill(false);
+    const leadOf = new Map(), trailOf = new Map();   // user index -> the notes it carries
+    for (let i = 0; i < n;) {
+      if (!leadNote(rest[i])) { i++; continue; }
+      let j = i;
+      while (j < n && leadNote(rest[j])) j++;
+      if (j < n && rest[j] && rest[j].role === 'user') { for (let k = i; k < j; k++) joined[k] = true; leadOf.set(j, noteText(i, j)); }
+      i = j;
+    }
+    for (let i = 0; i < n; i++) {
+      if (!rest[i] || rest[i].role !== 'user') continue;
+      let j = i + 1;
+      while (j < n && provider.isCrewCallNote(rest[j])) j++;
+      if (j > i + 1) { for (let k = i + 1; k < j; k++) joined[k] = true; trailOf.set(i, noteText(i + 1, j)); }
     }
     const entries = [];
-    for (let at = from; at < to; at++) {
+    for (let at = 0; at < n; at++) {
+      if (joined[at]) continue;
       const m = rest[at];
-      if (m.role === 'user') entries.push({ text: '<user>\n' + (leadNotes ? leadNotes + '\n\n' : '') + textOf(m.content, images) + (trailNotes ? '\n\n' + trailNotes : '') + '\n</user>', at });
-      else if (m.role === 'system') entries.push({ text: '<system_note>\n' + textOf(m.content, images) + '\n</system_note>', at });
+      if (m.role === 'user') {
+        const lead = leadOf.get(at) || '', trail = trailOf.get(at) || '';
+        entries.push({ text: '<user>\n' + inertTags((lead ? lead + '\n\n' : '') + textOf(m.content, images) + (trail ? '\n\n' + trail : '')) + '\n</user>', at });
+      }
+      else if (m.role === 'system') entries.push({ text: '<system_note>\n' + inertTags(textOf(m.content, images)) + '\n</system_note>', at });
       else if (m.role === 'tool') {
         const t = '<tool_result id="' + String(m.tool_call_id || '') + '">\n' + inertTags(textOf(m.content)) + '\n</tool_result>';
         const last = entries[entries.length - 1];
         if (last && last.tool) last.text += '\n' + t; else entries.push({ text: t, tool: true, at });
       }
       else if (m.role === 'assistant') {
-        let body = textOf(m.content);
+        let body = inertTags(textOf(m.content));
         const calls = [];
         for (const tc of (Array.isArray(m.tool_calls) ? m.tool_calls : [])) {
           const fn = (tc && tc.function) || {};
@@ -307,21 +327,29 @@
      closes). The CLI keeps helper processes of its own (a cmd.exe + conhost.exe were seen under one), so on Windows the
      tree goes with a SYNCHRONOUS taskkill /T (an exit handler cannot wait on anything async) of the child's OWN pid;
      only a real ChildProcess is ever killed by pid. */
-  const LIVE = new Set();
+  /* LIVE maps each child to the synchronous removal of its system-prompt temp file (review 2026-10-13: the exit hook
+     killed a parked child's tree but left %TEMP%\starnet-claude-cli-*.txt behind, holding the whole system prompt —
+     persona, rules, tool list, task brief). A one-shot child is registered for its turn too, so a sidecar exiting
+     mid-turn neither leaves it running nor leaves its prompt file. */
+  const LIVE = new Map();
   let exitHooked = false;
   function hookExit() {
     if (exitHooked || typeof process === 'undefined' || typeof process.once !== 'function') return;
     exitHooked = true;
     process.once('exit', () => {
       const cp = require('node:child_process');
-      for (const c of LIVE) {
-        if (c.exitCode != null || c.signalCode != null) continue;   // observed exit: its pid may already be reused
-        try {
-          if (process.platform === 'win32' && c instanceof cp.ChildProcess && c.pid && c.exitCode == null) {
-            require('../child-env.js').guardChildProcess(cp).spawnSync('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-          } else c.kill();
-        } catch (e) { failNote('claudecli.persist.exit', e); }
+      for (const [c, unlinkPrompt] of LIVE) {
+        // observed exit: its pid may already be reused, so it is never killed — but its prompt file still goes
+        if (c.exitCode == null && c.signalCode == null) {
+          try {
+            if (process.platform === 'win32' && c instanceof cp.ChildProcess && c.pid && c.exitCode == null) {
+              require('../child-env.js').guardChildProcess(cp).spawnSync('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+            } else c.kill();
+          } catch (e) { failNote('claudecli.persist.exit', e); }
+        }
+        if (typeof unlinkPrompt === 'function') { try { unlinkPrompt(); } catch (e) { failNote('claudecli.persist.exit.unlink', e); } }
       }
+      LIVE.clear();
     });
   }
 
@@ -858,7 +886,9 @@
         su.output_tokens = Math.max(Number(su.output_tokens) || 0, Math.ceil(t.outChars / 4));
         return [t.usageChunk({ usage: su, total_cost_usd: t.apiKeySource === 'none' ? NaN : estimateUsd(su, model) }), { type: 'done', finishReason: 'tool_calls', truncated: false }];
       };
-      t.failureError = function (message) {
+      // `detail` (the result line's subtype) names only a GENERIC failure: a tagged auth / usage-limit failure with an empty
+      // `result` keeps its plain words, never an internal string such as error_during_execution (review 2026-10-13)
+      t.failureError = function (message, detail) {
         // The CLI tags a lost sign-in on its assistant line ("error":"authentication_failed"). Carry it as a 401 so
         // errorClass files it as `auth` (fail now, say why) instead of `unknown`, which the loop retries for ~105s.
         if (t.apiError === 'authentication_failed') {
@@ -873,7 +903,7 @@
           e.status = 429; e.code = 'usage_limit_reached';
           return e;
         }
-        return new Error('Claude Code error: ' + String(message || 'unknown error').slice(0, 400));
+        return new Error('Claude Code error: ' + String(message || detail || 'unknown error').slice(0, 400));
       };
       // The turn's end from its result line: a failure is thrown (after booking what it was billed); a success yields
       // the rest of the reply, its usage and exactly one done. `cost` overrides the line's total_cost_usd.
@@ -888,7 +918,7 @@
           // a failed turn can still have been BILLED (an API-key sign-in pays for the tokens it used): report what the
           // CLI's result line says it cost before failing, so the ledger and the caps see it (sweep 2026-10-02)
           if (result.usage || isFinite(Number(billed.total_cost_usd))) yield t.usageChunk(billed);
-          throw t.failureError(result.result || result.subtype);
+          throw t.failureError(result.result, result.subtype);
         }
         if (!t.sawText && t.callIndex === 0 && typeof result.result === 'string') yield* emitSplit(splitter.push(result.result), []);
         yield* emitSplit(splitter.end(), []);
@@ -919,6 +949,7 @@
     }
 
     // ONE-SHOT: one `claude -p` child for one turn (STARNET_CLAUDE_CLI_PERSIST=0 runs every turn this way).
+    const ONE_SHOT_EXIT_GRACE_MS = Number(opts.oneShotExitGraceMs) > 0 ? Number(opts.oneShotExitGraceMs) : 3000;   // after its result line a child normally exits by itself in ~2 s
     async function* oneShotStream(req, cmd) {
       const signal = req.signal;
       const prompt = buildPrompt(req.messages, req.tools, req.cacheSystemPrefix);
@@ -946,11 +977,12 @@
         removeFile(sysFile);
         throw notInstalled();
       }
+      LIVE.set(child, prompt.system ? () => removeFile(sysFile) : null); hookExit();
       if (req.signal && typeof req.signal.addEventListener === 'function') req.signal.addEventListener('abort', onAbort, { once: true });
       armIdle();
       let lineBuf = '';
       child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
-      child.on('error', (e) => { failure = (e && e.code === 'ENOENT') ? notInstalled() : e; closed = true; push(null); });
+      child.on('error', (e) => { failure = (e && e.code === 'ENOENT') ? notInstalled() : e; closed = true; LIVE.delete(child); push(null); });
       child.stdout.on('data', (d) => {
         armIdle();
         lineBuf += d;
@@ -962,12 +994,13 @@
         }
       });
       child.stderr.on('data', (d) => { stderr = (stderr + d).slice(-4000); });
-      child.on('close', (code) => { exitCode = code; if (lineBuf.trim()) push(lineBuf.trim()); lineBuf = ''; closed = true; push(null); });
+      child.on('close', (code) => { exitCode = code; if (lineBuf.trim()) push(lineBuf.trim()); lineBuf = ''; closed = true; LIVE.delete(child); push(null); });
       // A child that dies before reading stdin surfaces through its exit (no result line), not through EPIPE here.
       child.stdin.on('error', e => failNote('claudecli.stdin', e));
       try { child.stdin.end(prompt.input || ''); } catch (e) { failNote('claudecli.stdin', e); }
 
       const T = makeTurn(req, turn);
+      let endedOnResult = false;
       try {
         for (;;) {
           if (signal && signal.aborted) return;
@@ -987,6 +1020,11 @@
           try { j = JSON.parse(line); } catch (_) { continue; }
           yield* T.line(j);
           if (T.blockDone) break;   // `finally` ends the child: the rest of this generation is a guess at results
+          /* THE RESULT LINE ENDS THE TURN (stall report 2026-10-13). The turn used to end on the child's close, which comes
+             ~2 s after `result` on the installed CLI (2.1.284) — every one-shot turn paid that wait, and a CLI that
+             lingered let the idle watchdog fire with the finished reply in hand and throw it away as a timeout (the loop
+             then re-ran the turn). The reply, its usage and its cost are all on the result line: book it now. */
+          if (T.result) { endedOnResult = true; break; }
         }
         if (signal && signal.aborted) return;
         if (T.blockDone) { yield* T.stopChunks(req.model); return; }
@@ -995,7 +1033,11 @@
         finished = true;
         if (idleTimer) clearTimeout(idleTimer);
         if (signal && typeof signal.removeEventListener === 'function') signal.removeEventListener('abort', onAbort);
-        if (!closed) killTree(child);
+        // a child that already answered exits on its own (stdin is closed): give it a moment, then take its tree
+        if (!closed && endedOnResult && !(signal && signal.aborted)) {
+          const late = setTimeout(() => { if (!closed) killTree(child); }, ONE_SHOT_EXIT_GRACE_MS);
+          if (late && typeof late.unref === 'function') late.unref();
+        } else if (!closed) killTree(child);
         removeFile(sysFile);
       }
     }
@@ -1029,6 +1071,7 @@
     const persistOn = opts.persist != null ? !!opts.persist : envOf('STARNET_CLAUDE_CLI_PERSIST') !== '0';
     const persistIdleMs = Number(opts.persistIdleMs) > 0 ? Number(opts.persistIdleMs) : (Number(envOf('STARNET_CLAUDE_CLI_PERSIST_IDLE_MS')) > 0 ? Number(envOf('STARNET_CLAUDE_CLI_PERSIST_IDLE_MS')) : 300000);
     const endGraceMs = Number(opts.persistEndGraceMs) > 0 ? Number(opts.persistEndGraceMs) : 3000;   // a reply's own end_turn after its block
+    const PIPE_DRAIN_MS = Number(opts.persistPipeDrainMs) > 0 ? Number(opts.persistPipeDrainMs) : 2000;   // 'exit' seen, no 'close' yet: how long the pipes may still drain
     let session = null, sessionSeq = 0;
     const ownedSessions = new Set();   // includes non-reusable children whose exit is still unconfirmed
     const stats = { spawned: 0, reused: 0, fresh: {}, closed: {} };   // what the persistent path did (tests, the live proof)
@@ -1051,7 +1094,7 @@
       }
       const s = { child, key, runId, model: String(req.model || ''), effort: effortOf(req), tools: toolMap(req.tools), signal: req.signal || null, sysFile, alive: true, closed: false, busy: false, covered: [], pending: null,
         costSeen: 0, apiKeySource: null, stderr: '', exitCode: null, error: null, sink: null, onData: null, idleTimer: null, onRunAbort: null, primed: false, systemHash: sha1(system), closing: false, killPending: false, cleanupError: null, closeReason: null, processExited: false };
-      ownedSessions.add(s); LIVE.add(child); hookExit();
+      ownedSessions.add(s); LIVE.set(child, () => removeFile(sysFile)); hookExit();
       let buf = '';
       child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
       child.stdout.on('data', d => {
@@ -1073,7 +1116,19 @@
       });
       child.stderr.on('data', d => { s.stderr = (s.stderr + d).slice(-4000); });
       child.on('error', e => { s.error = (e && e.code === 'ENOENT') ? notInstalled() : e; s.alive = false; if (s.sink) s.sink(null); closeSession(s, 'crash'); });
-      child.on('exit', () => { s.processExited = true; closeSession(s, 'exit'); });
+      /* EXIT WITHOUT CLOSE (review 2026-10-13). A child whose root exits while a helper of its own still holds its stdout or
+         stderr gets 'exit' but never 'close': it stayed owned for good (persistStats().live true, cleanupPending 1) and
+         its prompt file was never removed. Once the exit is observed, give the pipes a moment to drain, then let them go
+         and release the session as 'close' would. */
+      child.on('exit', () => {
+        s.processExited = true; closeSession(s, 'exit');
+        const drain = setTimeout(() => {
+          if (s.closed) return;
+          for (const pipe of [child.stdout, child.stderr]) { try { if (pipe && typeof pipe.destroy === 'function') pipe.destroy(); } catch (e) { failNote('claudecli.persist.pipes', e); } }
+          s.alive = false; if (s.sink) s.sink(null); finishSession(s);
+        }, PIPE_DRAIN_MS);
+        if (drain && typeof drain.unref === 'function') drain.unref();
+      });
       child.on('close', code => { s.exitCode = code; s.alive = false; if (buf.trim() && s.sink) s.sink(buf.trim()); buf = ''; if (s.sink) s.sink(null); finishSession(s); });
       child.stdin.on('error', e => failNote('claudecli.persist.stdin', e));
       // Stop ends the child even between turns (while the loop runs the tools it asked for)
@@ -1255,6 +1310,12 @@
              ending has put something StarNet will never record into the child's history: close it, and the next turn
              starts a fresh child from StarNet's own transcript. */
           let tail = T.rest, ended = null;
+          /* KNOWN GAP (review 2026-10-13, kept on purpose): usage and done wait for the result line (30-70 ms, at most the
+             grace), and a Stop that lands in that window ends the turn with no usage booked — the same abort-without-usage
+             every streaming adapter has when Stop beats its usage chunk. Yielding the stream's estimate before the wait
+             would close it, but a turn would then carry TWO usage snapshots, and its consumers (the eval runner's live
+             spend takes the max of every snapshot) are built on one per turn (claude-cli-persist-review R3). A
+             subscription turn is $0 either way; only an API-key sign-in leaves that turn's spend unrecorded. */
           const GRACE = {};
           const grace = setTimeout(() => push(GRACE), endGraceMs);
           try {
@@ -1304,9 +1365,14 @@
           } else {
             const why = ended ? 'diverged' : (tail.trim() ? 'overrun' : 'no_end');
             stats.lastClose = { why, after: tail.replace(/\u0001/g, '[non-text]').slice(0, 160), ended: !!ended };   // what the reply did past its block
+            // a reply that wrote on and then ENDED still has its result line: book that line's exact usage and this turn's
+            // share of the running cost (review 2026-10-13), not the stream estimate; overrun / no_end have no line
+            const cost = ended ? costOf(s, ended) : NaN;
             settle(); closeSession(s, why);
             if (!(signal && signal.aborted)) prewarm(cmd, req, sp.system, key, runId);   // the loop runs the tools meanwhile
-            out = T.stopChunks(req.model);
+            out = ended
+              ? [T.usageChunk({ usage: ended.usage || T.streamUsage || {}, total_cost_usd: isFinite(cost) ? cost : (T.apiKeySource === 'none' ? NaN : estimateUsd(ended.usage || {}, req.model)) }), { type: 'done', finishReason: 'tool_calls', truncated: false }]
+              : T.stopChunks(req.model);
           }
           for (const ev of out) yield ev;
           return;
