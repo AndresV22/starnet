@@ -8793,7 +8793,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           let rep; try { rep = NightReport.compose({ status, ledger, drafts, awaySince, nowMs: now, tzOffsetMin: tzMin() }); } catch (_) { rep = null; }
           // the exact readiness counts (call #57): the awakening readout gives one plain reason, so the N-of-M numbers
           // live HERE — straight from the same status read, '' once the station is hot (never an invented line).
-          const readyLine = NightReport.readinessText ? NightReport.readinessText(status && status.readiness) : '';
+          const readyText = NightReport.readinessText ? NightReport.readinessText(status && status.readiness) : '';
+          // ONE PANEL, ONE COPY (org pass P09-b): #ns-readiness under the status grid just above already paints this exact
+          // line from the same status route — repeating it under LAST REPORT read as the same sentence twice. It is kept
+          // only when the grid could not show it (status unreachable there, or a different reading by now).
+          const shownAbove = !!(readyText && nsReadiness && nsReadiness.textContent.trim() === readyText.trim());
+          const readyLine = shownAbove ? '' : readyText;
           if (!rep || !rep.hasReport) {
             // the still-learning line is a second sentence of the SAME grey status paragraph style, full stop and all —
             // an amber .dim row under a grey status read louder than the status it qualifies

@@ -163,6 +163,10 @@ A.ok(!/standing by|on watch/i.test(NR.panelModel({ status: { active: true, away:
 // non-halted statuses stay exactly as before, and expose halted:false.
 A.eq(panelActive.halted, false, 'a live status carries halted:false');
 A.eq(panelOff.halted, false, 'an OFF status carries halted:false');
+// org pass P09-a: binding 'posture' (dial on WAIT / SUGGEST) means no job runs at any time — NEXT JOB EARLIEST never names a clock
+const panelPosture = NR.panelModel({ status: { active: false, away: false, beatsUsedToday: 0, leashPerDay: 3, binding: 'posture', lastBeatAt: 0, nextEligibleAt: T0610Z + 2700000 }, tzOffsetMin: -300 });
+A.ok(!/\d{1,2}:\d{2}\s*(AM|PM)/.test(panelPosture.nextEligibleText) && /not scheduled/.test(panelPosture.nextEligibleText) && /WAIT or SUGGEST/.test(panelPosture.nextEligibleText), 'a posture-bound shift shows no next-job clock and names the dial as the reason');
+A.ok(/\d{1,2}:\d{2}\s*(AM|PM)/.test(panelActive.nextEligibleText), 'a cooldown-bound shift still shows its real next-job clock');
 
 /* ---------- panelModel(): BUILD-vs-DRAFT mode + cold-start readiness honesty (2026-07-13) ----------
    Regression: at dial=free/sandbox with no away-workshop grant every beat silently degraded to a reason-only
@@ -241,7 +245,7 @@ A.ok(!/\d+ of \d+/.test(outCold) && !/reaching either|lets it act|set REACH/i.te
 A.ok(/still learning you/i.test(NR.readinessText(rdWarm)) && /3 of 4 areas/.test(NR.readinessText(rdWarm)), 'readinessText still carries the exact N-of-M counts');
 // P09 review fix: the counts line names a NECESSARY condition, never a promise — with the dial on WAIT / SUGGEST, clearing a
 // bar does not make it act, and LAST REPORT shows this line with no dial context at all.
-A.ok(/won’t act on its own until one of those is complete/.test(NR.readinessText(rdWarm)) && !/starts acting|once either|lets it act/i.test(NR.readinessText(rdWarm)), 'readinessText never promises it will act once a bar clears');
+A.ok(/won’t act on its own before it knows all 4 areas or has 4 recent runs/.test(NR.readinessText(rdWarm)) && !/starts acting|once either|lets it act|one of those is complete/i.test(NR.readinessText(rdWarm)), 'readinessText names the bar it needs (all 4 areas or 4 recent runs) and never promises it will act once a bar clears');
 A.eq(NR.readinessPlain({ tier: 'hot' }), '', 'a hot station has no hold-back reason');
 // a fully-hot, granted build station: present tense, the real pace from leashPerDay, each job a new ⚒ session.
 const outBuild = NR.postureOutlook(Object.assign({}, stBase, { buildMode: 'build', draftReason: null, workshopGranted: true, readiness: { tier: 'hot' } }));
