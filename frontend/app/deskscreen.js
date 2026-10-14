@@ -241,13 +241,18 @@ const DeskScreen = (() => {
       .then(async r => { let j = null; try { j = await r.json(); } catch (_) {} return { status: r.status, ok: r.ok, body: j }; })
       .catch(() => ({ status: 0, ok: false, body: null }));
   }
+  // this agent's server-live runs, minus the harness's own self-talk (`internal`: session ideas, a title, a goal plan) —
+  // it is not the agent's job, exactly as the run history below leaves it out. null = the snapshot could not be read.
+  function liveRowsFor(runs, agentId) {
+    return Array.isArray(runs) ? runs.filter(r => r && r.agentId === agentId && !r.internal) : null;
+  }
   function pollSnap(force) {
     if (!cur || snapBusy || (!force && clock() - snapAt < 4000)) return;
     snapBusy = true; const want = cur;
     getJson('/api/state/snapshot').then(j => {
       snapBusy = false; if (cur !== want) return;
       snapAt = clock();
-      snap = j && Array.isArray(j.runs) ? j.runs.filter(r => r && r.agentId === want.agentId) : null;
+      snap = liveRowsFor(j && j.runs, want.agentId);
       paint();
     });
   }
@@ -509,7 +514,7 @@ const DeskScreen = (() => {
   const text = () => (isOpen() ? cur.body.innerText : null);
   const agentOfOpen = () => (isOpen() ? cur.agentId : null);
   return { init, open, isOpen, text, agentOfOpen, parseScreens, _deskTitle: deskTitle,
-    _fold: fold, _currentOf: currentOf, _lastEndedOf: lastEndedOf, _argDigest: argDigest, _taskOf: taskOf,
+    _fold: fold, _currentOf: currentOf, _lastEndedOf: lastEndedOf, _argDigest: argDigest, _taskOf: taskOf, _liveRowsFor: liveRowsFor,
     _parseScreens: parseScreens, _screenOf: screenOf,
     _handoffOf: aid => handoffs.get(aid) || null,
     _reset: () => { runs.clear(); byAgent.clear(); asks.clear(); handoffs.clear(); } };
