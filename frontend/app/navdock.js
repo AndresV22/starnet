@@ -106,8 +106,13 @@
   // flicker effect toggles a class there every 7 s — so the hint came back 15 s on / 7 s off for the whole session,
   // over the CREW dock, the dock menus and the approval toasts. It shows once per page; GOT IT still ends it for good.
   let coachShown = false;
+  // NOT OVER THE ARRIVAL (org P31, 2026-10-14): #screen-game goes active while the awakening still owns the room
+  // (World.beginAwakening), so the coach waited for nothing and talked over the first meeting. It now waits for
+  // World.releaseAwakening, which fires 'starnet:awakening-released'; a returning Commander (no awakening) is unchanged.
+  const awakeningHeld = () => typeof World !== 'undefined' && typeof World.awakeningHeld === 'function' && World.awakeningHeld();
   function showCoachOnce() {
     if (!coach || !coach.hidden || coachShown) return;
+    if (awakeningHeld()) return;   // the arrival is still on screen — the release event asks again
     try { if (localStorage.getItem(COACH_KEY)) return; } catch (_) {}
     coachShown = true;
     coach.hidden = false;
@@ -121,6 +126,7 @@
       if (game.classList.contains('active')) showCoachOnce();
       new MutationObserver(() => { if (game.classList.contains('active')) showCoachOnce(); })
         .observe(game, { attributes: true, attributeFilter: ['class'] });
+      document.addEventListener('starnet:awakening-released', () => { if (game.classList.contains('active')) showCoachOnce(); });
     }
   }
 

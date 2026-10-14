@@ -28,7 +28,7 @@ async function quickRun(answers, stopAt, wake = false, mind = null, receipts = [
     },
     DossierStore: { upsert(...args) { beliefs.push(args); } },
     AutonomyStore: { async applyPreset(value) { postures.push(value); return receipts.shift() || { ok: true }; } },
-    opts: { name:'NOVA', wake, docs:{}, commit(patch) { writes.push(patch); }, done() { done++; }, taught() { taught++; } },
+    opts: { name:'NOVA', wake, docs:{}, stations: extra.stations || null, commit(patch) { writes.push(patch); }, done() { done++; }, taught() { taught++; } },
     ...extra
   });
   vm.runInContext(source, context);
@@ -52,6 +52,22 @@ async function quickRun(answers, stopAt, wake = false, mind = null, receipts = [
   assert(result.stages.some(([,detail]) => detail.startsWith('1 of 2')));
   assert(result.stages.some(([,detail]) => detail.startsWith('2 of 2')));
   assert(result.storage.has('starnet.interview.deferred.v1'), 'deeper profile stays available later');
+  // org P31: the pace labels count what each path really asks — no station pick on offer here, so two questions,
+  // and the follow-up hint rides IN each label (loose = 1, deep = FOLLOWUP_BUDGET 3)
+  assert.deepEqual(Array.from(result.prompts[0].options, o => o.label),
+    ['Quick setup — two questions', 'A short conversation — one follow-up at most', 'Let’s talk it through — up to three follow-ups']);
+  assert(/start with two setup questions/.test(result.prompts[0].lines[0].text), 'the greeting counts the same two');
+  // a fresh starter room offers the lead's station pick, so the quick path is THREE questions, numbered 1-3 of 3
+  const stations = { fresh: () => true, recommend: () => 'studio', apply: () => ({ ok: true }),
+    catalog: () => [{ id: 'studio', name: 'SOFTWARE STUDIO', group: 'work', pitch: 'code and build', purposeLabel: 'Code & build' }] };
+  const three = await quickRun([{value:'quick'}, {value:'Help me build software.'}, {value:'wait'}, {value:'studio'}], null, false, null, [], { stations });
+  assert.equal(three.prompts[0].options[0].label, 'Quick setup — three questions');
+  assert(/start with three setup questions/.test(three.prompts[0].lines[0].text), 'the greeting says three');
+  assert.equal(three.prompts.length, 4, 'pace choice + three setup questions');
+  assert.deepEqual(three.stages.map(([, d]) => d).filter(d => / of \d/.test(d)),
+    ['1 of 3 · Your direction', '2 of 3 · While you are away', '3 of 3 · Where the work happens']);
+  assert(/^last question: which station/.test(three.prompts[3].lines[0].text), 'the station ask is the last question, not "one more"');
+  assert.equal(three.taught, 1);
   const retried = await quickRun([{value:'quick'}, {value:'Help me build software.'}, {value:'wait'}, {value:'wait'}], null, false, null, [{ok:false,error:'Save refused'}, {ok:true}]);
   assert.equal(retried.prompts.length, 4, 'a refused posture save repeats the question before completing setup');
   assert.deepEqual(retried.postures, ['wait', 'wait'], 'retry uses the confirmed writer again');

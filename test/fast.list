@@ -1005,6 +1005,7 @@ test/session-reliability.e2e.test.js
 test/harness-placement.test.js
 test/github-device.test.js
 test/onboarding-refresh.test.js
+test/first-minutes-labels.test.js
 test/tutorial-platform-guide.test.js
 test/openai-outcomes.test.js
 test/request-reservations.test.js

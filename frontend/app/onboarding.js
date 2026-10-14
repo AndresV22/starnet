@@ -611,14 +611,28 @@ const Onboarding = (() => {
   // The meeting starts with why they came, follows their answers within a question
   // budget, then offers grounded help and asks them to confirm the mission.
   // A short setup authors the same purpose and posture as the full interview, without inventing a profile.
+  /* QUICK SETUP COUNTS WHAT IT ASKS (org P31, 2026-10-14): direction, then (when there is a posture step) while-you-are-
+     away, then (when the lead's station pick will be offered) the station. The pace label, the greeting and every
+     "k of N" read this one count, so "two questions" can never be followed by a third. */
+  let quickN = 0, quickTotal = 0;
+  function stationPickOffered() {
+    const S = stationsApi;
+    if (specialty || role !== 'orchestrator' || !S || typeof S.fresh !== 'function' || typeof Dialogue === 'undefined') return false;
+    return !!S.fresh() && (S.catalog() || []).some(c => c && c.group === 'work');   // pickStation's own gate
+  }
+  function quickCount(postureStep) { return 1 + (postureStep ? 1 : 0) + (stationPickOffered() ? 1 : 0); }
+  const COUNT_WORD = ['zero', 'one', 'two', 'three'];
   async function runQuickSetup(postureStep) {
-    beatTotal = 2;
-    stage('GET ACQUAINTED', '1 of 2 · Your direction');
+    quickTotal = quickCount(postureStep); quickN = 0;
+    beatTotal = quickTotal;
+    stage('GET ACQUAINTED', (++quickN) + ' of ' + quickTotal + ' · Your direction');
     await askStep(fallbackPurposeStep(true), { quietAck: true });
     if (!running) return;
     bumpTruth();
-    stage('GET ACQUAINTED', '2 of 2 · While you are away');
-    if (postureStep) await askStep(postureStep);
+    if (postureStep) {
+      stage('GET ACQUAINTED', (++quickN) + ' of ' + quickTotal + ' · While you are away');
+      await askStep(postureStep);
+    }
     if (!running) return;
     setDeferred();
   }
@@ -628,15 +642,20 @@ const Onboarding = (() => {
     const postureStep = steps.find(x => x.posturePreset) || null;
 
     const interviewOnly = !!(options && options.interviewOnly);
+    quickTotal = 0;   // only the quick path numbers its questions
+    const quickN0 = quickCount(postureStep);
+    const quickSays = (COUNT_WORD[quickN0] || String(quickN0)) + (quickN0 === 1 ? ' question' : ' questions');
     stage('GET ACQUAINTED', 'Choose your pace');
     const pace = await Dialogue.node({
       lines: [seg(interviewOnly
         ? 'let’s fill in the picture. a few questions about your work, or a deeper conversation about your goals? you can review and change what we save in your dossier.'
-        : 'i’m awake. let’s give this station a direction. start with two setup questions, or take time to tell me about your work. you can edit what we save in your dossier — the COMMANDER file of what the station knows about you.', 46, 0)],
+        : 'i’m awake. let’s give this station a direction. start with ' + quickSays.replace(/ (question)/, ' setup $1') + ', or take time to tell me about your work. you can edit what we save in your dossier — the COMMANDER file of what the station knows about you.', 46, 0)],
       options: [
-        ...(!interviewOnly ? [{ label: 'Quick setup — two questions', value: 'quick' }] : []),
-        { label: 'A short conversation', value: 'loose' },
-        { label: 'Let’s talk it through', value: 'deep' }
+        ...(!interviewOnly ? [{ label: 'Quick setup — ' + quickSays, value: 'quick' }] : []),
+        // the pace hint rides IN the label (no sentence under a choice): the follow-up wallet each pace really gets —
+        // loose: followupsLeft = 1, deep: FOLLOWUP_BUDGET; the mind's ASK: NONE can end either one sooner
+        { label: 'A short conversation — one follow-up at most', value: 'loose' },
+        { label: 'Let’s talk it through — up to ' + (COUNT_WORD[FOLLOWUP_BUDGET] || FOLLOWUP_BUDGET) + ' follow-ups', value: 'deep' }
       ]
     });
     if (!running) return;
@@ -901,8 +920,8 @@ const Onboarding = (() => {
     if (!works.length) return;
     const recId = S.recommend ? S.recommend(purposeSaid) : null, rec = works.find(c => c.id === recId) || null;
     const ordered = rec ? [rec].concat(works.filter(c => c !== rec)) : works;
-    stage('YOUR STATION', 'Where the work happens');
-    const ask = 'one more question: which station should i build for you? '
+    stage('YOUR STATION', (quickTotal ? (++quickN) + ' of ' + quickTotal + ' · ' : '') + 'Where the work happens');
+    const ask = 'last question: which station should i build for you? '
       + (rec ? 'from what you told me, i’d start with the ' + rec.name.toLowerCase() + ': ' + rec.pitch + '.'
              : 'pick the kind of work you’ll do most, or start with one room and build it yourself.')
       + ' you can change it any time in BUILD › Presets.';
@@ -944,7 +963,9 @@ const Onboarding = (() => {
   async function closeOut() {
     if (typeof Dialogue === 'undefined') { if (World.releaseAwakening) World.releaseAwakening(); if (taughtCb) taughtCb(); return; }
     Dialogue.open({ name: NAME });
-    stage('READY TO BEGIN', 'Choose your first step');
+    // ONE header for the hand-off (org P31): the first-task review that follows (PitchStore.offerHandoff) carries the same
+    // stage, so the panel never flips READY TO BEGIN → YOUR FIRST TASK between two back-to-back beats.
+    stage('YOUR FIRST TASK', 'From getting acquainted to working together');
     const readyLine = role === 'orchestrator'
       ? 'i’m ' + NAME + '. the station is yours. give me one task to start with — we can build the rest around the work. your setup stays editable in the dossier.'
       : 'i’m ' + NAME + '. ready for my first assignment. you can change my setup in the agent dossier.';
