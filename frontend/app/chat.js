@@ -3640,7 +3640,8 @@ const Chat = (() => {
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
     r.d.dataset.clarifyPrompt = String(p.promptId || ''); r.d.tabIndex = -1; r.d.dataset.liveAsk = '1';
     if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
-      const rid=ws && Channels.runIdOf(ws.id);
+      // the ask's own run id first: a background worker's question outlives the reply that started it (like the buttons path)
+      const rid=p.runId || (ws && Channels.runIdOf(ws.id));
       let answeredHere=false;
       const tc=TaskConversation.mount(r.body,Object.assign({},q,{asker:askerName(p,ws)}),async text=>{
         const result=await Harness.consentAnswer(rid,p.promptId,text,true);
@@ -3666,7 +3667,7 @@ const Chat = (() => {
           if(answeredHere){releaseCard(r.d);return;}
           if(ws&&typeof Channels!=='undefined')Channels.clearPending(ws.id,Date.now(),p.promptId);
           if(isActiveWs(ws))renderPresence();
-          if(tc&&tc.settle)tc.settle(resp.expired?'No answer in time — '+askerName(p,ws)+' used its judgment':'Answered'+settledWhere(resp));
+          if(tc&&tc.settle)tc.settle(resp.stopped?askerName(p,ws)+' stopped before an answer':resp.expired?'No answer in time — '+askerName(p,ws)+' used its judgment':'Answered'+settledWhere(resp));
           releaseCard(r.d);syncStatus();
         };
         U.bus.on('permission.response',onElsewhere);
@@ -3818,7 +3819,7 @@ const Chat = (() => {
         btns.remove(); hint.remove(); releaseCard(r.d);
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (resp.decision === 'deny' ? ' err' : '');
-        tag.textContent = resp.expired ? '✕ no answer in time — the agent used its judgment' : resp.decision === 'deny' ? '✕ declined' + settledWhere(resp) : '✓ answered' + settledWhere(resp);
+        tag.textContent = resp.stopped ? '■ ' + askerName(p, ws) + ' stopped before an answer' : resp.expired ? '✕ no answer in time — the agent used its judgment' : resp.decision === 'deny' ? '✕ declined' + settledWhere(resp) : '✓ answered' + settledWhere(resp);
         r.body.appendChild(tag); if (why) r.body.appendChild(why);
         syncStatus();
       };
@@ -3850,11 +3851,21 @@ const Chat = (() => {
     if (id && settledPromptNotices.has(id)) return;
     if (id) { settledPromptNotices.add(id); if (settledPromptNotices.size > 200) settledPromptNotices.delete(settledPromptNotices.values().next().value); }
     const pending = typeof Channels !== 'undefined' && Channels.pendingAllOf ? Channels.pendingAllOf(wsId).filter(p => String(p.promptId) !== id) : [];
+    keepNeeds(wsId, pending);
+  }
+  // the conversation's one bell entry moves to the first ask still waiting, or settles once none is left
+  function keepNeeds(wsId, pending) {
     if (pending.length) {
       const next = pending[0], ws = (typeof Workstreams !== 'undefined' && Workstreams.get && Workstreams.get(wsId)) || { id: wsId, agentId: next.agentId };
       // quiet: the sibling was already announced; its bell entry moves to it without a second toast and chime
       if (StationUI.notify) StationUI.notify(askerName(next, ws) + (next.tool === 'brief.ask' ? ' still needs your answer' : ' still needs approval to ' + actionPhrase(next)), 'warn', 'needsApproval', { kind: 'needs', go: { ws: wsId }, key: 'needs:' + wsId, prompt: next.promptId, quiet: true });
     } else if (StationUI.settleNotifs) StationUI.settleNotifs('needs:' + wsId);
+  }
+  /* A RUN'S END SETTLES ITS OWN WAITS, NEVER A BACKGROUND WORKER'S (2026-10-14): such a worker files under the same key, often
+     mid-turn, and the end's blanket settle read "Handled" while NEEDS YOU and its row still waited. Its ask keeps the entry. */
+  function settleRunNeeds(wsId) {
+    if (!wsId || typeof StationUI === 'undefined') return;
+    keepNeeds(wsId, typeof Channels !== 'undefined' && Channels.pendingAllOf ? Channels.pendingAllOf(wsId).filter(p => p && p.background === true) : []);
   }
   // what settled a card it did not submit itself, in words. The sidecar's remote answer (a phone) carries no `via`; this
   // page's other surfaces (a worker's row, NEEDS YOU, voice) answer through answerConsent, which says which on the bus —
@@ -3912,17 +3923,26 @@ const Chat = (() => {
   }
   /* A STOPPED RUN TAKES ITS OPEN CARDS WITH IT (live walkthrough 2026-10-13): after STOP the run's approval card kept
      live Approve once / Always / Full access / Deny keys while NEEDS YOU and the toast had already cleared — a key that
-     answers nothing. promptId -> { wsId, runId, worker, retire(text) }; retireOpenConsents runs at the run's end. */
+     answers nothing. promptId -> { wsId, runId, worker, background, retire(text) }; retireOpenConsents runs at the run's
+     end. A BACKGROUND worker's ask (background:true — the station keeps it open past the lead's turn, and its runId IS the
+     lead's) is never retired by a run's end: it settles through its own permission.response, or retireConsentCard when the
+     reconnect snapshot no longer lists it (2026-10-14 review: such a card read "nothing was approved" with the ask live). */
   const openConsentCards = new Map();
   function retireOpenConsents(wsId, runId) {
     for (const [id, c] of openConsentCards) {
-      if (c.wsId !== wsId) continue;
-      // a background worker's ask can outlive its lead's run — only this run's own cards (or unattributed lead cards) retire
+      if (c.wsId !== wsId || c.background) continue;
+      // a delegated worker's ask can outlive its lead's run — only this run's own cards (or unattributed lead cards) retire
       if (c.runId ? c.runId !== runId : c.worker) continue;
-      openConsentCards.delete(id);
-      try { c.retire('■ the run ended before an answer — nothing was approved'); } catch (e) { if (typeof console !== 'undefined') console.warn('[comms] retire card failed', e); }
+      retireConsentCard(id, '■ the run ended before an answer — nothing was approved');
     }
     for (const [id, a] of askAnswerers) if (a.wsId === wsId) askAnswerers.delete(id);   // its questions are gone with it
+  }
+  function retireConsentCard(promptId, text) {
+    const id = String(promptId || ''), c = openConsentCards.get(id);
+    if (!c) return false;
+    openConsentCards.delete(id);
+    try { c.retire(text); } catch (e) { if (typeof console !== 'undefined') console.warn('[comms] retire card failed', e); }
+    return true;
   }
   function permissionRow(p, ws) {
     if (p && p.tool === 'brief.ask') return clarifyRow(p, ws);   // a question, not a grade — its own card
@@ -4015,13 +4035,14 @@ const Chat = (() => {
         // the grade the station applied, in this card's own words: a card with no Always key (station.power,
         // plugin.submit, the login window) grants this one call whatever grade another surface sent. An answer given
         // on this page (voice, a worker's row, NEEDS YOU) names its own surface, not the phone
-        tag.textContent = resp.expired ? '✕ no answer in time — denied' : settledLabel(resp, labels);
+        // stopped: a background worker stopped while its ask waited (the station says so) — it was never left unanswered
+        tag.textContent = resp.stopped ? '■ ' + askerName(p, ws) + ' stopped before an answer — nothing was approved' : resp.expired ? '✕ no answer in time — denied' : settledLabel(resp, labels);
         r.body.appendChild(tag);
         syncStatus();
       };
       U.bus.on('permission.response', onElsewhere);
     }
-    if (ws && p && p.promptId) openConsentCards.set(String(p.promptId), { wsId: ws.id, runId: String(p.runId || ''), worker: !!(p.workerAgentId || p.workerRunId),
+    if (ws && p && p.promptId) openConsentCards.set(String(p.promptId), { wsId: ws.id, runId: String(p.runId || ''), worker: !!(p.workerAgentId || p.workerRunId), background: p.background === true,
       retire: (text) => {
         if (decided) return;
         decided = true;
@@ -4123,28 +4144,39 @@ const Chat = (() => {
      open asks. A background ask this page never heard (it reloaded, or the bridge was down) is announced on the page bus
      the way the bridge would have — so the worker's row, NEEDS YOU, the bell, CREW and the floor all learn it at once. A
      filed background ask the station no longer lists, and that is older than the snapshot, was settled while this page
-     was not listening: it is withdrawn here (no decision is claimed for it). */
+     was not listening: it is withdrawn here (no decision is claimed for it — its fallback card says only that it no longer
+     waits). Each ask is announced ONCE per page life (`reannounced`, pruned when the station stops listing it): one this
+     page cannot file (its conversation is not here yet) is filed quietly by a later snapshot once it can be, never
+     re-announced to every listener every 30 s. An ask this page already settled is never revived by a snapshot taken
+     just before that answer landed. */
+  const reannounced = new Set();
   function reconcileBackgroundAsks(snap) {
     if (!snap || !Array.isArray(snap.prompts) || typeof Channels === 'undefined' || !Channels.allPending) return;
     const open = new Set();
+    let filedLate = 0;
     for (const row of snap.prompts) {
       if (!row || row.background !== true || !row.promptId) continue;
-      open.add(String(row.promptId));
-      if (Channels.allPending().some(x => x.p && String(x.p.promptId) === String(row.promptId))) continue;
+      const id = String(row.promptId);
+      open.add(id);
+      if (settledPromptNotices.has(id) || Channels.allPending().some(x => x.p && String(x.p.promptId) === id)) continue;
       const ev = { promptId: row.promptId, agentId: row.leadAgentId || 'agent', tool: row.tool, scope: row.scope, argsSummary: row.argsSummary || '',
         workerAgentId: row.workerAgentId || '', workerRunId: row.workerRunId || '', workerStreamId: row.workerStreamId || '', askedAt: row.askedAt || Date.now(),
         background: true, runId: row.runId, streamId: row.streamId || '' };
+      if (reannounced.has(id)) { if (fileBackgroundAsk(ev)) filedLate++; continue; }
+      reannounced.add(id);
       if (typeof U !== 'undefined' && U.bus && U.bus.emit) U.bus.emit('permission.prompt', ev); else fileBackgroundAsk(ev);
     }
+    for (const id of reannounced) if (!open.has(id)) reannounced.delete(id);
     const asOf = Number(snap.ts) || 0;
     let withdrawn = 0;
     for (const { wsId, p } of Channels.allPending()) {
       if (!p || p.background !== true || open.has(String(p.promptId)) || !asOf || !(Number(p.askedAt) < asOf - 5000)) continue;
       Channels.clearPending(wsId, Date.now(), p.promptId);
       settlePromptNotice(wsId, p.promptId);
+      retireConsentCard(p.promptId, '■ no longer waiting on you');
       withdrawn++;
     }
-    if (!withdrawn) return;
+    if (!withdrawn && !filedLate) return;
     if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint();
     if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
     try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (e) { console.warn('[comms] rail refresh after a settled background ask failed', e); }
@@ -10126,7 +10158,7 @@ const Chat = (() => {
         // chip). Guarded on thisRunId: no run started → nothing was filed, nothing to settle.
         if (thisRunId && typeof Workstreams !== 'undefined' && Workstreams.noteRunEnd) Workstreams.noteRunEnd(ws.id, thisRunId, false);
         if (typeof StationUI !== 'undefined') StationUI.notify(isActiveWs(ws) ? brief(v.userMessage) : whoOf(ws) + ' hit a problem' + sessionNote(ws) + ': ' + brief(v.userMessage), 'warn', undefined, isActiveWs(ws) ? undefined : { kind: 'alert', go: { ws: ws.id } });
-        if (typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // the run is over: nothing is waiting on you any more
+        settleRunNeeds(ws.id);   // the run is over: its own asks are no longer waiting on you (a background worker's still is)
         if (isActiveWs(ws)) resolvePresence(ws, { error: true });   // COMMS-PREMIUM: presence card resolves red
         if (isActiveWs(ws)) offerRetry(v);   // RETRY: context-aware recovery chip (retry / Settings / SKILLS / none)
         }
@@ -10220,7 +10252,7 @@ const Chat = (() => {
         // a CLEAN end that hit an unwired connector mid-run: the reply already says "not connected" — the chip is
         // the door. Only on a clean end: a stopped run owns the slot with its retry/budget chip above.
         if (thisRunId) notedRuns.delete(thisRunId);
-        if (!taskQuestion && endReason !== 'clarifying' && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // the run is over: its approvals/questions are no longer waiting
+        if (!taskQuestion && endReason !== 'clarifying') settleRunNeeds(ws.id);   // the run is over: its approvals/questions are no longer waiting (a background worker's still is)
         retireOpenConsents(ws.id, thisRunId || '');   // ...and its open approval cards say so instead of keeping live keys
         if (!taskQuestion && (!endReason || endReason === 'done')) offerConnectorDoor(thisRunId, ws);
         if (taskQuestion || endReason === 'clarifying') holdConnectorDoor(thisRunId, ws);   // the question owns the slot (parsed here, or restored from the store below); its card carries the door

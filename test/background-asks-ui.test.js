@@ -54,9 +54,10 @@ A.ok(a > 0 && b > a && c > 0 && d > c, 'fixture: the page functions are where th
 const Channels = require('../frontend/app/channels.js'); Channels.reset();
 const handlers = {};
 const U = { bus: { on: (n, fn) => (handlers[n] = handlers[n] || []).push(fn), emit: (n, p) => (handlers[n] || []).forEach(fn => fn(p)) } };
-const rows = [], notes = [], acks = [], settled = [], repaints = [];
+const rows = [], notes = [], acks = [], settled = [], repaints = [], retired = [];
 let active = 'ws_lead';
 const threads = { ws_lead: { id: 'ws_lead', agentId: 'agent' }, ws_vex: { id: 'ws_vex', agentId: 'vex', worker: true, parentStreamId: 'ws_lead' }, ws_other: { id: 'ws_other', agentId: 'agent' } };
+const settledHere = new Set();
 const ctx = vm.createContext({ console, Promise, Date, Number, String, Object, Set, Map,
   U, Channels,
   Workstreams: { get: id => threads[id] || null },
@@ -64,6 +65,8 @@ const ctx = vm.createContext({ console, Promise, Date, Number, String, Object, S
   permissionRow: (p, ws) => rows.push(ws.id + ':' + p.promptId),
   backgroundPermissionNotify: (p, ws) => notes.push(ws.id + ':' + p.promptId),
   syncStatus: () => {}, consentAckFailed: () => notes.push('ackfail'),
+  settledPromptNotices: settledHere,
+  retireConsentCard: (id, text) => retired.push(id + ':' + text),
   settlePromptNotice: (wsId, id) => settled.push(wsId + ':' + id),
   Harness: { consentAck: (runId, promptId) => { acks.push(runId + ':' + promptId); return Promise.resolve({ ok: true }); } },
   Delegated: { repaint: () => repaints.push(1) }, NeedsYou: { render: () => repaints.push('ny') }, App: { refreshRail: () => {} } });
@@ -109,7 +112,109 @@ A.ok(repaints.indexOf('ny') >= 0, 'NEEDS YOU repaints after a withdrawal');
 A.ok(!Channels.allPending().some(x => x.p.promptId === 'own9'), 'a run\'s own ask in the snapshot is never filed by this path');
 ctx.__reconcile({ ts: 21000, prompts: [{ runId: 'lead1', promptId: 'p9', background: true, askedAt: 19000, streamId: 'ws_lead', workerStreamId: 'ws_rook' }] });
 A.ok(Channels.pendingAllOf('ws_lead').some(p => p.promptId === 'p9'), 'an ask younger than the snapshot\'s grace is never withdrawn on an absence');
+A.ok(retired.indexOf('p2:■ no longer waiting on you') >= 0, 'a withdrawn ask\'s fallback card is retired too (its keys would answer nothing)');
+A.ok(retired.every(r => !/nothing was approved|denied|approved/.test(r)), 'in neutral words: this page does not know what settled it, so it claims no decision');
+
+// a background ask with no home on this page is announced ONCE, not again on every 30-s snapshot
+heard.length = 0;
+const homeless = { runId: 'lead1', agentId: 'mira', promptId: 'p7', background: true, tool: 'fs.write', workerAgentId: 'mira', workerStreamId: 'ws_mira', streamId: 'ws_later', askedAt: 20500, leadAgentId: 'agent' };
+ctx.__reconcile({ ts: 22000, prompts: [homeless] });
+ctx.__reconcile({ ts: 52000, prompts: [homeless] });
+A.eq(heard, ['p7'], 'an ask no conversation here can file is announced on the page bus once, not on every snapshot');
+// its conversation loads on this page later: the next snapshot files it quietly (no second announcement to every listener)
+threads.ws_later = { id: 'ws_later', agentId: 'agent' };
+repaints.length = 0;
+ctx.__reconcile({ ts: 82000, prompts: [homeless] });
+A.eq(heard, ['p7'], '…still one announcement');
+A.ok(Channels.pendingAllOf('ws_later').some(p => p.promptId === 'p7'), 'once its conversation exists here, the snapshot files it');
+A.ok(repaints.indexOf('ny') >= 0, '…and NEEDS YOU repaints for it');
+// an ask this page already answered is never re-filed by a snapshot taken just before the answer landed
+settledHere.add('p8');
+ctx.__reconcile({ ts: 83000, prompts: [{ runId: 'lead1', promptId: 'p8', background: true, tool: 'fs.write', workerStreamId: 'ws_vex', streamId: 'ws_lead', askedAt: 82900 }] });
+A.ok(!Channels.allPending().some(x => x.p.promptId === 'p8') && heard.indexOf('p8') < 0, 'an ask settled on this page is not resurrected by a stale snapshot');
 Channels.reset();
+
+// ---------------- the bell at a run's end: a background worker's ask is still waiting ----------------
+{
+  const s0 = ch.indexOf('  const settledPromptNotices = new Set();'), s1 = ch.indexOf('  async function answerConsent(', s0);
+  A.ok(s0 > 0 && s1 > s0, 'fixture: the bell settle block');
+  const Ch = require('../frontend/app/channels.js'); Ch.reset();
+  const filedBell = [], settledBell = [];
+  const bctx = vm.createContext({ console, String, Channels: Ch, Workstreams: { get: id => ({ id, agentId: 'agent' }) },
+    askerName: p => p.workerAgentId || 'NOVA', actionPhrase: p => 'change ' + p.file,
+    StationUI: { notify: (text, cls, cat, o) => filedBell.push({ text, o }), settleNotifs: k => settledBell.push(k) } });
+  vm.runInContext(ch.slice(s0, s1) + '\n;this.__end = settleRunNeeds;', bctx, { filename: 'chat-bell.js' });
+  Ch.begin('ws_lead', 1); Ch.setRunId('ws_lead', 'lead1', 1);
+  Ch.setPending('ws_lead', { promptId: 'own', tool: 'fs.write', runId: 'lead1', file: 'brief.md' }, 2);
+  // ROOK asked during NOVA's wrap-up: its bell entry is filed under the same conversation key as NOVA's own asks
+  Ch.setPending('ws_lead', { promptId: 'bgR', tool: 'fs.write', runId: 'lead1', background: true, workerAgentId: 'ROOK', file: 'pricing-page.md' });
+  Ch.end('ws_lead');
+  bctx.__end('ws_lead');
+  A.eq(settledBell, [], 'the lead\'s run ending does NOT mark the conversation\'s bell entry Handled while a background worker still waits');
+  A.eq(filedBell.length, 1, 'the entry is re-filed for the worker that still waits');
+  const f = filedBell[0] || { o: {} };
+  A.eq([f.o.key, f.o.prompt, f.o.quiet, f.o.kind], ['needs:ws_lead', 'bgR', true, 'needs'], '…under the conversation\'s key, for that ask, quietly (already announced: no second toast or chime)');
+  A.ok(/ROOK/.test(f.text) && /pricing-page\.md/.test(f.text), 'it names the worker and what it still waits on: ' + f.text);
+  Ch.clearPending('ws_lead', 3, 'bgR');
+  bctx.__end('ws_lead');
+  A.eq(settledBell, ['needs:ws_lead'], 'with nothing left waiting, the run\'s end settles the entry as before');
+  Ch.reset();
+  A.eq((ch.match(/settleRunNeeds\(ws\.id\)/g) || []).length, 2, 'the clean end and the error end both settle the bell through settleRunNeeds');
+  A.ok(!/StationUI\.settleNotifs\('needs:' \+ ws\.id\)/.test(ch), 'no run-end path settles needs:<conversation> blindly any more');
+}
+
+// ---------------- a background ask's fallback card outlives its lead's run ----------------
+{
+  const o0 = ch.indexOf('  const openConsentCards = new Map();'), o1 = ch.indexOf('  function permissionRow(p, ws) {', o0);
+  A.ok(o0 > 0 && o1 > o0, 'fixture: the open-card bookkeeping');
+  const lines = [];
+  const octx = vm.createContext({ console, String, Map, askAnswerers: new Map() });
+  vm.runInContext(ch.slice(o0, o1) + '\n;this.__cards = openConsentCards; this.__retireRun = retireOpenConsents; this.__retireOne = retireConsentCard;', octx, { filename: 'chat-cards.js' });
+  const card = (id, extra) => octx.__cards.set(id, Object.assign({ wsId: 'ws_lead', runId: 'lead1', worker: false, retire: t => lines.push(id + ':' + t) }, extra));
+  card('own'); card('clone', { worker: true, background: true });
+  octx.__retireRun('ws_lead', 'lead1');
+  A.eq(lines, ['own:■ the run ended before an answer — nothing was approved'], 'the lead\'s run end retires its own card, never a background worker\'s (still live on the station)');
+  A.ok(octx.__cards.has('clone'), 'the background card stays open and answerable');
+  A.eq(octx.__retireOne('clone', '■ no longer waiting on you'), true, 'a background card retires on its own settle');
+  A.eq(lines[1], 'clone:■ no longer waiting on you', '…in the words its caller chose');
+  A.ok(!octx.__cards.has('clone'), '…and leaves the bookkeeping');
+  A.eq(octx.__retireOne('clone', 'x'), false, 'retiring an unknown card is a no-op');
+  A.ok(/openConsentCards\.set\(String\(p\.promptId\), \{ wsId: ws\.id, runId: String\(p\.runId \|\| ''\), worker: !!\(p\.workerAgentId \|\| p\.workerRunId\), background: p\.background === true,/.test(ch),
+    'permissionRow records whether a card is a background worker\'s ask');
+  // a background worker STOPPED while its ask waited: the station says stopped (not expired), and the card says so
+  A.ok(/tag\.textContent = resp\.stopped \? '■ ' \+ askerName\(p, ws\) \+ ' stopped before an answer — nothing was approved' : resp\.expired \?/.test(ch),
+    'a stopped worker\'s card reads that it stopped, never "no answer in time"');
+}
+
+// ---------------- a team.spawn clone's ask names a HELPER, never its raw id ----------------
+{
+  const app = rd('frontend/app/app.js');
+  const m = /    agentName: (id => \{ const a = agents\.get\(id\);[^\n]*\}),\n/.exec(app);
+  A.ok(!!m, 'fixture: App.agentName');
+  const agentName = m ? vm.runInNewContext('(' + m[1] + ')', { agents: new Map([['webdesigner', { id: 'webdesigner', name: 'ROOK' }]]) }) : () => null;
+  A.eq(agentName('webdesigner'), 'ROOK', 'a crew member is named by its name');
+  A.eq(agentName('sub-dd57cc13-e72c-4360-93e2-c2bd8ef52d94'), 'HELPER', 'a background clone (team.spawn) is a HELPER on its card and in NEEDS YOU, never its id');
+  A.eq(agentName('nobody'), null, 'any other unknown id stays unknown (callers keep their own fallback)');
+}
+
+// ---------------- the bell after a reload: one ask never reads both Handled and Waiting on you ----------------
+{
+  const ui = rd('frontend/app/stationui.js');
+  const n0 = ui.indexOf('  function notifyPrefOf(category) {'), n1 = ui.indexOf('  // A caller that leads with an ALL-CAPS token');
+  A.ok(n0 > 0 && n1 > n0, 'fixture: the notify core');
+  const nctx = { store: { notifs: [], settings: {} }, open: {}, notifyDefaults: () => ({}), uid: (() => { let i = 0; return () => 'u' + (++i); })(),
+    save() {}, badges() {}, rerender() {}, toast() {}, openTerm() {}, App: {} };
+  vm.runInNewContext(ui.slice(n0, n1) + '\nthis.api = { notify, reap: reapDeadPrompts };', nctx);
+  // the entry the page's earlier life filed for VEX's ask; the reload reaps it as Handled
+  nctx.store.notifs.push({ id: 'old', t: 1, txt: 'VEX needs approval to change launch-email.md', kind: 'needs', key: 'needs:ws_lead', prompt: 'bgV', life: 'life_before', read: false, go: { ws: 'ws_lead' } });
+  nctx.api.reap();
+  A.eq(nctx.store.notifs[0].done, true, 'fixture: a reload reaps the earlier life\'s prompt entry');
+  // the reconnect snapshot re-files the same ask: it is still waiting on the station
+  nctx.api.notify('VEX needs approval to change launch-email.md', 'warn', 'needsApproval', { kind: 'needs', go: { ws: 'ws_lead' }, key: 'needs:ws_lead', prompt: 'bgV' });
+  const forAsk = nctx.store.notifs.filter(n => n.prompt === 'bgV');
+  A.eq(forAsk.length, 1, 'the ask has ONE bell entry after the reload, not a Handled one beside a waiting one');
+  A.ok(forAsk[0] && !forAsk[0].done, '…and it reads Waiting on you');
+}
 
 // ---------------- the row's receipt while a worker's write waits on you ----------------
 {

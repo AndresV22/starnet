@@ -9218,6 +9218,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (kind && !(opts && opts.transient)) {
       const key = (opts && opts.key) || '';
       if (key) store.notifs = store.notifs.filter(n => !(n.key === key && !n.done));   // one entry per live condition
+      // the same ask filed again is still waiting (after a reload, reapDeadPrompts marks the earlier life's entry handled,
+      // then the snapshot re-files the background worker's ask it belongs to): the stale entry goes, so one ask never reads
+      // both Handled and Waiting on you
+      if (opts && opts.prompt) store.notifs = store.notifs.filter(n => !(n.done && n.kind === 'needs' && n.prompt === String(opts.prompt)));
       rec = { id: uid('n'), t: Date.now(), txt: String(text || ''), cls: cls || '', read: false, kind };
       if (go) rec.go = go;
       if (key) rec.key = key;
