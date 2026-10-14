@@ -74,4 +74,28 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   A.ok(/Chat\.renderProse\(body, content/.test(read('frontend/app/group-chat.js')), 'group replies render through the same Chat.renderProse');
 }
 
+/* ---------- C. the goal-arc Dialogue never takes over COMMS while a delivery lands; its edit key has one ✎ ---------- */
+{
+  const src = read('frontend/app/chat.js');
+  const dl = /function deliveryLanding\(runId\) \{[\s\S]*?\n  \}/.exec(src);
+  A.ok(dl, 'chat.js defines deliveryLanding()');
+  // execute it against stub run records
+  const RUN = new Map(), WORK = new Map();
+  // eslint-disable-next-line no-new-func
+  const deliveryLanding = new Function('runMeta', 'runWork', dl[0] + '\nreturn deliveryLanding;')(id => RUN.get(id) || null, WORK);
+  RUN.set('chat', { isTask: false }); WORK.set('chat', { toolsOk: 0, delivered: 0 });
+  RUN.set('file', { isTask: true }); WORK.set('file', { toolsOk: 2, delivered: 1 });
+  RUN.set('crew', { isTask: true, delegated: true }); WORK.set('crew', { toolsOk: 1, delivered: 0 });
+  A.eq(deliveryLanding('chat'), false, 'a reply with nothing new to look at is a free moment for the arc');
+  A.eq(deliveryLanding('file'), true, 'a run that delivered a file is a delivery landing');
+  A.eq(deliveryLanding('crew'), true, 'a run whose crew handed results back is a delivery landing');
+  A.eq(deliveryLanding('handback'), true, 'a run this page did not start (a background worker\'s hand-back) is a delivery landing');
+  const ac = /function arcCandidate\(runId\) \{[\s\S]*?\n  \}/.exec(src);
+  A.ok(ac && /if \(deliveryLanding\(runId\)\) return null;\s*\n[\s\S]*return \{ kind: 'arc', dim: 'goals', why:/.test(ac[0]), 'the arc Dialogue stands down on a delivery landing');
+  A.ok(ac && ac[0].indexOf('deliveryLanding') > ac[0].indexOf('if (arcSeen(runId)) return null;'), 'standing down never spends the run\'s arc token (it is offered again at the next run end)');
+  A.ok(/if \(!ev\.isError && \/\^\(\?:team\[\._\]dispatch\|group\[\._\]handoff\)\$\/\.test\(nm\)\) \{ const rm = runMeta\(thisRunId\); if \(rm\) rm\.delegated = true; \}/.test(src), 'a run that handed work to crew is marked delegated');
+  A.ok(/customLabel: 'edit the milestones'/.test(src) && !/customLabel: '✎/.test(src), 'the arc edit key carries no ✎ of its own (Dialogue draws one: it read "✎✎")');
+  A.ok(/num\.textContent = '✎';/.test(read('frontend/app/dialogue.js')), 'Dialogue draws the ✎ for every custom key');
+}
+
 A.report('comms-render-seams.test');
