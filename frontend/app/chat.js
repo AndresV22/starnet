@@ -7824,7 +7824,13 @@ const Chat = (() => {
        the DOM current RIGHT NOW (closeSeg's empty-stub check, error, cleanTaskIntent, a hidden
        tab where rAF never fires) goes through flushProse() synchronously. */
     let renderQueued = false;
-    function flushProse() { renderQueued = false; if (seg) renderProse(seg.body, raw, { files }); }
+    // a still-open paragraph renders its LIVE text (Fork.liveText: no choice marker — complete or still being typed — ever
+    // shows raw); a paragraph that is closing renders its final text (complete markers removed, every prose line kept).
+    function shownProse(final) {
+      if (typeof Fork === 'undefined') return raw;
+      return final ? (Fork.stripMarkers ? Fork.stripMarkers(raw) : raw) : (Fork.liveText ? Fork.liveText(raw) : raw);
+    }
+    function flushProse(final) { renderQueued = false; if (seg) renderProse(seg.body, shownProse(final), { files }); }
     function queueProse() {
       if (renderQueued) return;
       if (typeof requestAnimationFrame !== 'function' || (typeof document !== 'undefined' && document.hidden)) { flushProse(); autoscroll(); return; }
@@ -7854,7 +7860,7 @@ const Chat = (() => {
       seg.d.appendChild(caret);   // caret is a sibling of .body, so re-rendering .body's content never disturbs it
     }
     function closeSeg() {   // drop the caret, discard an empty stub, and arm the next token to start fresh
-      if (renderQueued) flushProse();   // pending tokens must land before the empty-stub check reads textContent
+      if (seg) flushProse(true);   // pending tokens land — and a line the live render held back shows — before the empty-stub check reads textContent
       if (caret) { caret.remove(); caret = null; }
       if (seg && !seg.body.textContent.trim()) seg.d.remove();
       seg = null; raw = '';
@@ -7893,7 +7899,7 @@ const Chat = (() => {
       error(m, rawDetail) {
         if (!seg) open();
         seg.d.classList.add('err');
-        raw += (raw ? '\n' : '') + '⚠ ' + m; flushProse();
+        raw += (raw ? '\n' : '') + '⚠ ' + m; flushProse(true);
         if (rawDetail && String(rawDetail).trim() && String(rawDetail).trim() !== String(m).trim()) {
           const sub = document.createElement('span'); sub.className = 'err-detail dim';
           sub.textContent = String(rawDetail).trim();

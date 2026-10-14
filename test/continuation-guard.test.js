@@ -364,5 +364,44 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
     const none = await run(scripted([textTurn(wait)]), { tools });
     A.ok(none.reason !== 'done', 'the same words with no hand-off at all are still caught (' + none.reason + ')');
   }
+
+  // ---- A REPLY THAT ENDS ON A CHOICE MARKER WAITS ON THE COMMANDER (rc walk 2026-10-14) ----
+  // "Let me ask this the right way:" + a TASK_QUESTION marker read as an announce: the guard pushed "you called no tools",
+  // the model answered it in COMMS ("You're right — I ended with a question card but didn't call any tools.") and dropped
+  // the question. Bold-wrapped and glued markers are the same question.
+  {
+    for (const reply of [
+      "Let me ask this the right way:\n\nTASK_QUESTION: Is this about personal resilience or community support? || Personal resilience | Community support | Both",
+      "Got it — let me check what context I have first and ask directly:\n\nTASK_QUESTION: What's the core promise? || Local control | Instant agents",
+      "Let me nail down one thing first. Is it:\n\n**FORK: What's the headline story?** || Local-first | Pixel-art UI | AI crews | Something else",
+      'Let me check one thing first: TASK_QUESTION: which format? || PDF | HTML'
+    ]) {
+      const provider = scripted([textTurn(reply), toolTurn(7), textTurn('should never run')]);
+      const res = await run(provider);
+      A.eq(provider.callCount(), 1, 'a marker-ended reply ends the run — no nudged second turn: ' + JSON.stringify(reply.slice(0, 40)));
+      A.eq(res.messages.filter(m => m.role === 'system' && /<continuation>/.test(m.content)).length, 0, 'no continuation nudge on a question: ' + JSON.stringify(reply.slice(0, 40)));
+      A.eq(res.reason, 'done', 'the run ends cleanly on the question');
+    }
+    // the brief_ask refusal tells the model to END on the marker: failure recovery must accept exactly that ending
+    const failed = scripted([toolTurn(1), textTurn("Let me ask this the right way:\n\nTASK_QUESTION: personal or community? || Personal | Community"), textTurn('should never run')]);
+    const fr = await run(failed, { dispatch: async () => ({ ok: false, isError: true, content: 'ERROR: tool brief.ask failed: a second question requires an answered first question' }) });
+    A.eq(failed.callCount(), 2, 'a marker reply after a failed call ends the run (no failure-recovery turn)');
+    A.eq(fr.messages.filter(m => m.role === 'system' && /<failure_recovery>/.test(m.content)).length, 0, 'no failure-recovery nudge on a reply that asks the Commander');
+    // a marker that is NOT the ending (prose after it announces work) is still an announce
+    const after = scripted([textTurn('TASK_QUESTION: which? || a | b\n\nReading main.js now — then fixing.'), toolTurn(8), textTurn('Fixed.')]);
+    const afterRes = await run(after);
+    A.eq(afterRes.messages.filter(m => m.role === 'system' && /<continuation>/.test(m.content)).length, 1, 'an announce AFTER a marker is still nudged');
+    // the nudge says it is a host check the Commander never sees, so it is not answered in COMMS ("You're right —")
+    const nudge = afterRes.messages.find(m => m.role === 'system' && /<continuation>/.test(m.content));
+    A.ok(/automatic host check; the Commander never sees it\. Do not answer, acknowledge or apologize/.test(nudge.content), 'the continuation nudge tells the model not to answer it');
+    // a HIDDEN tool's error tells the model the step is invisible (no "Let me fix that—sources needs to be an array:")
+    const hiddenProv = scripted([[{ type: 'tool_start', index: 0, id: 'h1', name: 'brief_proceed' }, { type: 'tool_args', index: 0, chunk: '{}' }, { type: 'done', finishReason: 'tool_calls' }], textTurn('Done.')]);
+    const hid = await run(hiddenProv, { tools: [{ name: 'brief_proceed', description: 'b', schema: { type: 'object' } }].concat(TOOLS), hiddenTools: ['brief_proceed'],
+      dispatch: async () => ({ ok: false, isError: true, content: 'ERROR: invalid tool arguments: "sources" must be an array' }) });
+    const tr = hid.messages.find(m => m.role === 'tool');
+    A.ok(/sources" must be an array \(This tool is invisible to the Commander: do not mention this error or its fix in your reply\.\)$/.test(String(tr && tr.content)), 'a hidden tool error carries the invisible-step note: ' + JSON.stringify(tr && tr.content));
+    const vis = await run(scripted([toolTurn(9), textTurn('Done.')]), { dispatch: async () => ({ ok: false, isError: true, content: 'boom' }) });
+    A.eq(String(vis.messages.find(m => m.role === 'tool').content), 'ERROR: boom', 'a VISIBLE tool error is byte-identical (its chip shows it)');
+  }
   A.report('continuation-guard.test');
 })().catch(e => { console.error(e); process.exit(1); });

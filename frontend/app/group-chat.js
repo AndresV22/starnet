@@ -490,9 +490,10 @@ const GroupChat = (() => {
     };
     let prevAt = 0, prevAuthor = null, prevClock = '';
     for (const m of group.messages) {
-      // brief.ask's fallback marker belongs to the durable question card, not a chat bubble.
-      const content = (group.questions || []).some(q => q.turnId === m.turnId)
-        ? m.content.replace(/(?:^|\n)TASK_QUESTION:[^\n]*(?:\n|$)/g, '\n').trim() : m.content;
+      // brief.ask's fallback marker belongs to the durable question card, not a chat bubble. A marker no card claimed
+      // (a FORK, or a TASK_QUESTION the host never registered) reads as its question and options — never machine syntax.
+      const asks = (group.questions || []).some(q => q.turnId === m.turnId);
+      const content = (typeof Fork === 'undefined' || m.author === 'user') ? m.content : asks ? Fork.stripMarkers(m.content) : Fork.readable(m.content);
       if (!content) continue;
       const attachments = (m.artifactIds || []).map(id => group.artifacts.find(f => f.id === id)).filter(Boolean);
       // TIME BREAKS, the direct chat's rule: the first stamped turn, a new day, or 30 minutes of quiet

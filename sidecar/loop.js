@@ -327,6 +327,14 @@
   }
   const isCancelled = (meta) => !!(meta && meta.signal && meta.signal.aborted);
 
+  /* A HIDDEN TOOL'S ERROR IS NOT NEWS FOR THE COMMANDER (rc walk 2026-10-14). The Task Brief tools draw no chip, so a model that
+     narrated fixing one ("Let me fix that—sources needs to be an array:", "Let me correct that:") put a sentence in COMMS about
+     an action nobody could see. The model still reads the full error; it is told the step is invisible. */
+  const HIDDEN_ERROR_NOTE = ' (This tool is invisible to the Commander: do not mention this error or its fix in your reply.)';
+  function quietHiddenError(c, r, meta) {
+    if (!r || !r.isError || !(meta && meta.hiddenTools && meta.hiddenTools.has(c.name)) || typeof r.content !== 'string') return r;
+    return Object.assign({}, r, { content: r.content + HIDDEN_ERROR_NOTE });
+  }
   // Every call gets exactly one result (success / error / timeout / denial / cancelled skip) — never thrown.
   async function executeCalls(calls, dispatch, capCtx, emit, meta) {
     const results = [];
@@ -355,7 +363,7 @@
           if (e && e.fatalToRun === true) throw e;
           r = { ok: false, isError: true, content: 'tool dispatch threw: ' + (e && e.message), summary: 'error' };
         }
-        r = r || { ok: false, isError: true, content: 'tool returned nothing', summary: 'error' };
+        r = quietHiddenError(c, r || { ok: false, isError: true, content: 'tool returned nothing', summary: 'error' }, meta);
         return { c, r, ms: Math.max(0, (meta.clock ? meta.clock.now() : 0) - t0) };
       }));
       for (const s of settled) {
@@ -400,7 +408,7 @@
         if (e && e.fatalToRun === true) throw e;
         r = { ok: false, isError: true, content: 'tool dispatch threw: ' + (e && e.message), summary: 'error' };
       }
-      r = r || { ok: false, isError: true, content: 'tool returned nothing', summary: 'error' };
+      r = quietHiddenError(c, r || { ok: false, isError: true, content: 'tool returned nothing', summary: 'error' }, meta);
       const t1 = meta.clock ? meta.clock.now() : 0;
       results.push({ callId: c.id, isError: !!r.isError, ok: !!r.ok, content: r.content, summary: r.summary || (r.isError ? 'error' : 'ok'), control: r.control || null, images: r.images || null, parkedPath: r.parkedPath || null });
       if (r.control && r.control.final) finalControl = r.control;
@@ -776,8 +784,26 @@
       return CG_PATTERNS.some(re => re.test(c)) && !waiting;
     });
   }
+  /* A REPLY THAT ENDS ON A CHOICE MARKER IS WAITING ON THE COMMANDER (rc walk 2026-10-14). "Let me ask this the right way:
+     TASK_QUESTION: … || a | b" is a question — the marker IS the question card — but its intro read as an announce, so the
+     continuation guard pushed "you called no tools" and the model answered the nudge in COMMS ("You're right — I ended with
+     a question card but didn't call any tools.") and dropped the question. A brief_ask refusal tells the model to end on
+     exactly this marker, so the failure-recovery guard must not reject it either. The grammar is the marker's own
+     (frontend/app/fork.js): the keyword, a colon and `||` options on the reply's last line, decoration and leading prose
+     allowed. */
+  const CHOICE_MARKER = /(?:\bFORK|TASK_QUESTION)[*_`~]*[ \t]*:[^\n]*\|\|/i;
+  function endsOnChoiceMarker(text) {
+    const lines = String(text == null ? '' : text).split('\n').filter(l => l.trim());
+    return lines.length > 0 && CHOICE_MARKER.test(lines[lines.length - 1]);
+  }
+  /* HOST CHECKS ARE NOT THE COMMANDER SPEAKING (rc walk 2026-10-14). On a Claude route these notes ride the conversation as
+     user text (providers/provider.js preserveClaudeContinuations), so the model answered them in COMMS as if the Commander had
+     scolded it: "You're right —", "Let me correct that:". Every nudge that asks for another turn says what it is and that it
+     is never answered. */
+  const HOST_CHECK = ' (This note is an automatic host check; the Commander never sees it. Do not answer, acknowledge or apologize for it in your reply — just continue the work.)';
   function announcesIntent(text, allowPeerWait = false) {
     const t = String(text == null ? '' : text).trim();
+    if (endsOnChoiceMarker(t)) return false;   // it asks the Commander: a wait, never an announce
     if (!t) return false;
     const sents = cgSentences(t);
     if (!sents.length) return false;
@@ -2279,7 +2305,7 @@
             turns = turnStart;
             emit('iteration.refunded', { agentId, runId, turn: turnStart, reason: 'empty', refundsUsed });
           }
-          messages.push({ role: 'system', content: '<continue_after_tools>You returned an empty reply after tool results. Process the tool results above and continue the task now; if the task is fully complete, give your final answer.</continue_after_tools>' });
+          messages.push({ role: 'system', content: '<continue_after_tools>You returned an empty reply after tool results. Process the tool results above and continue the task now; if the task is fully complete, give your final answer.' + HOST_CHECK + '</continue_after_tools>' });
           continue;
         }
         /* EMPTY REPLY RETRY (2026-10-11). An empty FIRST reply (no text, no tool call, nothing before it to process) is
@@ -2289,7 +2315,7 @@
         if (empty && !graceUsed && !emptyRetryUsed && CG_MAX > 0 && !continuationParts.length && limits.emptyRetry !== false) {
           emptyRetryUsed = true;
           turns = turnStart;
-          messages.push({ role: 'system', content: '<empty_reply>Your last reply was empty — no text and no tool call. Respond to the Commander\'s latest message now: make the tool call(s) the task needs, or give your answer.</empty_reply>' });
+          messages.push({ role: 'system', content: '<empty_reply>Your last reply was empty — no text and no tool call. Respond to the Commander\'s latest message now: make the tool call(s) the task needs, or give your answer.' + HOST_CHECK + '</empty_reply>' });
           continue;
         }
         // CONTINUATION GUARD: an announce-without-acting final turn ("Reading main.js now…" + zero tool calls)
@@ -2305,21 +2331,21 @@
             return end('error', { failureStage: 'completion', failureCode: 'incomplete_work' });
           }
           cgUsed++;
-          messages.push({ role: 'system', content: '<continuation>Your last message only ANNOUNCED an action but you called no tools — ending your reply without tool calls ends the run with the work not done. Do not narrate intentions. If work remains, make the actual tool call(s) NOW in this same turn. If you promised future or multi-day work, create the appropriate durable routine/task now when that tool is available; otherwise say plainly that no background work was started. If the task is truly complete, give your final answer without announcing further actions.</continuation>' });
+          messages.push({ role: 'system', content: '<continuation>Your last message only ANNOUNCED an action but you called no tools — ending your reply without tool calls ends the run with the work not done. Do not narrate intentions. If work remains, make the actual tool call(s) NOW in this same turn. If you promised future or multi-day work, create the appropriate durable routine/task now when that tool is available; otherwise say plainly that no background work was started. If the task is truly complete, give your final answer without announcing further actions.' + HOST_CHECK + '</continuation>' });
           continue;
         }
         // FAILURE RECOVERY: a model saw a real tool error and is trying to end before attempting another
         // authorized path. Reject that premature stop at the engine seam, not just in prompt prose. A later
         // successful call clears the pending failure; a model that still cannot recover gets two chances and
         // may then report the exact blocker honestly.
-        if (!empty && !graceUsed && failureRecoveryPending && frUsed < FR_MAX && tools.length > 0) {
+        if (!empty && !graceUsed && failureRecoveryPending && frUsed < FR_MAX && tools.length > 0 && !endsOnChoiceMarker(text)) {
           frUsed++;
           const failed = failureRecoveryPending.names.join(', ') || 'the previous tool';
           const hasSearch = tools.some(t => wireKey(t && t.function && t.function.name) === 'tool_search');
           const search = hasSearch
             ? ' Use tool_search when a deferred capability or alternate tool may exist; do not claim a tool is absent before searching.'
             : '';
-          messages.push({ role: 'system', content: '<failure_recovery>The previous path failed (' + failed + '), but one failed tool is not proof that the Commander\'s task is impossible. Do not end by handing avoidable setup work to the Commander. Inspect the exact error, then make an ACTUAL alternate call now using a different query, arguments, strategy, or tool.' + search + ' Retry only when the failure is plausibly transient; never repeat identical failing arguments blindly. Stay inside the current safety, consent, credential, and scope boundaries. Ask only for irreducible human input. If no authorized route remains after you have genuinely exhausted alternatives, report the exact blocker and the paths you tried.</failure_recovery>' });
+          messages.push({ role: 'system', content: '<failure_recovery>The previous path failed (' + failed + '), but one failed tool is not proof that the Commander\'s task is impossible. Do not end by handing avoidable setup work to the Commander. Inspect the exact error, then make an ACTUAL alternate call now using a different query, arguments, strategy, or tool.' + search + ' Retry only when the failure is plausibly transient; never repeat identical failing arguments blindly. Stay inside the current safety, consent, credential, and scope boundaries. Ask only for irreducible human input. If no authorized route remains after you have genuinely exhausted alternatives, report the exact blocker and the paths you tried.' + HOST_CHECK + '</failure_recovery>' });
           continue;
         }
         // VERIFY-ON-STOP: the run CHANGED code and is now trying to finish without having run anything against
@@ -2631,7 +2657,7 @@
           if (LG_WARN && n === LG_WARN && !lgWarned.has(sig)) {
             lgWarned.add(sig);
             lgWarnedNow.add(vosKey(nm));
-            messages.push({ role: 'system', content: '<loop_guard>You have called ' + nm + ' with the same arguments ' + n + ' times and it keeps failing. Do not repeat the identical call — change the arguments, try another approach, or stop and report the problem.</loop_guard>' });
+            messages.push({ role: 'system', content: '<loop_guard>You have called ' + nm + ' with the same arguments ' + n + ' times and it keeps failing. Do not repeat the identical call — change the arguments, try another approach, or stop and report the problem.' + HOST_CHECK + '</loop_guard>' });
           }
         }
       }
