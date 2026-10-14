@@ -346,7 +346,7 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.ok(src.includes('>↻ SEND IT AGAIN</button>') && panelSrc.includes('id="wf-nr-again">↻ SEND IT AGAIN</button>') && !/RUN THE SAME JOB AGAIN</.test(src + panelSrc), '↻ SEND IT AGAIN after a fix, in both');
     A.ok(panelSrc.includes('<span>✎ NEEDS CHANGES</span>') && panelSrc.includes("'SUGGEST CHANGES'") && panelSrc.includes('★ KEEP THIS STYLE</button>'), 'the panel says ✎ NEEDS CHANGES · SUGGEST CHANGES · ★ KEEP THIS STYLE, as WORKFLOWS does');
     A.ok(src.includes("' DOES EVERY STEP</button>'") && buildSrc.includes("+' DOES EVERY STEP</button>'") && src.includes(' A DESK</button>') && buildSrc.includes(">GIVE '+esc(") && panelSrc.includes('id="wf-pc">GIVE \' + esc('), '<NAME> DOES EVERY STEP and GIVE <NAME> A DESK in WORKFLOWS, BUILD and the panel');
-    A.ok(buildSrc.includes("FINISH SETUP${lname ? ' · '") && !buildSrc.includes("'FINISH THE LINE'"), 'the FINISH card reads FINISH SETUP');
+    A.ok(buildSrc.includes("▸ FINISH ${lname ? esc(lname.toUpperCase()) : 'SETUP'}") && !buildSrc.includes("'FINISH THE LINE'"), 'the FINISH card reads FINISH <LINE NAME>, or FINISH SETUP unnamed (org D4/D5: never FINISH SETUP · NAME, which wrapped)');
     A.ok(!/Choose a workflow/.test(rd('frontend/app/windows/loops.js')) && /Choose a kind of loop/.test(rd('frontend/app/windows/loops.js')), 'GOAL LOOPS asks for a kind of loop, never "a workflow"');
   }
 

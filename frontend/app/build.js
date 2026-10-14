@@ -4485,9 +4485,11 @@ const Build = (() => {
     const sr = (finSampleRes && finSampleRes.key === c.key) ? finSampleRes : null;
     const sampleOn = finSample === true && crewDone && !(sr && sr.pending);
     const sampleTip = finSample !== true ? 'coming online soon' : (crewDone ? 'run ONE real job through the whole line (your INBOX test job, if you wrote one)' + (onward ? '. ' + onward : '') : 'Assign each step an agent first');
-    const sampleTxt = (sr && sr.pending) ? (sr.phase === 'post' ? '③ POSTING LINE…' : '③ RUNNING — THE JOB IS RIDING THE LINE…') : (sr && sr.view && sr.view.ok) ? '✓ JOB DELIVERED — SEND ANOTHER' : '③ SEND A REAL JOB';
+    // (org D4/D5) the title is FINISH + the line's own name (one separator at most — a preset's name carries its own ·), FINISH SETUP
+    // unnamed; the done row says ✓ DELIVERED like WORKFLOWS — both stay on the narrow card's lines instead of stranding a word
+    const sampleTxt = (sr && sr.pending) ? (sr.phase === 'post' ? '③ POSTING LINE…' : '③ RUNNING — THE JOB IS RIDING THE LINE…') : (sr && sr.view && sr.view.ok) ? '✓ DELIVERED — SEND ANOTHER' : '③ SEND A REAL JOB';
     finCardEl.innerHTML = `
-      <div class="fl-head"><span class="fl-title">▸ FINISH SETUP${lname ? ' · ' + esc(lname.toUpperCase()) : ''}</span><button type="button" class="bb sm fl-x" title="dismiss for this line">✕</button></div>
+      <div class="fl-head"><span class="fl-title">▸ FINISH ${lname ? esc(lname.toUpperCase()) : 'SETUP'}</span><button type="button" class="bb sm fl-x" title="dismiss for this line">✕</button></div>
       <div class="fl-overview">${esc(overview.compact)}</div>
       <button type="button" class="bb fl-step" data-act="overview">EDIT STEPS & RESULT</button>
       <button type="button" class="bb fl-step${crewDone ? ' done' : ''}" data-act="crew"${crewDone ? ' disabled' : ''}>${esc(crewTxt)}</button>

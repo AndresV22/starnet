@@ -92,7 +92,7 @@ A.ok(/function start\(\) \{[\s\S]{0,420}lineStatsSoon\(\);/.test(world), 'the fl
   A.ok(!/the sample is riding|sample delivered|the sample rode/.test(sc), 'no "sample" left around RUN ONE REAL JOB');
   A.ok(/'⌛ the job is riding the line…'/.test(sc) && /'✔ job delivered — ' \+ who \+ ' finished the last step'/.test(sc), 'the card says job, and who finished the last step');
   A.ok(/App\.agents\(\) \|\| \[\]\)\.find\(a => a && a\.id === whoId\)/.test(sc), '…by NAME (the seeded hero\'s id is literally "agent")');
-  A.ok(/'③ RUNNING — THE JOB IS RIDING THE LINE…'/.test(build) && /'✓ JOB DELIVERED — SEND ANOTHER'/.test(build), 'the FINISH card says job too (SEND ANOTHER, org P17)');
+  A.ok(/'③ RUNNING — THE JOB IS RIDING THE LINE…'/.test(build) && /'✓ DELIVERED — SEND ANOTHER'/.test(build), 'the FINISH card says job too (SEND ANOTHER, org P17), and ✓ DELIVERED like WORKFLOWS so it stays one line (org D4)');
   A.ok(!/use Run a sample job/.test(build) && /STEP THROUGH and SEND A REAL JOB run it for real/.test(build), 'the TEST tooltip names the modes that run for real');
 }
 
