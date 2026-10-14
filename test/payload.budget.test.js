@@ -77,11 +77,15 @@ const HOST = '127.0.0.1';
    LEAD WITH CREW 2026-10-12: both layouts above are crewless, so the crew>0 path (which the diet must leave untouched)
    had no ratchet. lead-with-crew = the starter floor with ONE specialist on the roster: 84 tools / 66,238 tool bytes
    (exactly base's tool payload; tools/bytes pinned at the base budgets 84 / 66,250) and 25,006 chars (1,961 of them
-   the note; the full [ORCHESTRATION] briefing with YOUR TEAM). System budget = measurement + ~0.3%. */
+   the note; the full [ORCHESTRATION] briefing with YOUR TEAM). System budget = measurement + ~0.3%.
+   THE DELIVERABLE IS A THING TO OPEN 2026-10-14 (rc walk #41): the YOUR TEAM line now tells a lead with crew to name the
+   deliverable as ready to open on its card, never a bare list of file names or an offer to fetch it (+196 chars, only on
+   the crew>0 path; the crewless floors are unchanged). Intended growth: lead-with-crew measured 25,202 on the 0.13.5
+   candidate with both lanes merged, so its system budget moves to 25,280 (measurement + ~0.3%). */
 const BUDGET = {
   'default-new-install': { systemChars: 22140, tools: 79, toolBytes: 61350 },
   'fully-granted-floor': { systemChars: 22360, tools: 79, toolBytes: 61350 },
-  'lead-with-crew': { systemChars: 25080, tools: 84, toolBytes: 66250 }
+  'lead-with-crew': { systemChars: 25280, tools: 84, toolBytes: 66250 }
 };
 
 (async () => {
