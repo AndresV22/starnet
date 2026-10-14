@@ -781,6 +781,29 @@ const StationBake = (() => {
   const rectCulled = r => !!cullBox && ((r.x2 + 1) * T < cullBox[0] || r.x1 * T > cullBox[2] || (r.y2 + 1) * T < cullBox[1] || r.y1 * T > cullBox[3]);
   const tileCulled = (tx, ty) => !!cullBox && ((tx + 1) * T < cullBox[0] || tx * T > cullBox[2] || (ty + 1) * T < cullBox[1] || ty * T > cullBox[3]);
   const h2 = (x, y, s) => U.hash(x + ',' + y + ',' + (s || ''));
+  /* ...AND A DRAW THAT MISSES THE CANVAS IS NOT MADE. The reach above keeps every wall and corner that can touch a chunk, so a
+     chunk still walks the ones whose art lands beside it, not on it — about half of a busy chunk's corner work. A rect (bake
+     px, half-open) that misses this canvas by more than a pixel paints nothing on it or on its dense plate (which covers the
+     same rect), so its draw calls are skipped; what the walk records (crown and face rects, the measured reach) still runs. */
+  const missesCanvas = (x0, y0, x1, y1) => x1 < VX - 1 || x0 > VX + CW + 1 || y1 < VY - 1 || y0 > VY + CH + 1;
+  // the same test on any context the bake draws through (a scratch layer has its own size and offset): its axis-aligned
+  // transform maps the rect to that canvas's pixels; any other transform never skips
+  const missesContext = (g, x0, y0, x1, y1) => {
+    const m = g.getTransform && g.getTransform(), cv = g.canvas;
+    if (!m || !cv || m.b !== 0 || m.c !== 0 || !(m.a > 0) || !(m.d > 0)) return false;
+    return x1 * m.a + m.e < -1 || x0 * m.a + m.e > cv.width + 1 || y1 * m.d + m.f < -1 || y0 * m.d + m.f > cv.height + 1;
+  };
+  /* EVERYTHING ONE ROUNDED CORNER PAINTS lies in one box: the spandrel erase and hull rim within HR of its corner point, the
+     deck cut and face band in its own tile, the crown ring within HR of its outline circle (lifted above the tile on a top
+     corner), and the ambient strip the light map erases above a top corner (WALL.up + capH + 2 over the tile, pad wider).
+     A corner whose box misses the canvas is skipped whole: what it would record (crown and face rects, its measured crown
+     reach) is only ever painted back inside that same box. */
+  const cornerMissesCanvas = (ccx, ccy, kind) => {
+    const X = ccx * T, Y = ccy * T, ay = Y + CORNER[kind].cy * T, room = !G.isCorridor(G.zoneGrid[G.idx(ccx, ccy)]);
+    const cy = cornerArcCy(kind, ay, Y, HR, room), capH = Math.max(2, Math.round(WALL.capH));
+    const lift = Math.max(Math.round(WALL.up), Math.round(WALL.corUp), 0) + capH + 2;
+    return missesCanvas(X - HR - pad - 3, Math.min(cy - HR, Y - lift) - 3, X + T + HR + pad + 3, Math.max(cy + HR, Y + T) + 3);
+  };
 
   /* ---------- THE ONE ROUNDED-CORNER RASTER ----------
      Every curve in the station is a quarter circle at a tile corner, and they must all agree to the
@@ -808,6 +831,7 @@ const StationBake = (() => {
   /* cut the hull's rounded corner. Was a clip('evenodd') + fill, which anti-aliased the station's
      whole silhouette — the soft outer fuzz that survived the interior-curve fix. */
   function eraseSpandrel(g, kind, ax, ay, rad) {
+    if (missesContext(g, ax - rad - 1, ay - rad - 1, ax + rad + 1, ay + rad + 1)) return;
     g.save();
     g.globalCompositeOperation = 'destination-out';
     g.fillStyle = '#000';
@@ -2674,6 +2698,7 @@ const StationBake = (() => {
     const ed = WALL_EDGES[matId] || WALL_EDGES.bulkhead;
     const depth = axis === 'x' ? w : h, len = axis === 'x' ? h : w;
     if (depth <= 0 || len <= 0) return;
+    if (missesContext(b, x, y, x + w, y + h)) return;   // every mark below lies inside the face's own rect
     if (strip) {
       /* THE WALL'S OWN PIXELS AGAIN — rows 0..depth of the same strip the tall face and the corner
          use, so a side wall is the top few rows of the very material the north wall shows, and the
@@ -3503,10 +3528,13 @@ const StationBake = (() => {
         while (cx1 < x1 && nearerNorthTop(Math.floor(cx1 / T), ccy) === lim) cx1 = Math.min(x1, cx1 + sample);
         const yEnd = Math.min(y1, lim);
         if (yEnd > y0) {
-          b.fillStyle = c; b.fillRect(cx0, y0, cx1 - cx0, yEnd - y0);
-          if (c === pal.cap) crownMachining(b, cx0, y0, cx1 - cx0, yEnd - y0, c, w > h);
-          if (textureMap && strip && strip.hi)
-            IndustrialTextures.wallPatch(b, cx0, y0, cx1 - cx0, yEnd - y0, strip, textureMap);
+          b.fillStyle = c;
+          if (!missesCanvas(cx0, y0, cx1, yEnd)) {
+            b.fillRect(cx0, y0, cx1 - cx0, yEnd - y0);
+            if (c === pal.cap) crownMachining(b, cx0, y0, cx1 - cx0, yEnd - y0, c, w > h);
+            if (textureMap && strip && strip.hi)
+              IndustrialTextures.wallPatch(b, cx0, y0, cx1 - cx0, yEnd - y0, strip, textureMap);
+          }
           // Record the face AFTER clipping to the silhouette and nearer walls.
           // A raised corner is an interior wall, even above the floor footprint.
           if (interior) cornerFaceRects.push([cx0, y0, cx1 - cx0, yEnd - y0]);
@@ -4634,9 +4662,9 @@ const StationBake = (() => {
     }
     // A raised corner face extends above and outside its floor tile. Reuse the
     // painter's clipped spans so it receives the same light as the straight wall.
-    for (const [x,y,w,h] of cornerFaceRects) b.fillRect(x,y,w,h);
+    for (const [x,y,w,h] of cornerFaceRects) if (!missesCanvas(x, y, x + w, y + h)) b.fillRect(x,y,w,h);
     b.globalCompositeOperation = 'destination-out';
-    for (const [x,y,w,h] of crownRects) b.fillRect(x,y,w,h);
+    for (const [x,y,w,h] of crownRects) if (!missesCanvas(x, y, x + w, y + h)) b.fillRect(x,y,w,h);
     b.globalCompositeOperation = 'source-over';
     return cv;
   }
@@ -4781,7 +4809,7 @@ const StationBake = (() => {
        gradient: it stands for a surface, not a light source. */
     if (LIGHT.crown > 0.001) {
       L.fillStyle = 'rgba(0,0,0,' + Math.min(1, LIGHT.crown).toFixed(3) + ')';
-      for (const [x, y, w, h] of crownRects) L.fillRect(x, y, w, h);
+      for (const [x, y, w, h] of crownRects) if (!missesCanvas(x, y, x + w, y + h)) L.fillRect(x, y, w, h);
     }
     for (const l of lampPos) cut(l.x, l.y, l.r, LIGHT.pool * (l.gain == null ? 1 : l.gain));
     // doorway light spill so corridors and rooms read as connected — DOORWAYS only (see pairIsSill)
@@ -4887,8 +4915,8 @@ const StationBake = (() => {
     // chamfer hull spandrel erase + curved rim — BEFORE corridor connectors, so a corridor kissing a
     // room's rounded corner keeps its hull (v7 render.js ordering: corridors drawn after the erase)
     for (const [ccx, ccy, kind] of chamfersByDepth) {
-      const A = CORNER[kind], ax = (ccx + A.cx) * T, ay = (ccy + A.cy) * T;
-      eraseSpandrel(b, kind, ax, ay, HR);
+      const A = CORNER[kind], ax = (ccx + A.cx) * T, ay = (ccy + A.cy) * T, away = cornerMissesCanvas(ccx, ccy, kind);
+      if (!away) eraseSpandrel(b, kind, ax, ay, HR);
       /* THE RIM HAS TO FOLLOW THE SAME PROFILE THE ERASE CUT (2026-08-08). This was the file's
          last surviving stroked `arc()`, and it survived precisely because a circle looks the same
          from both sides — the erase and the stroke agreed by coincidence, not by construction. The
@@ -4903,6 +4931,7 @@ const StationBake = (() => {
          The tone belongs to the room the corner was cut from, same as the interior chamfer pass, or
          a clad room reverts to shell-grey at its corners. */
       b.fillStyle = hullPal(G.zoneGrid[G.idx(ccx, ccy)]).arc;
+      if (away) continue;
       let prevX = null;
       eachCornerRow(kind, ax, ay, HR - 2, (py, ex) => {
         if (ex == null) { prevX = null; return; }
@@ -4951,7 +4980,9 @@ const StationBake = (() => {
     b.globalCompositeOperation = 'source-over';
 
     // floors
-    for (const r of G.allRects) if (!rectCulled(r)) (G.isCorridor(r.z) ? bakeCorridorFloor : bakeDeck)(b, r);
+    // (a deck tile paints inside its own tile, so a chunk lays only the tiles on its canvas, and one more all round)
+    const onCanvas = { x1: Math.floor((VX - 1) / T) - 1, x2: Math.floor((VX + CW + 1) / T) + 1, y1: Math.floor((VY - 1) / T) - 1, y2: Math.floor((VY + CH + 1) / T) + 1 };
+    for (const r of G.allRects) if (!rectCulled(r)) (G.isCorridor(r.z) ? bakeCorridorFloor : bakeDeck)(b, r, onCanvas);
     bakeEdgeAO(b);
     bakeCorridorDressing(b);
     bakeWalls(b);
@@ -4964,7 +4995,7 @@ const StationBake = (() => {
        makes it connect. */
     // chamfer floor-cut + curved interior wall pass — depth order, same as the rim pass above
     for (const [ccx, ccy, kind] of chamfersByDepth) {
-      if (tileCulled(ccx, ccy)) continue;   // see A CHUNK PAINTS ONLY WHAT CAN REACH IT
+      if (tileCulled(ccx, ccy) || cornerMissesCanvas(ccx, ccy, kind)) continue;   // see A CHUNK PAINTS ONLY WHAT CAN REACH IT
       const X = ccx * T, Y = ccy * T, A = CORNER[kind], ax = X + A.cx * T, ay = Y + A.cy * T;
       // a rounded corner belongs to the room it was cut from — take that room's wall palette so a
       // coloured room's corner arc doesn't revert to the old universal brown-grey.
@@ -5194,9 +5225,12 @@ const StationBake = (() => {
       return false;
     }
     G = geo; T = geo.TILE; HR = T + pad; W = geo.W; H = geo.H;
-    wallPalCache = null;   // per-room wall palettes are derived from THIS geometry — never reuse across bakes
-    hullPalCache = null;   // ...and so are the per-room exterior shells
-    stripCache = null;     // ...and the rendered face strips the curved surfaces sample
+    // (the chunks one bakeIncremental call bakes share them: one geometry, one set of knobs, nothing changes in between)
+    if (geo !== sharedGeo) {
+      wallPalCache = null;   // per-room wall palettes are derived from THIS geometry — never reuse across bakes
+      hullPalCache = null;   // ...and so are the per-room exterior shells
+      stripCache = null;     // ...and the rendered face strips the curved surfaces sample
+    }
     viewportRects = [];    // ...and so are the window holes the wall pass punches
     crownRects = [];       // ...and the crown rects the ambient cut reads back
     cornerFaceRects = [];  // actual curved wall pixels, shared with the light receiver
@@ -5424,6 +5458,7 @@ const StationBake = (() => {
   function bakeChunk(geo, cx, cy, usedAt) {
     const viewport = chunkViewport(geo, cx, cy);
     const baked = bakeViewport(geo, viewport, true);
+    sharedGeo = geo;   // the next chunk of this call keeps the strips and palettes this one made
     return { key: chunkKey(cx, cy), cx, cy, x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h,
       baseCv: baked.baseCv, lightCv: baked.lightCv, interiorCv: baked.interiorCv,
       flickers: baked.flickers, lamps: baked.lamps || [], wallFixtures: baked.wallFixtures || [], usedAt: usedAt || 0,
@@ -5509,7 +5544,15 @@ const StationBake = (() => {
     }
     return out;
   }
+  /* ONE CALL, ONE SET OF STRIPS. Every chunk bake renders the face strips its curved walls sample (a canvas and a GPU
+     readback each, on the busy station ~6 ms a chunk) and derives the rooms' palettes, and a room edit bakes up to a dozen
+     chunks of the same floor in one call. They are shared across that call's chunks (sharedGeo), never across calls. */
+  let sharedGeo = null;
   function bakeIncremental(geo, previous, dirtyRects, opts) {
+    sharedGeo = null;   // the first chunk of this call starts from fresh caches
+    try { return bakeIncrementalShared(geo, previous, dirtyRects, opts); } finally { sharedGeo = null; }
+  }
+  function bakeIncrementalShared(geo, previous, dirtyRects, opts) {
     opts = opts || {};
     const same = sameChunkFrame(previous, geo), grown = same ? null : (keptChunks(previous, geo) || slicedChunks(previous, geo));
     const reuse = same || !!grown;
