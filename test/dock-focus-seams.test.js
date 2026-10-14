@@ -167,5 +167,22 @@ const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8').replace(/
   A.ok(/\.toast\.swap:not\(\.leaving\), \.toast\.swap \.toast-lamp \{ animation: none; \}/.test(motion), 'a swapped card skips only the arrival motion (it still leaves with toast-out)');
 }
 
+/* ---------- W10 window sweep: a control past its window, and labels below the station's smallest type ---------- */
+{
+  const app = rd('frontend/css/app.css'), ui = rd('frontend/app/stationui.js'), mp = rd('frontend/app/modelpicker.js');
+  const rule = sel => { const m = new RegExp('(?:^|\\n)' + sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{([^}]*)\\}').exec(app); return m ? m[1] : null; };
+  // AGENT DOSSIER › CONFIG › MODEL: the picker's wrap is an inline-flex box, so in a block cell it sized itself to the longest
+  // model name (a 418 px select in a 242 px column) and pushed EFFORT out of the window
+  A.ok(/<span class="mp-wrap"/.test(A.fnBody(mp, 'function shellHTML(')) || /'<span class="mp-wrap" data-mp="'/.test(mp), 'the picker shell is an inline .mp-wrap');
+  A.ok(/display: inline-flex/.test(rule('.mp-wrap') || ''), '…which shrink-wraps its content by default');
+  A.ok(/ModelPicker\.shellHTML\(\{ id: 'ag-model-pick'/.test(ui) && /<div class="mc-pick" id="ag-model-pick">/.test(ui), 'the dossier mounts it in the .mc-pick cell');
+  const fill = rule('.mc-pick .mp-wrap');
+  A.ok(fill && /display: flex/.test(fill) && /width: 100%/.test(fill), 'in that cell the picker takes the cell\'s width, so the selects shrink and EFFORT wraps under MODEL');
+  A.ok(/\.mp-model \{ flex: 1 1 200px; min-width: 0; \}/.test(app) && /flex-wrap: wrap/.test(rule('.mp-wrap') || ''), '…(the model select can shrink, the wrap can break)');
+  // labels inside a line are set in that line's size (no-shrunken-inline-chips)
+  A.ok(/font-size:\s*inherit/.test(rule('.q-outcome') || '') && !/font-size:\s*9px/.test(rule('.q-outcome') || ''), 'QUESTS: the run outcome ("NOTHING PASSED") is set in its line\'s size');
+  A.ok(/font-size: var\(--sn-type-meta/.test(rule('.pc-rh') || ''), 'PERMISSIONS: a reach rung\'s house name is at the station\'s smallest type, not 9 px');
+}
+
 A.report('dock-focus-seams');
 process.exit(A.fails() ? 1 : 0);
