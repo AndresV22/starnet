@@ -84,6 +84,11 @@
 }
 
 .quests-win .q-view-tabs { position: sticky; top: 0; z-index: 5; background: var(--panel); backdrop-filter: blur(16px); }
+/* a sticky box stops at the scroller's CONTENT edge, so top:0 left the body's 22px padding band open above the strip and the
+   tab description scrolled through it, cut mid-sentence (org P10 polish). Pinning at minus that padding seats the strip flush
+   on the window's top edge: nothing scrolls above it. */
+.quests-win .q-view-tabs { top: -22px; }
+@media(max-width: 680px) { .quests-win .q-view-tabs { top: -14px; } }
 .quests-win .q-mission-list { max-height: 380px; }
 .quests-win .q-done .q-card::before { display: none; }
 @media(max-width: 680px) { .quests-win .q-mission-list { max-height: 185px; } }
