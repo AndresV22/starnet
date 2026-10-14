@@ -32,40 +32,159 @@ stores the token in its own credential store. Routes: `GET /api/auth/claude-cli/
 
 ## How a turn runs
 
-Every `stream()` call is **one** `claude -p` child process:
+Every child, persistent or one-shot, starts with the same flags:
 
 ```text
-claude -p --output-format stream-json --verbose --include-partial-messages
+claude -p --output-format stream-json --verbose --include-partial-messages --input-format stream-json
        --tools "" --strict-mcp-config --mcp-config {"mcpServers":{}}
        --disable-slash-commands --setting-sources "" --no-session-persistence
-       --model <sonnet|opus|haiku> [--effort <level>] --system-prompt-file <tmp file>
+       --model <model> [--effort <level>] --system-prompt-file <tmp file>
 # env: the station-free child env (child-env.js) + CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
 ```
 
-- The leading system messages go to a temporary system-prompt file (deleted after the turn); the transcript goes
-  on stdin. `text_delta` stream events become `text` events.
-- **Every CLI tool is off** (built-ins, MCP connectors, skills, settings, session file). The CLI never acts on
-  the machine by itself.
-- StarNet's own tools are described in the system prompt. The model asks for one with
-  `<tool_call>{"name": …, "arguments": {…}}</tool_call>`; the adapter turns each block into
-  `tool_start` / `tool_args` / `tool_done`, so `loop.js` runs it through the normal capability gate and consent
-  broker. Results return on the next turn as `<tool_result>` blocks.
-- Exactly one `done` is emitted, only after the child exited with a `result` line. A CLI error result, or an
-  exit without a result, is thrown as an error (with the CLI's message / stderr tail), never delivered as an
-  empty answer.
+### The prompt: a system file and one block per transcript entry
+
+- **System prompt file.** The leading system messages, the tool catalogue, then a `# Conversation` note that says
+  how to read stdin. With the station's cache prefix, the file is the stable prefix, the tools and the note, then
+  `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` and the per-run text. The CLI caches each side on its own, so a new run reuses
+  the stable side.
+- **The run-context note stays out of it.** The per-run `<run_context>` note (Task Brief, runtime identity) ends the
+  leading block. On a first message, it and `<recalled-memory>` lead the user entry and a `<crew_call>` note closes
+  that entry, all in one block. On later messages each note is its own `<system_note>` entry.
+- **stdin** is one stream-json user message with **one text block per transcript entry**: `<user>`, `<assistant>`
+  (with its `<function_calls>`), `<tool_result>` and `<system_note>`. Consecutive tool results share one block. An
+  image follows the entry it came in, numbered by its place in the whole conversation (the newest 20 are attached).
+  Nothing per-turn follows the newest entry.
+- **Why blocks.** The CLI puts its cache breakpoint on the last block, and the API only finds an earlier cache entry
+  at a block boundary. With one block per entry, turn N's prompt is a block-for-block prefix of turn N+1's. The old
+  single text block ended in a per-turn line, so every tool turn re-wrote the whole conversation (Haiku probe, turn
+  2: read 0, wrote 16,632 before; read 16,550, wrote 21 after).
+- Host-fence tags (`<run_context>`, `<recalled-memory>`, `<conversation_summary>`, `<crew_call>`) in user and tool
+  text, and inside a note's own body, are written inert, so outside text cannot open or close a host note.
+
+### One persistent child per run (default)
+
+An agent-loop turn (a request that carries tools) rides **one** `claude` child per run. The child starts with exactly
+the blocks a one-shot turn would send. It keeps the conversation itself, and each later turn sends **only the entries
+after its own reply** (the tool results, system notes, steering) as its next stream-json user message, in the same
+blocks. Its system prompt is the one-shot one, except that the `# Conversation` note says each later user message
+holds what happened after the previous reply.
+
+Why, on top of the blocks:
+
+- **Speed.** A one-shot child pays the CLI's start-up and session setup on every model turn. Gauntlet n=1:
+  StarNet took 8.8–12.2 s per turn, Claude Code 3.9–6.2 s, on the same Opus model.
+- **Tool reveals.** A `tool_search` reveal changes the tool catalogue in the system prompt. Live, each one-shot turn
+  after a 4-tool reveal read 0 from the cache and re-wrote the whole prompt. The persistent child announces the new
+  tools in its next message instead, and kept reading its cache (live numbers below).
+
+What the installed CLI (2.1.284) was proven to do:
+
+- One child answers successive user lines. Each turn ends at its own `result` line and the child waits for the
+  next one. It exits when stdin closes.
+- `result.usage` is per turn. `total_cost_usd` is the child's **running total**, so each turn books only its own
+  share.
+- A model normally ends its reply right after `</function_calls>` (`end_turn`, ~30–70 ms after the last delta),
+  and the child then holds exactly the text that streamed.
+- A stream-json `interrupt` keeps the streamed text and also adds a `[Request interrupted by user]` turn to the
+  CLI's history. StarNet never uses it.
+
+**In sync or start fresh.** The child is reused only while what it holds is provably StarNet's history:
+
+- the same system prompt (persona, rules, brief), model, effort, run and Stop signal;
+- the same tools or more. A `tool_search` reveal is announced as a `<system_note>` at the end of that turn's
+  message, so a reveal does not restart the child. A withdrawn or changed tool does.
+- every earlier message unchanged (one fingerprint per message);
+- the reply the child wrote recorded by the loop unedited (same text, same calls, same arguments);
+- nothing after that reply except new user, tool or system messages.
+
+Anything else closes the child, and the turn starts a fresh one from StarNet's whole history, exactly like a one-shot
+turn. That covers compaction, an aged-out screenshot, a dropped or repaired call, a retry after a failed turn, a model
+switch, the CLI compacting its own history, and a reply that keeps writing after its call block (a guess at results
+the child would otherwise keep). When the child is closed at the end of a call turn, a replacement with the same flags
+starts at once, while the loop runs the tools. An idle child answered its first line in 1.1 s, against 3.7 s cold.
+
+**Usage.** Every persistent turn yields exactly one `usage`: the turn's own `result.usage`, or the stream's numbers
+when the turn was cut at its call block. On a subscription sign-in it is marked `subscription`, so `loop.js` counts
+each turn once toward the per-run subscription token ceiling (`maxSubscriptionTokens`), on a reused child as on a
+fresh one.
+
+**Lifecycle.** The child ends:
+
+- at the run's end (`loop.js` `end()` calls the adapter's `release(runId)`);
+- on **Stop**: the run signal kills it, even between turns;
+- on any turn that did not end cleanly (an error result, a crash, the idle watchdog);
+- after `STARNET_CLAUDE_CLI_PERSIST_IDLE_MS` (default 5 min) parked;
+- when the sidecar exits.
+
+Every kill takes the whole process tree by the child's own pid (`taskkill /T /F` on Windows). On Windows the tree is
+killed **before** stdin closes: the CLI exits on stdin EOF, and `taskkill /T` can only walk a live root. Proven with
+real processes (a fake CLI whose helper escapes every job object): release, Stop and the idle timeout each took the
+whole tree; with stdin closed first the helper survived all three. A hard-killed sidecar (live, real CLI, killed
+mid-turn 2) left no `claude.exe` and no process it had started. Not covered: a helper that escapes the job object,
+when its CLI dies on its own or the sidecar is hard-killed. The one-shot path has the same gap.
+
+**Switches.**
+
+- `STARNET_CLAUDE_CLI_PERSIST=0` runs every turn one-shot, exactly as before the persistent child.
+- `STARNET_CLAUDE_CLI_PERSIST_LOG=1` prints one line per decision (reuse, fresh + why, closed + why) and one per
+  turn's usage (prompt tokens, cache read, cache written, output), on either path.
+
+Live, 2026-10-13, through the hermetic sidecar fixture, Haiku, the same 4-turn `tool_search` task. Each cell is cache
+read / cache written. Wall time per turn includes the tool run (under 0.2 s) and, on turn 1, the CLI start-up.
+
+| Run | Per-turn wall time | Cache read / written per turn |
+| --- | --- | --- |
+| Persistent (one child) | 9.7 · 7.8 · 2.1 · 3.3 s | 0 / 12,985 · 12,985 / 443 · 13,428 / 6,051 · 19,479 / 2,379 |
+| Persistent, timing not valid (the driver blocked) | n/a | 12,153 / 829 · 12,982 / 528 · 13,510 / 6,056 · 19,566 / 2,373 |
+| `PERSIST=0` | 8.9 · 5.8 · 6.6 · 7.6 s | 12,134 / 829 · 12,228 / 1,028 · 0 / 19,180 · 0 / 21,432 |
+
+That is n=1 complete run per mode for timing. In one more run of each mode, Haiku stopped after its first call and
+asked to be told to go on ("Awaiting next instruction…", "Ready for the second query."), so those runs were 2 turns
+(persistent: 11.5 · 2.2 s; `PERSIST=0`: 15.3 · 13.9 s). Turns 3 and 4 each follow a reveal of 4 tools: the persistent
+child read its cache and wrote only the new message (about 6,000 tokens of tool schemas, then 2,400), while each
+one-shot turn read 0 and re-wrote the whole prompt. After turn 2's 1-tool reveal the one-shot turn still read 12,228
+(not explained here).
+
+### One-shot child
+
+Any other call is one child for one turn, with the whole transcript on stdin. That covers a toolless request (a
+summary, a vision call, a wire test), a second request while the persistent child is mid-turn, and every turn under
+`STARNET_CLAUDE_CLI_PERSIST=0`. Its arguments, system prompt and stdin are the same as before the persistent child
+was added (checked byte for byte against the base adapter over 10 scripted turns).
+
+### Both kinds
+
+- The system-prompt file is temporary and deleted when the child ends. `text_delta` stream events become `text`
+  events.
+- **Every CLI tool is off**: built-ins, MCP connectors, skills, settings and the session file. The CLI never acts
+  on the machine by itself.
+- StarNet's own tools are described in the system prompt. The model asks for them with a
+  `<function_calls><invoke name="…"><parameter name="…">…</parameter></invoke></function_calls>` block (the older
+  `<tool_call>{json}</tool_call>` is still read). The adapter turns each call into `tool_start` / `tool_args` /
+  `tool_done`, so `loop.js` runs it through the normal capability gate and consent broker.
+- Results return on the next turn as `<tool_result>` blocks. The turn ends at the end of the call block, and
+  anything the model writes after it is never shown or run.
+- Exactly one `done` is emitted, only once the turn has really ended. A CLI error result, or an exit without a
+  result, is thrown as an error (with the CLI's message or stderr tail), never delivered as an empty answer.
 - A turn with **no** tools (chat) says so in the prompt; otherwise the model improvises its own tool-call markup as
   text. The user's ~/.claude/CLAUDE.md and auto-memory never reach a turn (verified against a control run).
 - A lost sign-in (the CLI's `authentication_failed`) is thrown as a 401, so it fails fast as `auth` instead of
   riding the ~105 s retry ladder.
-- Images in user messages are replaced by an explicit "image omitted" note: the CLI's text input cannot carry them.
+- Images ride stream-json input as real image blocks (newest 20 per turn). An image the API cannot take leaves an
+  explicit note.
 
 ## Stop, timeouts, budget
 
-- **Stop** aborts the run signal; the adapter kills the child's process tree (`taskkill /T /F` on Windows,
-  `SIGTERM` elsewhere) and ends the turn as cancelled.
+- **Stop** aborts the run signal. The adapter kills the child's process tree (`taskkill /T /F` on Windows,
+  `SIGTERM` elsewhere) and ends the turn as cancelled. A persistent child parked between turns dies with the
+  signal too.
 - The shared provider **idle watchdog** (`SKYNET_PROVIDER_IDLE_MS`, default 300 s) kills a child that stays
   silent and reports a `timeout`.
 - Per-run budgets and caps apply unchanged: each turn reports its cost (below) to the loop.
+- A subscription turn books $0, so no $ cap ever sees it. Its tokens count toward a per-run ceiling instead
+  (`maxSubscriptionTokens`, default 2,000,000; a cache re-read counts 1/10). SETTINGS > APP & BACKUP > Runtime limits,
+  or `STARNET_MAX_SUBSCRIPTION_TOKENS`.
 
 ## Cost
 
@@ -74,7 +193,7 @@ The CLI's `init` line says how it is authenticated and its `result` line carries
 | CLI sign-in | Booked per turn |
 | --- | --- |
 | Claude subscription (`apiKeySource: "none"`) | `$0` — nothing is billed per call; real token counts are kept |
-| API key | the CLI's own `total_cost_usd` |
+| API key | the CLI's own `total_cost_usd` (a persistent child's running total minus what earlier turns booked) |
 
 The profile is therefore **not** `unmetered`: an API-key sign-in is real spend and stays inside the budgets.
 

@@ -38,7 +38,7 @@ function fakeSpawn(script) {
 const fakeFs = { statSync() { return { isFile: () => true }; }, writeFileSync() {}, unlinkSync() {} };
 const make = (script, extra) => {
   const f = fakeSpawn(script);
-  const p = makeClaudeCliProvider(Object.assign({ spawn: f.spawn, fs: fakeFs, bin: 'claude.exe', env: { PATH: '' }, platform: 'linux' }, extra || {}));
+  const p = makeClaudeCliProvider(Object.assign({ spawn: f.spawn, fs: fakeFs, bin: 'claude.exe', env: { PATH: '', STARNET_CLAUDE_CLI_PERSIST: '0' }, platform: 'linux' }, extra || {}));
   return { p, calls: f.calls };
 };
 async function collect(p, req) { const out = []; for await (const e of p.stream(req)) out.push(e); return out; }

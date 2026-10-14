@@ -1305,6 +1305,11 @@
       }
     }
     function end(reason, extra) {
+      // A provider that keeps a live process for this run (claude-cli's persistent child) lets it go as the run ends,
+      // instead of idling it out. Every adapter the run could have used: the primary, the current one, each fallback.
+      for (const p of new Set([o.provider, provider].concat(fallbacks.map(f => f && f.provider)))) {
+        if (p && typeof p.release === 'function') { try { p.release(o.runId); } catch (e) { failNote('loop.provider.release', e); } }
+      }
       // close the host's steer buffer AS the run ends (synchronously, before agent.run.end): a later POST gets an honest
       // non-success, and a note that was accepted but never folded is named here instead of vanishing at teardown.
       if (steerClose) {
