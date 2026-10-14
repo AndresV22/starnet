@@ -55,6 +55,15 @@ const BUILDER = ['station.map', 'station.plan', 'station.build', 'station.make_p
     const r = await ask(q);
     A.ok(r.shown.some(n => BUILDER.indexOf(n) >= 0), '"' + q + '" still reveals a builder tool (was: none, only station.layout): ' + JSON.stringify(r));
   }
+  /* a revealed later step of a numbered family brings the earlier steps (the fix round's live run searched "build an assembly
+     line or workflow on the station", got station.build alone, and spent a second search on plan and map); a builder tool
+     with no step number (test_line, start_line) brings nothing, so a plain test never carries the 13 KB station.plan */
+  const whole = await ask('build an assembly line or workflow on the station');
+  A.ok(['station.map', 'station.plan', 'station.build'].every(n => whole.shown.indexOf(n) >= 0), 'the live run\'s first search reveals map, plan and build at once: ' + JSON.stringify(whole.shown));
+  const add = await ask('add an assembly line');
+  A.ok(add.shown.indexOf('station.plan') >= 0, '"add an assembly line" reveals station.plan (its first sentence names assembly lines): ' + JSON.stringify(add.shown));
+  const test = await ask('test the line');
+  A.ok(test.shown.indexOf('station.test_line') >= 0 && test.shown.indexOf('station.plan') < 0, '"test the line" reveals station.test_line and never drags station.plan along: ' + JSON.stringify(test.shown));
   // a browser query never drags the builder along (the 13 KB station.plan declaration would ride every later turn)
   const back = await ask('go back to the previous page');
   A.ok(back.listed.indexOf('browser.back') >= 0 && !back.shown.some(n => /^station\./.test(n)) && back.shown.indexOf('browser.detach') < 0, '"go back to the previous page" names browser.back and reveals no station tool: ' + JSON.stringify({ shown: back.shown, listed: back.listed }));

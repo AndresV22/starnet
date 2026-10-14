@@ -77,6 +77,26 @@
     }
     return out;
   }
+  /* A NUMBERED FAMILY ("STATION BUILDER, step 3:"): a later step needs what the earlier ones make (station.build builds only
+     a plan station.plan made), so a revealed step brings its family's earlier steps with it, and one search is enough. The
+     fix round's live run searched "build an assembly line or workflow on the station", got station.build alone, and spent a
+     second search (a whole turn of the run's context) on "see the station floor map and plan changes". */
+  function stepOf(tool) {
+    const m = /^(.+?),\s*step\s+(\d+)\s*$/.exec(label(tool));
+    return m ? { family: m[1].trim(), n: Number(m[2]) } : null;
+  }
+  function withEarlierSteps(hits, pool) {
+    const out = hits.slice(), has = new Set(hits.map(h => h.t.name));
+    for (const h of hits) {
+      const s = stepOf(h.t);
+      if (!s) continue;
+      for (const t of pool) {
+        const o = stepOf(t);
+        if (o && o.family === s.family && o.n < s.n && !has.has(t.name)) { has.add(t.name); out.push({ t, s: 0 }); }
+      }
+    }
+    return out;
+  }
   function weigh(pool, qs, query) {
     const out = [];
     for (const q of qs) {
@@ -296,7 +316,7 @@
         // sibling's description otherwise drags the family along, quietly re-advertising on the first search
         // the very set the deferral exists to withhold.
         const best = scored.length ? scored[0].s : 0;
-        const hits = scored.filter(h => h.s * 3 >= best && (!match.keep || match.keep(h.t))).slice(0, MAX_HITS);
+        const hits = withEarlierSteps(scored.filter(h => h.s * 3 >= best && (!match.keep || match.keep(h.t))).slice(0, MAX_HITS), pool);
 
         if (!hits.length && (blocked || listed)) return { content: [blocked, listed].filter(Boolean).join('\n'), summary: blocked ? 'withheld' : 'already listed' };
         if (!hits.length) {
