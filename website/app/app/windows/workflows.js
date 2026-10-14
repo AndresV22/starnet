@@ -673,7 +673,11 @@ const WorkflowsWindow = (() => {
     const t = startsText(l);
     // a line that already has a start (on or off) is not offered MAKE IT AUTOMATIC beside it — the key says it changes the starts
     const started = !!t && t.split(' · ').slice(1).some(p => !/could not be read$/.test(p));
-    return '<section class="wfw-sec wfw-starts"><div class="wf-row"><span class="wfw-k">STARTS:</span><span class="wfw-startsv">' + esc(t == null ? 'checking…' : t) + '</span>'
+    // each start is an alternative, so the line SAYS 'or' ('by hand or every day at 9:00 AM' — a ' · ' read as 'by hand every day');
+    // what could not be read stays a separate ' · ' note after them (startsText keeps its composed form for the panel and tests)
+    const said = t == null ? 'checking…' : (parts => parts.filter(p => !/could not be read$/.test(p)).join(' or ')
+      + parts.filter(p => /could not be read$/.test(p)).map(p => ' · ' + p).join(''))(t.split(' · '));
+    return '<section class="wfw-sec wfw-starts"><div class="wf-row"><span class="wfw-k">STARTS:</span><span class="wfw-startsv">' + esc(said) + '</span>'
       + (started
         ? '<button type="button" class="bb sm" data-act="automatic" data-tip="Opens EDIT WORKFLOW at its INBOX’s ‘Or start it automatically’: change these starts, or add a schedule, a channel message, a folder or a webhook.">⊕ CHANGE STARTS</button>'
         : '<button type="button" class="bb sm" data-act="automatic" data-tip="Opens EDIT WORKFLOW at its INBOX’s ‘Or start it automatically’: a schedule, a channel message, a folder or a webhook.">⊕ MAKE IT AUTOMATIC</button>')
