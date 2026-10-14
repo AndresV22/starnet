@@ -296,11 +296,14 @@ const Harness = (() => {
      loaded box — and every later refused call tries again, so the page usually reconnects by itself seconds later. The old
      notice said "could not reconnect" and was gone in four seconds while the 403s went on. Now it is ONE alert kept in
      NOTIFICATIONS until the page reconnects (then marked handled, and the toast is replaced in place by "reconnected"); it
-     says the page keeps trying, and a click on it takes the reload door COMMS error rows already offer. */
+     says the page keeps trying, and a click on the toast takes the reload door COMMS error rows already offer.
+     The same words are the kept bell row, which has no door (a bell row opens only a session or a window), so they never say
+     "click here" (review 10-14: the row promised a click that did nothing). And the alert belongs to the page that raised it:
+     the next page life marks it handled at boot (bootNotices), so a reload never leaves it in the bell, unread. */
   const STALE_KEY = 'station-restarted';
   // "keeps trying" only where it is true: a page served by the sidecar re-reads '/' on every refused call; a desktop page never does
   const staleLine = () => 'The station restarted and this page has not picked up its new key yet. '
-    + (!DESKTOP && !(typeof window !== 'undefined' && window.__STARNET_API__) ? 'It keeps trying on its own; click here to reload now.' : 'Click here to reload this page.');
+    + (!DESKTOP && !(typeof window !== 'undefined' && window.__STARNET_API__) ? 'It keeps trying on its own; reload this page to reconnect now.' : 'Reload this page to reconnect.');
   function reloadThisPage() {
     const door = typeof Friendly !== 'undefined' && Friendly.actionButton ? Friendly.actionButton({ action: 'reload' }) : null;
     if (door && door.run) door.run(); else if (typeof location !== 'undefined' && location.reload) location.reload();
@@ -345,6 +348,13 @@ const Harness = (() => {
     if (withheldNotified) return;
     withheldNotified = true;
     stationNotify(tokenWithheldNotice(tokenWithheld), 'warn', { kind: 'alert', key: 'token-withheld' });
+  }
+  // A NEW PAGE LIFE (Harness.init): say what is true of THIS page — why its key was withheld, or settle an earlier withheld
+  // alert — and mark a "station restarted" alert raised by an earlier page handled. That page is gone; this one booted with
+  // whatever key the station gave it, and a refused call of its own raises the alert again if it is still true.
+  function bootNotices() {
+    noteTokenWithheld();
+    stationUI('settleNotifs', [STALE_KEY]);
   }
   // A transient withheld reason re-runs the check (re-reads '/') at most once a minute, and only on a refused call.
   const WITHHELD_RETRY_MS = 60000;
@@ -397,7 +407,7 @@ const Harness = (() => {
 
   /* desktop: load the keychain "configured?" flag once at boot, before the connect screen reads it */
   async function init() {
-    noteTokenWithheld();   // a page the station kept its key from says why before its first refused call
+    bootNotices();   // a page the station kept its key from says why before its first refused call; an earlier page's restart alert is handled
     await ensureApiToken();
     // BEFORE the desktop early-return on purpose: managed credits live in the SIDECAR, not the keychain, so
     // they are configured identically in a browser build and a packaged one. Probing after the return would
