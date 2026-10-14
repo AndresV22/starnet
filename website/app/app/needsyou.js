@@ -183,16 +183,20 @@ const NeedsYou = (() => {
     if (typeof Chat === 'undefined' || !Chat.consentInspect || !Chat.consentPhrase) return true;   // no way to tell: never approve blind
     return !!Chat.consentInspect(p) || (KIND.approval + ' ' + Chat.consentPhrase(p)).length > RAIL_CHARS;
   }
+  /* (org P02; g3 D1, final round) a direct-chat ask the rail can approve is REVIEWED through the row itself: the row, its
+     "in <where>" door and its ask line land on the COMMS card (the whole request, and its Always / Full power keys, which the
+     rail never grants). Three keys never fit the rail on one row at a readable size — they stacked into three full-width
+     keys — so its keys are Approve once · Deny, side by side. A worker's ask (background ones too) reviews on its Delegated
+     row's INSPECT instead. */
+  const reviewRow = i => !!(i && i.kind === 'approval' && !hiddenDetail(i.p) && !(i.p && (i.p.workerStreamId || i.p.workerRunId || i.p.background === true)));
+  const REVIEW_TIP = 'Review it on its card: the whole request, and its Always and Full power keys';
   function keysFor(i) {
     const k = (act, label, cls, off) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '"' + (off ? ' disabled' : '') + '>' + label + '</button>';
     const sending = !!(i.p && answering.has(String(i.p.promptId))) || answering.has(i.key);
     if (i.kind === 'approval') {
       if (hiddenDetail(i.p)) return k('open', 'Review', 'primary') + k('deny', 'Deny', 'deny', sending);
-      // org P02: a direct-chat ask always offers Review too — the COMMS card holds the whole request and its Always /
-      // Full power keys, which the rail never grants. A worker's ask (background ones too) reviews on its Delegated row's
-      // INSPECT instead, so its row stays Approve once · Deny.
-      const worker = !!(i.p && (i.p.workerStreamId || i.p.workerRunId || i.p.background === true));
-      return k('once', 'Approve once', 'primary', sending) + k('deny', 'Deny', 'deny', sending) + (worker ? '' : k('open', 'Review', 'quiet ny-review'));
+      // (a direct-chat ask's Review is its row's own open action: reviewRow above)
+      return k('once', 'Approve once', 'primary', sending) + k('deny', 'Deny', 'deny', sending);
     }
     if (i.kind === 'question') return k('open', 'Answer', 'primary');
     // a quest an agent says is done: the QUESTS card's own verdict keys (Confirm → done; Not yet keeps it open, the agent sees why)
@@ -206,13 +210,13 @@ const NeedsYou = (() => {
     if (!list.length) return '';
     const shown = expanded ? list : list.slice(0, SHOW);
     return '<div class="ny-head"><span class="ny-lamp" aria-hidden="true"></span><span class="ny-title">Needs you</span><span class="ny-count">' + list.length + '</span></div>'
-      + '<ul class="ny-list">' + shown.map(i => '<li class="ny-item ' + i.kind + '" data-ny-key="' + esc(i.key) + '">'
+      + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i); return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '">'
         // the rail is narrow: who · where · how long (where wraps under who rather than being cut), what exactly on its own
         // (an ask three lines at most, any other wait in full), keys below
-        + '<div class="ny-line"><span class="ny-who">' + esc(i.who) + '</span><button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '">in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
-        + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '')) + '">' + esc((KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what) + '</div>'
+        + '<div class="ny-line"><span class="ny-who">' + esc(i.who) + '</span><button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
+        + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + esc((KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what) + '</div>'
         + '<div class="ny-keys">' + keysFor(i) + '</div>'
-        + '</li>').join('') + '</ul>'
+        + '</li>'; }).join('') + '</ul>'
       + (list.length > SHOW ? '<button type="button" class="ny-more" data-ny-act="more" aria-expanded="' + expanded + '">' + (expanded ? 'Show fewer' : (list.length - SHOW) + ' more') + '</button>' : '');
   }
   // what the list shows apart from its ages: the rail's 1s heartbeat rebuilds the list only when this moves

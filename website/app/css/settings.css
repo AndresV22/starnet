@@ -17,6 +17,9 @@
 .settings-console :is(.set-about,.mc-hint,.pc-plain,.perm-m-desc,.perm-m-floor,.ns-note) { font-size: 14px; line-height: 1.55; letter-spacing: 0; overflow-wrap: anywhere; }
 .settings-console .set-about { margin: 0 0 16px; }
 .settings-console .key-list + .set-about { margin-top: 16px; }   /* org P04: the note under API KEYS keeps its gap from the last key card (the dropped add box used to give it) */
+/* org P04 (g4 final round): the selected provider's no-key line is the one action in API KEYS — read at the size of the
+   paragraphs under it (the .term reading floor, 16px), never the dim 12px empty-state voice */
+.settings-console .key-empty.key-goto p { font-size: 16px; line-height: 1.5; letter-spacing: .2px; color: var(--text); opacity: 1; }
 .settings-console .mc-hint { margin: 7px 0 18px; }
 .settings-console .set-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 22px 0 10px; border: 0; }
 .settings-console .set-sub-k { font-size: 14px; color: var(--ph-bright); }

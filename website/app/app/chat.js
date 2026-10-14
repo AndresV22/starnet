@@ -4869,7 +4869,7 @@ const Chat = (() => {
     text.textContent = (job && job.text
       ? 'your test job (“' + (job.text.length > 70 ? job.text.slice(0, 70) + '…' : job.text) + '”) rides the real belts'
       : 'a labeled test crate (“SAMPLE JOB…”) rides the real belts — write your own test job in the INBOX’s Workflow panel —')
-      + ' — the router picks the dock, the run spends real budget, and the reply lands on the OUTBOX and in DELIVERABLES.';
+      + ' — the router picks the dock, the run spends real budget, and the reply lands in this line’s OUTBOX and is also filed in DELIVERABLES.';
     const btns = document.createElement('span'); btns.className = 'consent-btns';
     item.appendChild(text); item.appendChild(btns);
     r.body.appendChild(item);

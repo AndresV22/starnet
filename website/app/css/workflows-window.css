@@ -107,7 +107,9 @@ textarea.wfw-field { min-height: 76px; }
    COMMON WORKFLOWS heads the four under it */
 .wfw-tgroup { grid-column: 1 / -1; margin: 6px 2px 0; font-size: 14px; letter-spacing: 1.2px; color: var(--ph-dim); text-transform: uppercase; }
 .wfw-tgroup:first-child { margin-top: 0; }
-.wfw-tgroup.wfw-goalhd { color: var(--gold); }
+.wfw-tgroup.wfw-goalhd { color: var(--gold); text-wrap: balance; }
+/* (org g7 D2, final round) the goal it names — the Commander's own words, in their own case — so the claim is on screen */
+.wfw-tgroup.wfw-goalhd .wfw-goalq { margin-left: 4px; font-size: 15px; letter-spacing: .3px; text-transform: none; color: var(--text); }
 .wfw-tile.on { border-color: var(--ph); background: var(--wf-on); box-shadow: var(--wf-light), inset 0 -2px 0 rgba(var(--ph-rgb),.65); }
 .wfw-tart { display: grid; place-items: center; width: 100%; height: 62px; border-radius: 8px; background: radial-gradient(ellipse 72% 70% at 50% 64%, rgba(130,170,150,.11), transparent 76%); }
 .wfw-tart img { display: block; max-width: 100%; max-height: 58px; image-rendering: pixelated; }
