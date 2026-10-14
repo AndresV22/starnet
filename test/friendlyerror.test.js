@@ -130,7 +130,7 @@ for (const raw of [
   A.eq(v.action, 'settings', 'the missing-credential response points at provider settings');
   A.eq(v.retryable, false, 'missing credentials never offer a blind retry');
   const btn = actionButton(v);
-  A.ok(btn && /key|settings/i.test(btn.label), 'the recovery action opens the provider-key door');
+  A.eq(btn && btn.label, '▸ OPEN AI & MODELS', 'the recovery action opens AI & MODELS (org P03: one label for that door)');
 }
 
 // ---- expired ChatGPT sign-in => oauth, and still offers the key alternative ----
@@ -246,7 +246,7 @@ for (const raw of [
   const v = friendlyError(new Error('sidecar HTTP 500 — sidecar failure: Not signed in to ChatGPT — connect a ChatGPT subscription first. (codex_not_connected)'));
   A.eq(v.kind, 'oauth', 'a pre-stream codex_not_connected body classifies as oauth once the body survives');
   const btn = actionButton(v);
-  A.ok(btn && /RECONNECT CHATGPT/i.test(btn.label), 'the door is RECONNECT CHATGPT, not a generic retry');
+  A.eq(btn && btn.label, '⏼ SIGN IN TO CHATGPT', 'a never-signed-in ChatGPT reads SIGN IN TO CHATGPT (org P03), not a generic retry');
 }
 
 // ---- no "max_iters"-style raw token leaks in any KINDS message (jargon hygiene) ----
@@ -269,7 +269,7 @@ for (const raw of [
   A.ok(!threw, "the REFIT button's run() degrades quietly when no surface is loaded");
   // auth (no ChatGPT connected in node) → a key/settings door
   const authBtn = actionButton(friendlyError(new Error('no API key set')));
-  A.ok(authBtn && typeof authBtn.run === 'function' && /key|settings/i.test(authBtn.label), 'an auth verdict yields a key/settings door');
+  A.ok(authBtn && typeof authBtn.run === 'function' && authBtn.label === '▸ OPEN AI & MODELS', 'an auth verdict yields the ▸ OPEN AI & MODELS door');
 }
 
 // ---- CAP_INFO covers every capId the sidecar can deny (parity guard against a missing gear entry) ----
@@ -434,7 +434,8 @@ for (const raw of [
   A.eq(noKey.kind, 'auth', 'a keyed guard stays auth');
   A.ok(/No XAI API key is connected yet/.test(noKey.userMessage), 'the missing-key copy names XAI (got: ' + noKey.userMessage + ')');
   A.ok(!/chatgpt/i.test(noKey.userMessage), 'a keyed provider miss does not mention ChatGPT');
-  A.eq(actionButton(noKey).label, '＋ Add a key', 'the keyed door is still the key field');
+  A.eq(actionButton(noKey).label, '▸ OPEN AI & MODELS', 'the keyed door is ▸ OPEN AI & MODELS (org P03)');
+  A.eq(noKey.provider, 'xai', 'the keyed guard names the XAI card the door lands on');
   // a provider whose label already ends in API ("OPENAI API") must not read "OPENAI API API key"
   const openaiKey = friendlyError(new Error('sidecar HTTP 400 — missing key/model — connect a OPENAI API API key'));
   A.ok(/No OPENAI API key is connected yet/.test(openaiKey.userMessage) && !/API API/.test(openaiKey.userMessage),
@@ -523,6 +524,60 @@ for (const raw of [
   A.eq(opened, ['models'], 'the action opens the primary model picker');
   A.eq(friendlyError('openai-compatible http 500 - cudaMalloc failed: out of memory').kind, 'provider_server_error',
     'an unmarked hosted provider allocation failure is not asserted to be local');
+}
+
+/* ---- org P03: the AI & MODELS doors have ONE label and land on the provider's card ----
+   Four labels ('⚙ Open Settings', '＋ Add a key', '▸ OPEN AI & MODELS', '⏼ RECONNECT …') all opened the top of a long
+   page with no provider focus, and RECONNECT only navigated. Now: ▸ OPEN AI & MODELS lands on the named provider's
+   card; a sign-in door names its provider and presses that card's own sign-in; billing names the account. */
+{
+  const { providerFromRaw } = require('../frontend/app/friendlyerror.js')._internals;
+  A.eq(providerFromRaw('openrouter http 402 — insufficient credits'), 'openrouter', 'the adapter signature names openrouter');
+  A.eq(providerFromRaw('anthropic http 400 - Your credit balance is too low'), 'anthropic', 'the adapter signature names anthropic');
+  A.eq(providerFromRaw('Kimi For Coding http 401 - token expired'), 'kimi', 'a device-OAuth label names kimi');
+  A.eq(providerFromRaw('sidecar HTTP 400 — missing key/model — connect a OPENAI API API key'), 'openai', 'the credential guard label maps to its card id');
+  A.eq(providerFromRaw('configure the CUSTOM base URL'), 'custom', 'a missing base URL names the CUSTOM card');
+  A.eq(providerFromRaw('openai-compatible http 402 - payment required'), null, 'an unnamed openai-compatible error names nobody (no guess)');
+  A.eq(providerFromRaw('openrouter.ai says: anthropic/claude model unavailable'), 'openrouter', 'a model path naming anthropic inside an openrouter body stays openrouter');
+
+  const or = friendlyError(Object.assign(new Error('openrouter http 402 — This request requires more credits'), { status: 402 }));
+  A.eq(or.kind, 'billing', 'an openrouter 402 is billing');
+  A.ok(/^Your OPENROUTER account is out of credit/.test(or.userMessage), 'the billing copy names the account (got: ' + or.userMessage + ')');
+  A.eq(or.provider, 'openrouter', 'the billing verdict carries the provider');
+  const anon = friendlyError(Object.assign(new Error('insufficient credit'), { status: 402 }));
+  A.eq(anon.userMessage, KINDS.billing.msg, 'an unnamed billing error keeps the provider-neutral copy (truthful: nothing named it)');
+
+  // every non-sign-in AI & MODELS door reads ▸ OPEN AI & MODELS; the retired labels are gone from the module
+  A.eq(actionButton(or).label, '▸ OPEN AI & MODELS', 'billing opens AI & MODELS');
+  A.eq(actionButton({ kind: 'quota_exhausted', action: 'settings' }).label, '▸ OPEN AI & MODELS', 'quota opens AI & MODELS');
+  A.eq(actionButton({ kind: 'managed_credit', action: 'store' }).label, '▸ OPEN AI & MODELS', 'managed credits open AI & MODELS');
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../frontend/app/friendlyerror.js'), 'utf8');
+  A.ok(!/'⚙ Open Settings'|'＋ Add a key'/.test(src), "the retired '⚙ Open Settings' / '＋ Add a key' labels are gone");
+
+  // the door's run() hands the provider (and the sign-in press) to StationUI.focusProvider
+  const calls = [];
+  global.StationUI = { focusProvider: (pid, o) => calls.push([pid, !!(o && o.signin)]), openTerm: (k, s) => calls.push(['term:' + k, s]) };
+  try {
+    actionButton(or).run();
+    actionButton(friendlyError(new Error('GROK OAUTH sign-in needed: Not signed in to GROK OAUTH — connect it first.'))).run();
+    actionButton(friendlyError(new Error('ChatGPT sign-in needed: refresh_token_reused — sign in with ChatGPT again'))).run();
+    actionButton(anon).run();
+    actionButton({ kind: 'managed_credit', action: 'store' }).run();
+  } finally { delete global.StationUI; }
+  A.eq(JSON.stringify(calls[0]), JSON.stringify(['openrouter', false]), 'billing lands on the OPENROUTER card');
+  A.eq(JSON.stringify(calls[1]), JSON.stringify(['grok', true]), 'SIGN IN TO GROK lands on the GROK card and presses its sign-in');
+  A.eq(JSON.stringify(calls[2]), JSON.stringify(['codex', true]), 'RECONNECT CHATGPT lands on the CHATGPT card and presses its sign-in');
+  A.eq(JSON.stringify(calls[3]), JSON.stringify(['term:settings', 'providers']), 'an unnamed provider opens AI & MODELS without a card focus');
+  A.eq(JSON.stringify(calls[4]), JSON.stringify(['starnet', false]), 'managed credits land on the STARNET MANAGED card');
+  A.eq(actionButton(friendlyError(new Error('ChatGPT sign-in needed: refresh_token_reused — sign in with ChatGPT again'))).label, '⏼ RECONNECT CHATGPT',
+    'a dead ChatGPT refresh reads RECONNECT CHATGPT');
+
+  // stationui: focusProvider exists, is exported, presses the card's own prov-oauth-signin; the card status never
+  // reads a bare NOT VERIFIED when the probe gave no reason
+  const ui = require('fs').readFileSync(require('path').join(__dirname, '../frontend/app/stationui.js'), 'utf8');
+  A.ok(/function focusProvider\(pid, opts\)/.test(ui) && /openTerm, focusProvider,/.test(ui), 'StationUI.focusProvider is defined and exported');
+  A.ok(/querySelector\('\[data-act="prov-oauth-signin"\]'\); if \(b\) b\.click\(\)/.test(ui), 'a sign-in door presses the card\'s own prov-oauth-signin key');
+  A.ok(/the provider answered but did not confirm this key/.test(ui) && /the check got no answer from the provider/.test(ui), 'an empty probe error prints a fallback reason');
 }
 
 A.report('friendlyerror.test');

@@ -96,7 +96,9 @@ A.ok(/noteApiRefusal\(req, 'forbidden token'\);/.test(sidecar), 'a stale-token r
 A.ok(/if \(apiRefusalsSeen\.has\(sig\) \|\| apiRefusalsSeen\.size >= 64\) return;/.test(sidecar), 'refusal notes are once per cause and bounded');
 
 // ---- Settings shows the reason ----
-A.ok(/const statWhy = [^\n]*health && !health\.credentialVerified && health\.error/.test(stationui), 'the provider card derives a reason line from the probe');
+A.ok(/const statWhy = [^\n]*health && !health\.credentialVerified\n[^\n]*health\.error \? String\(health\.error\)/.test(stationui), 'the provider card derives a reason line from the probe');
+// org P03: an empty probe error still prints what the probe saw — never a bare NOT VERIFIED / CHECK FAILED
+A.ok(/health\.reachable \? 'the provider answered but did not confirm this key' : 'the check got no answer from the provider'/.test(stationui), 'an empty probe error prints a fallback reason');
 A.ok(/statWhy \+ '<\/span><\/span>'/.test(stationui), 'the reason renders inside the card status');
 A.ok(/error: r\.ok \? String\(\(j && j\.error\) \|\| ''\) : keyCheckFailure\(r\.status, j, text\)/.test(harness), 'a refused probe names the refusal instead of a blank CHECK FAILED');
 

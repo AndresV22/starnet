@@ -163,3 +163,5 @@
 .settings-console .rmt-dev .dot.on { background:var(--ok); }
 .settings-console .rmt-dev .bb { margin-left:auto; }
 .settings-console #rmt-msg.bad { color:var(--bad); }
+/* org P03: an error door that lands on a provider card marks it for a moment (StationUI.focusProvider) */
+.settings-console .prov-card.prov-landed { border-color: rgba(var(--ph-bright-rgb), .85); box-shadow: inset 0 0 0 1px rgba(var(--ph-bright-rgb), .45); }

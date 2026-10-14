@@ -64,11 +64,12 @@ A.ok(/j\.expired/.test(appjs) && /sign-in expired/i.test(appjs), 'the connect sc
   delete global.StationUI;
   A.eq(opened, { key: 'settings', section: 'providers' }, 'the door deep-links Settings→PROVIDERS');
 
-  // not-signed-in (codex_not_connected) is the same class → same door, even with no stored credential
+  // not-signed-in (codex_not_connected) is the same class and the same card, even with no stored credential; it was
+  // never signed in, so the door reads SIGN IN TO CHATGPT (org P03), not RECONNECT
   const notConn = friendlyError(new Error('Not signed in to ChatGPT — connect a ChatGPT subscription first.'));
   A.eq(notConn.kind, 'oauth', 'codex_not_connected classifies oauth');
   const btn2 = actionButton(notConn);
-  A.ok(btn2 && btn2.label === '⏼ RECONNECT CHATGPT', 'the not-signed-in door is the same reconnect door');
+  A.ok(btn2 && btn2.label === '⏼ SIGN IN TO CHATGPT', 'the not-signed-in door reads SIGN IN TO CHATGPT (got ' + (btn2 && btn2.label) + ')');
 }
 
 A.report('settings-codex-row.test');

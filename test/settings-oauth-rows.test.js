@@ -85,10 +85,12 @@ A.ok(/p !== 'codex' && p !== 'grok' && p !== 'kimi'/.test(keycta), 'keycta treat
   // it must NOT read as a reconnect-grok door (that would be the dead-end this case exists to avoid).
   A.ok(!/RECONNECT GROK/.test(gxBtn.label), 'the allowlist case never offers the doomed RECONNECT GROK door');
 
-  // regression: codex stays RECONNECT CHATGPT (provider defaults to codex when unnamed).
+  // codex names itself like grok/kimi (provider defaults to codex when unnamed): never signed in reads SIGN IN TO
+  // CHATGPT, a dead refresh reads RECONNECT CHATGPT (org P03).
   const cx = friendlyError(new Error('codex_not_connected'));
   A.eq(cx.provider, 'codex', 'a codex oauth error still resolves to the codex provider');
-  A.eq(actionButton(cx).label, '⏼ RECONNECT CHATGPT', 'the codex door is unchanged (⏼ RECONNECT CHATGPT)');
+  A.eq(actionButton(cx).label, '⏼ SIGN IN TO CHATGPT', 'a never-signed-in codex door reads ⏼ SIGN IN TO CHATGPT');
+  A.eq(actionButton(friendlyError(new Error('refresh_token_reused'))).label, '⏼ RECONNECT CHATGPT', 'a dead codex refresh reads ⏼ RECONNECT CHATGPT');
 }
 
 // ---- FIRST sign-in reachability (live-caught 2026-07-17, widened to codex 2026-07-21): a never-signed-in

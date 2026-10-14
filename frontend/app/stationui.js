@@ -5559,8 +5559,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         : isClaude ? claudeStat : keyless ? localStat : credentialSaved ? keyStat : (isOAuthProvider(p.id) ? '○ NOT SIGNED IN' : (p.id === 'custom' ? '○ NO ENDPOINT' : '○ NO KEY'));
       // #62: NOT VERIFIED / CHECK FAILED says WHY (the probe's own reason: "credential probe HTTP 401", a station
       // refusal, a timeout) — a bare verdict left a valid-key user with nothing to act on.
-      const statWhy = p.live && !codexDead && credentialSaved && !isClaude && !keyless && health && !health.credentialVerified && health.error
-        ? '<span class="prov-stat-why">' + esc(String(health.error).slice(0, 200)) + '</span>' : '';
+      // org P03: a probe that gave no reason still says what it saw — never a bare NOT VERIFIED / CHECK FAILED.
+      const statWhy = p.live && !codexDead && credentialSaved && !isClaude && !keyless && health && !health.credentialVerified
+        ? '<span class="prov-stat-why">' + esc(health.error ? String(health.error).slice(0, 200)
+          : health.reachable ? 'the provider answered but did not confirm this key' : 'the check got no answer from the provider') + '</span>' : '';
       const n = ks.length;
       // NO-KEY cards that accept a key get an inline, collapsible paste-and-save row so the user never has to hunt
       // for where keys live. It reuses the SAME save path (Harness.setKey) as the key list below — no duplicate logic.
@@ -11616,6 +11618,29 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (sib && !windowDirty(open[sib])) { swapInPlace(sib, () => toggleTerm(key, def[0], def[1], def[2])); return; }
     toggleTerm(key, def[0], def[1], def[2]);
   }
+  /* org P03 — an error door lands ON the provider's card, not at the top of a long AI & MODELS page. Opens the
+     section, scrolls the card to the top of the pane (the CONFIG jump's offsetTop landing, never scrollIntoView's
+     minimum scroll) and marks it for a moment. `signin` presses the card's own ⏼ SIGN IN / ⏼ RECONNECT — the same
+     prov-oauth-signin flow a click starts; a card that shows no such key (already signed in) is only landed on.
+     The section can paint a beat after openTerm, so the card is looked up again for up to ~3s. */
+  function focusProvider(pid, opts) {
+    const o = opts || {};
+    const id = String(pid || '').replace(/[^a-z0-9_-]/gi, '');
+    openTerm('settings', 'providers');
+    if (!id) return;
+    let tries = 0;
+    const land = () => {
+      const w = open.settings;
+      const card = w && w.querySelector('.prov-card[data-provider="' + id + '"]');
+      if (!card) { if (++tries < 12) setTimeout(land, 250); return; }
+      const pane = card.closest('.con-pane');
+      if (pane) pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - 8);
+      card.classList.add('prov-landed');
+      setTimeout(() => card.classList.remove('prov-landed'), 2400);
+      if (o.signin) { const b = card.querySelector('[data-act="prov-oauth-signin"]'); if (b) b.click(); }
+    };
+    land();
+  }
 
   // Following work should uncover the destination and preserve the source's scroll/draft.
   // Reuse the window manager's suspension, never destroy a form to follow a link.
@@ -11810,7 +11835,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // GROWTH Tier 3: repaint the Settings AUTONOMY panel's EARNED badge if it is open (no-op otherwise — the paint fn
   // queries its own (possibly detached) host nodes, so a closed panel costs nothing). Called after a trust accept.
   const repaintAutonomy = () => { try { if (repaintAutonomyDial) repaintAutonomyDial(); } catch (_) {} };
-  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, badges, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, accessPostures: () => STATION_POSTURES.map(P => Object.assign({}, P)), refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
+  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, focusProvider, showTerm, showAgent, notifsMarkRead, notifsClear, badges, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, accessPostures: () => STATION_POSTURES.map(P => Object.assign({}, P)), refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { visibleTerminalRect, clampTerminalSize };
