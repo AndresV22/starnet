@@ -97,26 +97,44 @@ A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the pale
 /* org P19 (2026-10-14): automation slash replies carry ONE door key into the right AUTOMATE tab — on the reply, never a new card */
 (async () => {
   const opened = [];
-  const mkNode = () => { const kids = []; const body = { appendChild: n => kids.push(n) }; return { kids, querySelector: sel => sel === '.body' ? body : null }; };
-  const doc = { createElement: () => ({ type: '', className: '', textContent: '', onclick: null }), createTextNode: t => ({ text: t }) };
+  // a small fake DOM: enough element behaviour for systemDoor (children, classList, sibling walk, remove)
+  const mkEl = (cls) => {
+    const el = { type: '', className: cls || '', textContent: '', onclick: null, kids: [], parentNode: null };
+    el.appendChild = n => { if (n && typeof n === 'object') n.parentNode = el; el.kids.push(n); return n; };
+    Object.defineProperty(el, 'children', { get: () => el.kids.filter(k => k && k.classList) });
+    el.classList = { contains: c => (' ' + el.className + ' ').indexOf(' ' + c + ' ') >= 0 };
+    const all = () => { const out = []; const walk = e => { for (const k of e.children) { out.push(k); walk(k); } }; walk(el); return out; };
+    el.querySelectorAll = sel => all().filter(k => k.classList.contains(sel.replace(/^\./, '')));
+    el.querySelector = sel => el.querySelectorAll(sel)[0] || null;
+    el.remove = () => { const p = el.parentNode; if (p) p.kids.splice(p.kids.indexOf(el), 1); el.parentNode = null; };
+    Object.defineProperty(el, 'previousElementSibling', { get: () => { const p = el.parentNode; if (!p) return null; const sib = p.children; const i = sib.indexOf(el); return i > 0 ? sib[i - 1] : null; } });
+    return el;
+  };
+  const log = mkEl('chat-log');
+  const mkNode = (cls) => { const n = mkEl(cls || 'cmsg system'); n.appendChild(mkEl('body')); log.appendChild(n); return n; };
+  const doc = { createElement: () => mkEl(), createTextNode: t => ({ text: t }) };
   const SUI = { openTerm: (k, sec) => opened.push(k + ':' + sec) };
-  const doorOf = node => node.kids.find(k => k && /automate-door/.test(k.className || ''));
+  const doorOf = node => node.querySelectorAll('sys-door').find(k => /automate-door/.test(k.className));
+  // P29-sys: the key sits in ONE .sys-doors row of the line's own (a sibling of its text), never inside the prose
+  const doorRowOk = (node, d) => !!d && d.parentNode && d.parentNode.className === 'sys-doors' && d.parentNode.parentNode === node && !node.querySelector('.body').kids.length;
+  const DOOR_SRC = A.fnBody(src, 'function systemDoor(') + '\n' + A.fnBody(src, 'function automateDoor(');
   // /loop status keeps its note and adds the door to SCHEDULES (the lasting form of a loop is a schedule)
   {
     const loopSrc = A.fnBody(src, 'function loopCommand(');
-    const doorSrc = A.fnBody(src, 'function automateDoor(');
+    const doorSrc = DOOR_SRC;
     const node = mkNode(), lines = [];
     const loop = new Function('StationUI', 'document', 'activeWs', 'loops', 'loopEnded', 'localLine', 'LOOP_MAX_ITERS',
       doorSrc + '\n' + loopSrc + '\nreturn loopCommand;')(SUI, doc, { id: 'w' }, new Map([['w', { label: '5m', fired: 2, skipped: 0, prompt: 'check the build' }]]), new Map(), t => { lines.push(t); return node; }, 20);
     loop('status');
     A.ok(/It stops if you close StarNet; \/routine makes it permanent\.$/.test(lines[0]), '/loop status keeps its note: ' + lines[0]);
     const d = doorOf(node);
-    A.ok(d && d.type === 'button' && /consent-btn/.test(d.className) && d.textContent === '▸ AUTOMATE › SCHEDULES', '/loop status carries one door key to SCHEDULES');
+    A.ok(d && d.type === 'button' && /\bsys-door\b/.test(d.className) && d.textContent === '▸ AUTOMATE › SCHEDULES', '/loop status carries one door key to SCHEDULES');
+    A.ok(doorRowOk(node, d), 'the key rides a door row of its own under the line, not the tail of its text');
     d.onclick(); A.eq(opened.pop(), 'automation:routines-create', '…which opens the New schedule form');
   }
   // the server-run /routine and /away replies gain their door client-side (sidecar/slash.js unchanged)
   {
-    const body = ['let lastSaid = null, slashDispatchRefusal = null;', A.fnBody(src, 'function automateDoor('),
+    const body = ['let lastSaid = null, slashDispatchRefusal = null;', DOOR_SRC,
       src.match(/const SERVER_SLASH_DOORS = \{[^\n]+\};/)[0], A.fnBody(src, 'function applySlashDirective('), A.fnBody(src, 'async function dispatchSlash('), 'return dispatchSlash;'].join('\n');
     const run = async (name, directive) => {
       const node = mkNode();
@@ -134,7 +152,7 @@ A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the pale
     // /cron is a CLIENT action (sidecar/slash.js gives it no dispatch:'server'): the sidecar answers {type:'client', action:'cron'}
     // and cronCommand prints the reply itself — so the door must ride cronCommand's own line, on every outcome
     {
-      const cronBody = ['let lastSaid = null, slashDispatchRefusal = null;', A.fnBody(src, 'function automateDoor('),
+      const cronBody = ['let lastSaid = null, slashDispatchRefusal = null;', DOOR_SRC,
         src.match(/const SERVER_SLASH_DOORS = \{[^\n]+\};/)[0], A.fnBody(src, 'function applySlashDirective('), A.fnBody(src, 'async function dispatchSlash('), 'return dispatchSlash;'].join('\n');
       const runCron = async (cronReply) => {
         const nodes = [], lines = [];
@@ -145,7 +163,7 @@ A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the pale
         let cronCommand = null;
         const dispatch = new Function('StationUI', 'document', 'fetch', 'systemCard', 'localLine', 'slashPlacedTypes', 'activeWs', 'localSlashActions', 'insertSlashText', cronBody)(
           SUI, doc, fetchFn, () => mkNode(), localLine, () => [], { agentId: 'agent' }, () => ({ cron: a => cronCommand(a) }), () => true);
-        cronCommand = new Function('StationUI', 'document', 'fetch', 'localLine', A.fnBody(src, 'function automateDoor(') + '\n' + A.fnBody(src, 'async function cronCommand(') + '\nreturn cronCommand;')(SUI, doc, fetchFn, localLine);
+        cronCommand = new Function('StationUI', 'document', 'fetch', 'localLine', DOOR_SRC + '\n' + A.fnBody(src, 'async function cronCommand(') + '\nreturn cronCommand;')(SUI, doc, fetchFn, localLine);
         const ok = await dispatch({ name: 'cron' }, '/cron');
         for (let i = 0; i < 5 && !lines.length; i++) await Promise.resolve();
         await new Promise(r => setTimeout(r, 0));
@@ -160,6 +178,30 @@ A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the pale
     }
     const other = await run('usage', { type: 'say', text: '$0.12 today' });
     A.ok(other.ok && !other.door, 'any other server command\'s reply is unchanged (no door)');
+  }
+  // P29-sys (Andrew 10-14: "ugly and unaligned"): never the same door twice in a run of consecutive system lines — the key
+  // moves down to the newest line that offers it
+  {
+    const run = mkEl('chat-log');
+    const line = () => { const n = mkEl('cmsg system'); n.appendChild(mkEl('body')); run.appendChild(n); return n; };
+    const automateDoor = new Function('StationUI', 'document', DOOR_SRC + '\nreturn automateDoor;')(SUI, doc);
+    const systemDoor = new Function('StationUI', 'document', DOOR_SRC + '\nreturn systemDoor;')(SUI, doc);
+    const a = line(); automateDoor(a, '▸ AUTOMATE › SCHEDULES', 'routines-create');
+    const b = line(); automateDoor(b, '▸ AUTOMATE › SCHEDULES', 'routines');
+    A.eq(run.querySelectorAll('sys-door').length, 1, 'a run of system lines shows the SCHEDULES door once');
+    A.ok(!a.querySelector('.sys-doors') && b.querySelectorAll('sys-door').length === 1, '…under the newest line that offers it (the emptied row leaves with it)');
+    b.querySelector('.sys-door').onclick(); A.eq(opened.pop(), 'automation:routines', '…and it opens what the newest line offers');
+    const c = line(); automateDoor(c, '▸ AUTOMATE › AWAY WORK', 'away');
+    A.ok(b.querySelectorAll('sys-door').length === 1 && c.querySelectorAll('sys-door').length === 1, 'a different door on the next line keeps both');
+    run.appendChild(mkEl('cmsg agent'));   // a reply ends the run: the same door again belongs to a new run
+    const d = line(); automateDoor(d, '▸ AUTOMATE › SCHEDULES', 'routines');
+    A.ok(b.querySelectorAll('sys-door').length === 1 && d.querySelectorAll('sys-door').length === 1, 'after an agent reply the door shows again');
+    const e = line(); systemDoor(e, '▸ AUTOMATE › GOAL LOOPS', () => {}, { cls: 'goal-loops-door', lead: 'Lasting goal loops:' });
+    const f = line(); systemDoor(f, '▸ AUTOMATE › GOAL LOOPS', () => {}, { cls: 'goal-loops-door', lead: 'Lasting goal loops:' });
+    A.ok(!e.querySelector('.sys-doors') && f.querySelectorAll('sys-doors-lead').length === 1, 'a moved key takes its lead label along');
+    const g = line(); automateDoor(g, '▸ AUTOMATE › SCHEDULES', 'routines'); automateDoor(g, '▸ AUTOMATE › AWAY WORK', 'away');
+    A.ok(g.querySelectorAll('sys-doors').length === 1 && g.querySelectorAll('sys-door').length === 2, 'two keys on one line share ONE door row');
+    A.ok(!/consent-btn/.test(DOOR_SRC), 'a system door is the system register\'s own key, not an approval card\'s consent key');
   }
   A.report('slash.palette.test');
 })().catch(e => { console.error(e); process.exit(1); });

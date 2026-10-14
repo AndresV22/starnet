@@ -132,9 +132,12 @@
      The next-turn message fed back to the agent — a plain user-role directive, NO system-prompt mutation and NO
      toolset swap (prompt caching + the moat's real-prop reach stay intact). Carries the goal, any subgoals, and
      the judge's reason so the agent knows why it's still going. */
+  const CONT_HEAD = '[Continuing toward your session goal]\nGoal: ';
+  const CONT_SUBS = '\n\nAdditional criteria the Commander added:\n';
+  const CONT_TAIL = '\n\nContinue working toward this goal. ';
   function continuationPrompt(s) {
     if (!isActive(s)) return null;
-    let p = '[Continuing toward your session goal]\nGoal: ' + s.goal + '\n\n';
+    let p = CONT_HEAD + s.goal + '\n\n';
     if (s.subgoals.length) {
       p += 'Additional criteria the Commander added:\n'
         + s.subgoals.map((t, i) => '- ' + (i + 1) + '. ' + t).join('\n') + '\n\n'
@@ -147,6 +150,19 @@
         + 'If you are blocked and need input from the user, say so clearly and stop.';
     }
     return p;
+  }
+  /* WHICH GOAL a continuation turn works toward — or null when `text` is not one (org P29-sys, 2026-10-14). The prompt
+     above rides the wire as a user-role turn, but the Commander never typed it: COMMS shows a goal step as ONE station line
+     naming the goal, live and when the history is replayed, so it reads the stored turn's own text (no flag on the turn,
+     nothing new on the wire). */
+  function continuationGoal(text) {
+    const t = String(text == null ? '' : text);
+    if (t.indexOf(CONT_HEAD) !== 0) return null;
+    const rest = t.slice(CONT_HEAD.length);
+    const cuts = [rest.indexOf(CONT_SUBS), rest.indexOf(CONT_TAIL)].filter(i => i >= 0);
+    if (!cuts.length) return null;
+    const goal = rest.slice(0, Math.min.apply(null, cuts)).trim();
+    return goal || null;
   }
 
   /* ============================ THE JUDGE PROMPT ============================
@@ -253,6 +269,6 @@
     DEFAULT_MAX_TURNS, MAX_PARSE_FAILS,
     parseVerdict, create, normalize, isActive, hasGoal,
     addSubgoal, pause, resume, clear,
-    continuationPrompt, judgeSystem: () => JUDGE_SYSTEM, judgeUser, evaluate, statusLine
+    continuationPrompt, continuationGoal, judgeSystem: () => JUDGE_SYSTEM, judgeUser, evaluate, statusLine
   };
 });
