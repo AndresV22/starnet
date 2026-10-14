@@ -48,6 +48,8 @@
   }
 
   /* ---------- popover open/close (one at a time) ---------- */
+  // a toast already up re-seats above a dock menu that opens into its column, and drops back when it closes (rc walk #29)
+  const reseatToasts = () => { try { if (typeof StationUI !== 'undefined' && StationUI.reseatToasts) StationUI.reseatToasts(); } catch (e) { console.warn('[navdock] toast reseat:', (e && e.message) || e); } };
   function closeAll(except) {
     groups.forEach(g => {
       if (g === except) return;
@@ -59,6 +61,7 @@
       // a11y: if focus was inside the popover we just closed, hand it back to the trigger
       if (wasOpen && t && g.contains(document.activeElement)) { try { t.focus(); } catch (_) {} }
     });
+    reseatToasts();
   }
   // viaKeyboard: only a KEYBOARD-initiated open moves focus into the popover (menu-button pattern).
   // A mouse open must NOT transfer focus to the first item (TASKS in the WORK dock) — that invisible
@@ -77,11 +80,12 @@
       // re-clamp on the painted frame and once its opening animation settles.
       requestAnimationFrame(() => clampMenu(g));
       const openingMenu = g.querySelector('.bb-menu');
-      if (openingMenu) openingMenu.addEventListener('animationend', () => clampMenu(g), { once: true });
+      if (openingMenu) openingMenu.addEventListener('animationend', () => { clampMenu(g); reseatToasts(); }, { once: true });
+      requestAnimationFrame(reseatToasts);
       dismissCoach();   // they found the docks — retire the hint for good
       // a11y: on a keyboard open, move focus to the first menu item so the popover is navigable
       if (viaKeyboard) { const first = itemsOf(g)[0]; if (first) { try { first.focus(); } catch (_) {} } }
-    }
+    } else reseatToasts();   // this menu just closed: a raised toast drops back to its seat
     try { if (typeof SFX === 'object' && SFX[willOpen ? 'open' : 'close']) SFX[willOpen ? 'open' : 'close'](); } catch (_) {}
   }
 

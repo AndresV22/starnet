@@ -229,7 +229,7 @@ const Chat = (() => {
     let pill = el('comms-newpill');
     if (!pill) {
       pill = document.createElement('button'); pill.id = 'comms-newpill'; pill.type = 'button'; pill.className = 'comms-newpill';
-      pill.onclick = () => { if (typeof SFX !== 'undefined' && SFX.click) SFX.click(); jumpToBottom(); };
+      pill.onclick = () => { if (typeof SFX !== 'undefined' && SFX.press) SFX.press(); jumpToBottom(); };
       panel.appendChild(pill);
     }
     if (hasNew) pill.classList.add('hasnew');
@@ -310,9 +310,15 @@ const Chat = (() => {
     }
     return card;
   }
+  // the ask THIS conversation's live run is paused on. A background worker's ask (filed on the same conversation) never
+  // pauses it: the run keeps working, so its presence card must not read AWAITING APPROVAL for someone else's wait
+  function runPendingOf(ws) {
+    if (!ws || typeof Channels === 'undefined') return null;
+    return Channels.runPendingOf ? Channels.runPendingOf(ws.id) : Channels.pendingOf(ws.id);
+  }
   // derive the presence VERB from the same real state syncStatus() reads (pending approval > working > thinking)
   function presenceVerb() {
-    const p = (activeWs && typeof Channels !== 'undefined') ? Channels.pendingOf(activeWs.id) : null;
+    const p = runPendingOf(activeWs);
     // A clarify question rides the SAME consent transport as a permission grant, but it is not one:
     // "AWAITING APPROVAL / approve brief.ask" told the Commander to approve an internal tool name when
     // the run is simply waiting for them to answer a question (caught in shot review, 2026-08-14).
@@ -332,7 +338,7 @@ const Chat = (() => {
     // PAUSED-ON-APPROVAL: the run is stopped on the sidecar waiting for the Commander. Restyle the card so it
     // reads as a deliberate pause (no working pulse) and NAME the pending action — truth source is the same
     // Channels.pendingOf payload that renders the approval prompt, so this can never claim a pause that isn't real.
-    const pend = (activeWs && typeof Channels !== 'undefined') ? Channels.pendingOf(activeWs.id) : null;
+    const pend = runPendingOf(activeWs);
     const paused = !!pend;
     card.classList.toggle('paused', paused);
     const verb = card.querySelector('.cp-verb'); if (verb) verb.textContent = presenceVerb();
@@ -1150,7 +1156,7 @@ const Chat = (() => {
         }
         // TOOL CHIP: clicking a chip's head toggles its expanded detail (checked before the copy button)
         const chipHead = e.target.closest('.tc-head');
-        if (chipHead) { if (selecting) return; toggleChip(chipHead); if (typeof SFX !== 'undefined' && SFX.click) SFX.click(); return; }
+        if (chipHead) { if (selecting) return; toggleChip(chipHead); if (typeof SFX !== 'undefined' && SFX.press) SFX.press(); return; }
         // FENCED CODE: each block owns a copy control. Resolve the text from that exact wrapper so one click
         // never sweeps up the surrounding prose or a neighboring block in the same response.
         const codeBtn = e.target.closest('.md-copy');
@@ -1160,7 +1166,7 @@ const Chat = (() => {
           if (!codeEl) return;
           copyText(codeEl.textContent || '').then(ok => {
             showCopyResult(codeBtn, ok);
-            if (ok && typeof SFX !== 'undefined' && SFX.click) SFX.click();
+            if (ok && typeof SFX !== 'undefined' && SFX.press) SFX.press();
           });
           return;
         }
@@ -1170,7 +1176,7 @@ const Chat = (() => {
         if (!txt) return;
         copyText(txt).then(ok => {
           showCopyResult(btn, ok);
-          if (ok && typeof SFX !== 'undefined' && SFX.click) SFX.click();
+          if (ok && typeof SFX !== 'undefined' && SFX.press) SFX.press();
         });
       });
     }
@@ -1699,7 +1705,7 @@ const Chat = (() => {
     sel.__wired = true;
     sel.addEventListener('change', () => {
       const id = sel.value;
-      if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+      if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
       if (typeof App !== 'undefined' && App.selectAgent) App.selectAgent(id);
       // App.selectAgent → switchWorkstream → Chat.load → renderIdBar, so the model readout follows the switch.
     });
@@ -2234,7 +2240,8 @@ const Chat = (() => {
   // clobber the high-priority 'awaiting your approval…' after a switch-back. One source of truth.
   function syncStatus() {
     if (interview) { status('waking…'); stopElapsedTimer(); return; }
-    const p = (activeWs && typeof Channels !== 'undefined') ? Channels.pendingOf(activeWs.id) : null;
+    // a working run reads its OWN ask (a background worker waiting does not pause it); an idle one reads any ask filed here
+    const p = isBusy() ? runPendingOf(activeWs) : ((activeWs && typeof Channels !== 'undefined') ? Channels.pendingOf(activeWs.id) : null);
     const channelStatus = (activeWs && typeof Channels !== 'undefined' && Channels.statusOf) ? Channels.statusOf(activeWs.id) : '';
     // F2 (2026-07-14 adversarial sweep): the idle claim folds the REAL bridge health (World.linkState — the
     // same E1 predicate the topbar #sig / canvas LINK DOWN already read). A dead sidecar kept this label
@@ -2622,7 +2629,7 @@ const Chat = (() => {
       const open = bodyWrap.hidden; bodyWrap.hidden = !open;
       head.setAttribute('aria-expanded', open ? 'true' : 'false');
       d.classList.toggle('open', open);
-      if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+      if (typeof SFX !== 'undefined') ((open ? SFX.press : SFX.close) || SFX.press)();   // fold = close(), like a dock going back
     });
     if (open0) d.classList.add('open');
     d.appendChild(head); d.appendChild(bodyWrap);
@@ -3014,7 +3021,8 @@ const Chat = (() => {
     // blob URLs fetched FOR the lightbox are freed with it (the decoded thumbnail elsewhere keeps its own)
     if (lb.revokeUrl) { try { URL.revokeObjectURL(lb.revokeUrl); } catch (_) {} }
     lb.root.remove();
-    if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+    // closing is the docks' close() (the same sample pitched down), so direction still reads
+    if (typeof SFX !== 'undefined') (SFX.close || SFX.press)();
   }
   // `load` -> Promise<objectURL>; opts.revoke says the URL is ours to free on close (false for a staged
   // attachment's localUrl, which renderAttachStrip still owns and revokes on remove/clear).
@@ -3039,7 +3047,7 @@ const Chat = (() => {
     x.focus();
     lightbox = { root, onKey, revokeUrl: '' };
     const mine = lightbox;
-    if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
     Promise.resolve().then(load).then(u => {
       if (lightbox !== mine) {   // closed (or replaced) before the bytes arrived — free a URL we now own
         if (opts && opts.revoke) { try { URL.revokeObjectURL(u); } catch (_) {} }
@@ -3633,14 +3641,16 @@ const Chat = (() => {
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
     r.d.dataset.clarifyPrompt = String(p.promptId || ''); r.d.tabIndex = -1; r.d.dataset.liveAsk = '1';
     if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
-      const rid=ws && Channels.runIdOf(ws.id);
+      // the ask's own run id first, like the choice and approval cards: a background worker's question outlives the reply that started it
+      const rid=p.runId || (ws && Channels.runIdOf(ws.id));
       let answeredHere=false;
       const tc=TaskConversation.mount(r.body,Object.assign({},q,{asker:askerName(p,ws)}),async text=>{
         const result=await Harness.consentAnswer(rid,p.promptId,text,true);
         if(!result || !result.ok)return false;
         answeredHere=true;
         // the question is answered: say so on the bus like the approval card does, or the CREW card and the world pose stay "needs your OK"
-        try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once'});}catch(_){}
+        // via:'desk': a confirmed local answer names its surface, so no other card reads it as "from your phone"
+        try{if(typeof U!=='undefined'&&U.bus)U.bus.emit('permission.response',{promptId:p.promptId,decision:'once',via:'desk'});}catch(_){}
         if(ws)Channels.clearPending(ws.id,Date.now(),p.promptId);
         if(isActiveWs(ws)){renderPresence();syncStatus();}
         releaseCard(r.d);
@@ -3659,7 +3669,7 @@ const Chat = (() => {
           if(answeredHere){releaseCard(r.d);return;}
           if(ws&&typeof Channels!=='undefined')Channels.clearPending(ws.id,Date.now(),p.promptId);
           if(isActiveWs(ws))renderPresence();
-          if(tc&&tc.settle)tc.settle(resp.expired?'No answer in time — '+askerName(p,ws)+' used its judgment':'Answered'+settledWhere(resp));
+          if(tc&&tc.settle)tc.settle(resp.stopped?askerName(p,ws)+' stopped before an answer':resp.expired?'No answer in time — '+askerName(p,ws)+' used its judgment':resp.decision==='deny'?'Declined'+settledWhere(resp):'Answered'+settledWhere(resp));
           releaseCard(r.d);syncStatus();
         };
         U.bus.on('permission.response',onElsewhere);
@@ -3731,7 +3741,7 @@ const Chat = (() => {
       if (ws) settlePromptNotice(ws.id, p.promptId);
       // answered: tell the bus, as the approval card does — the CREW card's "needs your OK" frame and the world's
       // AWAITING pose clear on permission.response, and a question never emitted one (sweep 2026-10-02)
-      try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once' }); } catch (_) {}
+      try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: 'once', via: 'desk' }); } catch (_) {}
       if (ws && typeof Channels !== 'undefined') Channels.clearPending(ws.id, Date.now(), p.promptId);   // the wait never counts as run time
       if (isActiveWs(ws)) renderPresence();
       btns.remove(); hint.remove(); keepFocus(r.d); releaseCard(r.d);
@@ -3811,7 +3821,7 @@ const Chat = (() => {
         btns.remove(); hint.remove(); releaseCard(r.d);
         const tag = document.createElement('span');
         tag.className = 'consent-result' + (resp.decision === 'deny' ? ' err' : '');
-        tag.textContent = resp.expired ? '✕ no answer in time — the agent used its judgment' : resp.decision === 'deny' ? '✕ declined' + settledWhere(resp) : '✓ answered' + settledWhere(resp);
+        tag.textContent = resp.stopped ? '■ ' + askerName(p, ws) + ' stopped before an answer' : resp.expired ? '✕ no answer in time — the agent used its judgment' : resp.decision === 'deny' ? '✕ declined' + settledWhere(resp) : '✓ answered' + settledWhere(resp);
         r.body.appendChild(tag); if (why) r.body.appendChild(why);
         syncStatus();
       };
@@ -3843,11 +3853,21 @@ const Chat = (() => {
     if (id && settledPromptNotices.has(id)) return;
     if (id) { settledPromptNotices.add(id); if (settledPromptNotices.size > 200) settledPromptNotices.delete(settledPromptNotices.values().next().value); }
     const pending = typeof Channels !== 'undefined' && Channels.pendingAllOf ? Channels.pendingAllOf(wsId).filter(p => String(p.promptId) !== id) : [];
+    keepNeeds(wsId, pending);
+  }
+  // the conversation's one bell entry moves to the first ask still waiting, or settles once none is left
+  function keepNeeds(wsId, pending) {
     if (pending.length) {
       const next = pending[0], ws = (typeof Workstreams !== 'undefined' && Workstreams.get && Workstreams.get(wsId)) || { id: wsId, agentId: next.agentId };
       // quiet: the sibling was already announced; its bell entry moves to it without a second toast and chime
       if (StationUI.notify) StationUI.notify(askerName(next, ws) + (next.tool === 'brief.ask' ? ' still needs your answer' : ' still needs approval to ' + actionPhrase(next)), 'warn', 'needsApproval', { kind: 'needs', go: { ws: wsId }, key: 'needs:' + wsId, prompt: next.promptId, quiet: true });
     } else if (StationUI.settleNotifs) StationUI.settleNotifs('needs:' + wsId);
+  }
+  /* A RUN'S END SETTLES ITS OWN WAITS, NEVER A BACKGROUND WORKER'S (2026-10-14): such a worker files under the same key, often
+     mid-turn, and the end's blanket settle read "Handled" while NEEDS YOU and its row still waited. Its ask keeps the entry. */
+  function settleRunNeeds(wsId) {
+    if (!wsId || typeof StationUI === 'undefined') return;
+    keepNeeds(wsId, typeof Channels !== 'undefined' && Channels.pendingAllOf ? Channels.pendingAllOf(wsId).filter(p => p && p.background === true) : []);
   }
   // what settled a card it did not submit itself, in words. The sidecar's remote answer (a phone) carries no `via`; this
   // page's other surfaces (a worker's row, NEEDS YOU, voice) answer through answerConsent, which says which on the bus —
@@ -3905,17 +3925,26 @@ const Chat = (() => {
   }
   /* A STOPPED RUN TAKES ITS OPEN CARDS WITH IT (live walkthrough 2026-10-13): after STOP the run's approval card kept
      live Approve once / Always / Full access / Deny keys while NEEDS YOU and the toast had already cleared — a key that
-     answers nothing. promptId -> { wsId, runId, worker, retire(text) }; retireOpenConsents runs at the run's end. */
+     answers nothing. promptId -> { wsId, runId, worker, background, retire(text) }; retireOpenConsents runs at the run's
+     end. A BACKGROUND worker's ask (background:true — the station keeps it open past the lead's turn, and its runId IS the
+     lead's) is never retired by a run's end: it settles through its own permission.response, or retireConsentCard when the
+     reconnect snapshot no longer lists it (2026-10-14 review: such a card read "nothing was approved" with the ask live). */
   const openConsentCards = new Map();
   function retireOpenConsents(wsId, runId) {
     for (const [id, c] of openConsentCards) {
-      if (c.wsId !== wsId) continue;
-      // a background worker's ask can outlive its lead's run — only this run's own cards (or unattributed lead cards) retire
+      if (c.wsId !== wsId || c.background) continue;
+      // a delegated worker's ask can outlive its lead's run — only this run's own cards (or unattributed lead cards) retire
       if (c.runId ? c.runId !== runId : c.worker) continue;
-      openConsentCards.delete(id);
-      try { c.retire('■ the run ended before an answer — nothing was approved'); } catch (e) { if (typeof console !== 'undefined') console.warn('[comms] retire card failed', e); }
+      retireConsentCard(id, '■ the run ended before an answer — nothing was approved');
     }
     for (const [id, a] of askAnswerers) if (a.wsId === wsId) askAnswerers.delete(id);   // its questions are gone with it
+  }
+  function retireConsentCard(promptId, text) {
+    const id = String(promptId || ''), c = openConsentCards.get(id);
+    if (!c) return false;
+    openConsentCards.delete(id);
+    try { c.retire(text); } catch (e) { if (typeof console !== 'undefined') console.warn('[comms] retire card failed', e); }
+    return true;
   }
   function permissionRow(p, ws) {
     if (p && p.tool === 'brief.ask') return clarifyRow(p, ws);   // a question, not a grade — its own card
@@ -4008,13 +4037,14 @@ const Chat = (() => {
         // the grade the station applied, in this card's own words: a card with no Always key (station.power,
         // plugin.submit, the login window) grants this one call whatever grade another surface sent. An answer given
         // on this page (voice, a worker's row, NEEDS YOU) names its own surface, not the phone
-        tag.textContent = resp.expired ? '✕ no answer in time — denied' : settledLabel(resp, labels);
+        // stopped: a background worker stopped while its ask waited (the station says so) — it was never left unanswered
+        tag.textContent = resp.stopped ? '■ ' + askerName(p, ws) + ' stopped before an answer — nothing was approved' : resp.expired ? '✕ no answer in time — denied' : settledLabel(resp, labels);
         r.body.appendChild(tag);
         syncStatus();
       };
       U.bus.on('permission.response', onElsewhere);
     }
-    if (ws && p && p.promptId) openConsentCards.set(String(p.promptId), { wsId: ws.id, runId: String(p.runId || ''), worker: !!(p.workerAgentId || p.workerRunId),
+    if (ws && p && p.promptId) openConsentCards.set(String(p.promptId), { wsId: ws.id, runId: String(p.runId || ''), worker: !!(p.workerAgentId || p.workerRunId), background: p.background === true,
       retire: (text) => {
         if (decided) return;
         decided = true;
@@ -4081,6 +4111,78 @@ const Chat = (() => {
         { kind: 'needs', go: { ws: ws.id }, key: 'needs:' + ws.id, prompt: ev && ev.promptId });
     }
     try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
+  }
+
+  /* A BACKGROUND WORKER'S ASK (2026-10-13). A worker handed off in the background (team.dispatch background:true) runs on
+     after the reply that started it ended, so its approvals can never ride that reply's stream: the sidecar announces them
+     on the station bus (background:true, stamped with the conversation that handed the work off and the run id to answer
+     with — index.js askHuman), and the reconnect snapshot lists them while they wait. File each one under that
+     conversation exactly like a live run's own ask (Channels → its worker row's Approve once / Deny + Inspect, NEEDS YOU,
+     the bell) and attest it is on screen (consentAck → the one bounded extension). The answer goes through answerConsent
+     → POST /api/consent with that runId; its permission.response (here or from any other surface) clears it. */
+  function backgroundAskHome(ev) {
+    if (typeof Workstreams === 'undefined' || !Workstreams.get) return null;
+    const direct = ev.streamId ? Workstreams.get(ev.streamId) : null;
+    if (direct) return direct;
+    const thread = ev.workerStreamId ? Workstreams.get(ev.workerStreamId) : null;
+    return (thread && thread.parentStreamId && Workstreams.get(thread.parentStreamId)) || null;
+  }
+  function fileBackgroundAsk(ev) {
+    if (!ev || ev.background !== true || !ev.promptId || !ev.runId || typeof Channels === 'undefined') return false;
+    const ws = backgroundAskHome(ev);
+    if (!ws) return false;   // no conversation on this page handed this work off: the surface that did answers it
+    if (Channels.pendingAllOf(ws.id).some(x => x && String(x.promptId) === String(ev.promptId))) return true;   // already filed
+    Channels.setPending(ws.id, Object.assign(pendingFrom(ev, ws), { runId: String(ev.runId), agentId: ev.leadAgentId || ev.agentId || ws.agentId, background: true }));
+    if (isActiveWs(ws)) { permissionRow(ev, ws); syncStatus(); } else backgroundPermissionNotify(ev, ws);
+    try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (e) { console.warn('[comms] rail refresh after a background ask failed', e); }
+    try {
+      Promise.resolve(Harness.consentAck(ev.runId, ev.promptId)).then(v => { if (!(v && v.ok)) consentAckFailed(ws, ev, v); },
+        e => consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) }));
+    } catch (e) { consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) }); }
+    return true;
+  }
+  if (typeof U !== 'undefined' && U.bus && U.bus.on) U.bus.on('permission.prompt', fileBackgroundAsk);
+  /* The reconnect snapshot (world.js fetchSnapshot: every bridge (re)open, then every 30 s) is the station's own list of
+     open asks. A background ask this page never heard (it reloaded, or the bridge was down) is announced on the page bus
+     the way the bridge would have — so the worker's row, NEEDS YOU, the bell, CREW and the floor all learn it at once. A
+     filed background ask the station no longer lists, and that is older than the snapshot, was settled while this page
+     was not listening: it is withdrawn here (no decision is claimed for it — its fallback card says only that it no longer
+     waits). Each ask is announced ONCE per page life (`reannounced`, pruned when the station stops listing it): one this
+     page cannot file (its conversation is not here yet) is filed quietly by a later snapshot once it can be, never
+     re-announced to every listener every 30 s. An ask this page already settled is never revived by a snapshot taken
+     just before that answer landed. */
+  const reannounced = new Set();
+  function reconcileBackgroundAsks(snap) {
+    if (!snap || !Array.isArray(snap.prompts) || typeof Channels === 'undefined' || !Channels.allPending) return;
+    const open = new Set();
+    let filedLate = 0;
+    for (const row of snap.prompts) {
+      if (!row || row.background !== true || !row.promptId) continue;
+      const id = String(row.promptId);
+      open.add(id);
+      if (settledPromptNotices.has(id) || Channels.allPending().some(x => x.p && String(x.p.promptId) === id)) continue;
+      const ev = { promptId: row.promptId, agentId: row.leadAgentId || 'agent', tool: row.tool, scope: row.scope, argsSummary: row.argsSummary || '',
+        workerAgentId: row.workerAgentId || '', workerRunId: row.workerRunId || '', workerStreamId: row.workerStreamId || '', askedAt: row.askedAt || Date.now(),
+        background: true, runId: row.runId, streamId: row.streamId || '' };
+      if (reannounced.has(id)) { if (fileBackgroundAsk(ev)) filedLate++; continue; }
+      reannounced.add(id);
+      if (typeof U !== 'undefined' && U.bus && U.bus.emit) U.bus.emit('permission.prompt', ev); else fileBackgroundAsk(ev);
+    }
+    for (const id of reannounced) if (!open.has(id)) reannounced.delete(id);
+    const asOf = Number(snap.ts) || 0;
+    let withdrawn = 0;
+    for (const { wsId, p } of Channels.allPending()) {
+      if (!p || p.background !== true || open.has(String(p.promptId)) || !asOf || !(Number(p.askedAt) < asOf - 5000)) continue;
+      Channels.clearPending(wsId, Date.now(), p.promptId);
+      settlePromptNotice(wsId, p.promptId);
+      retireConsentCard(p.promptId, '■ no longer waiting on you');
+      withdrawn++;
+    }
+    if (!withdrawn && !filedLate) return;
+    if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint();
+    if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
+    try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (e) { console.warn('[comms] rail refresh after a settled background ask failed', e); }
+    syncStatus();
   }
 
   // ── "RATE THE WORK" — the PRIMARY leveling beat. After a run that actually DID work, the Commander gives a
@@ -7848,7 +7950,7 @@ const Chat = (() => {
     if (typeof GoalLoop !== 'undefined') { const g = goalOf(activeWs); if (g && GoalLoop.isActive(g)) { GoalLoop.pause(g, 'you stopped the run'); persistGoal(); } }
     if (typeof Channels !== 'undefined' && Channels.clearPending) Channels.clearPending(id, Date.now());   // a pending approval is moot once stopped
     status('stopping…'); updateControls();
-    if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+    if (typeof SFX !== 'undefined') (SFX.close || SFX.press)();   // STOP winds a run down: the docks' close() cue
     // runs only once the stop is CONFIRMED (or there was no run id to kill): the run's open approval cards go dead with it
     const localAbort = () => { retireOpenConsents(id, (typeof Channels !== 'undefined' && Channels.runIdOf(id)) || ''); const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
     const rid = (typeof Channels !== 'undefined') ? Channels.runIdOf(id) : null;
@@ -7897,7 +7999,7 @@ const Chat = (() => {
     const id = activeWs.id;
     const arr = queued.get(id) || []; arr.push(text); queued.set(id, arr);
     renderQueued();
-    if (typeof SFX !== 'undefined' && SFX.type) SFX.type();
+    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
   }
   function sendOrQueue(text) {
     const value = String(text == null ? '' : text).trim();
@@ -8213,7 +8315,7 @@ const Chat = (() => {
         b.textContent = ok ? '✓ diagnostics copied — paste into your report' : (text ? 'copy blocked — report shown below' : 'could not read diagnostics');
         if (!ok && !text) { b.disabled = false; return; }   // nothing was read — a later retry can still succeed
         if (!ok) { if (Diag.showBlock) { Diag.showBlock(rowEl, { text: text }); autoscroll(); } return; }
-        if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+        if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
         setTimeout(() => { try { rowEl.remove(); } catch (_) {} }, 2600);
       } });
     });
@@ -8323,7 +8425,7 @@ const Chat = (() => {
     try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (_) {}
     try { if (typeof App !== 'undefined' && App.persist) App.persist(); } catch (_) {}
   }
-  function streamLabel(w) { return (w && (w.title || (w.id === (typeof Workstreams !== 'undefined' && Workstreams.generalId && Workstreams.generalId()) ? 'General' : 'Untitled'))) || 'current stream'; }
+  function streamLabel(w) { return (w && (typeof Workstreams !== 'undefined' && Workstreams.titleOf ? Workstreams.titleOf(w) : (w.title || 'New session'))) || 'current stream'; }
   function workstreamList() {
     try { return (typeof Workstreams !== 'undefined' && Workstreams.list) ? Workstreams.list() : []; } catch (_) { return []; }
   }
@@ -8553,7 +8655,7 @@ const Chat = (() => {
   function branchWorkstreamCommand(args) {
     if (!activeWs || typeof Workstreams === 'undefined' || !Workstreams.create) return localLine('No active workstream to branch.');
     const src = activeWs;
-    const title = String(args || '').trim() || ((src.title || 'General') + ' branch');
+    const title = String(args || '').trim() || (Workstreams.titleOf(src) + ' branch');
     const ws = Workstreams.create(title, { agentId: src.agentId || 'agent', kind: src.kind === 'task' ? 'task' : 'chat' });   // a branch inherits the SOURCE stream's kind
     ws.history = (src.history || []).map(m => Object.assign({}, m));
     ws.lane = 'todo';
@@ -9516,7 +9618,7 @@ const Chat = (() => {
     if (!item) { closeSlash(); return; }
     const rawInput = input ? input.value : '';
     input.value = ''; closeSlash(); autoGrowInput();   // consume the "/query"; a recipe's run() then refills the input
-    if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
     // Try the sidecar for anything server-backed OR anything with no local action at all. The second half
     // matters on a cold start: before the catalog fetch lands, /away and /routine are only known from the
     // FALLBACK list (serverBacked === false) and have no handler — without this they would refuse without ever
@@ -10058,7 +10160,7 @@ const Chat = (() => {
         // chip). Guarded on thisRunId: no run started → nothing was filed, nothing to settle.
         if (thisRunId && typeof Workstreams !== 'undefined' && Workstreams.noteRunEnd) Workstreams.noteRunEnd(ws.id, thisRunId, false);
         if (typeof StationUI !== 'undefined') StationUI.notify(isActiveWs(ws) ? brief(v.userMessage) : whoOf(ws) + ' hit a problem' + sessionNote(ws) + ': ' + brief(v.userMessage), 'warn', undefined, isActiveWs(ws) ? undefined : { kind: 'alert', go: { ws: ws.id } });
-        if (typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // the run is over: nothing is waiting on you any more
+        settleRunNeeds(ws.id);   // the run is over: its own asks are no longer waiting on you (a background worker's still is)
         if (isActiveWs(ws)) resolvePresence(ws, { error: true });   // COMMS-PREMIUM: presence card resolves red
         if (isActiveWs(ws)) offerRetry(v);   // RETRY: context-aware recovery chip (retry / Settings / SKILLS / none)
         }
@@ -10152,7 +10254,7 @@ const Chat = (() => {
         // a CLEAN end that hit an unwired connector mid-run: the reply already says "not connected" — the chip is
         // the door. Only on a clean end: a stopped run owns the slot with its retry/budget chip above.
         if (thisRunId) notedRuns.delete(thisRunId);
-        if (!taskQuestion && endReason !== 'clarifying' && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('needs:' + ws.id);   // the run is over: its approvals/questions are no longer waiting
+        if (!taskQuestion && endReason !== 'clarifying') settleRunNeeds(ws.id);   // the run is over: its approvals/questions are no longer waiting (a background worker's still is)
         retireOpenConsents(ws.id, thisRunId || '');   // ...and its open approval cards say so instead of keeping live keys
         if (!taskQuestion && (!endReason || endReason === 'done')) offerConnectorDoor(thisRunId, ws);
         if (taskQuestion || endReason === 'clarifying') holdConnectorDoor(thisRunId, ws);   // the question owns the slot (parsed here, or restored from the store below); its card carries the door
@@ -10524,11 +10626,11 @@ const Chat = (() => {
           if (on) picked.add(it.value); else picked.delete(it.value);
           b.classList.toggle('sel', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
           b.textContent = (on ? '✓ ' : '') + it.label;   // the fill alone does not read as ON
-          if (typeof SFX !== 'undefined') SFX.click();
+          if (typeof SFX !== 'undefined') SFX.press();
           syncConfirm();
           return;
         }
-        done = true; activeChoiceRows.delete(rowEl); rowEl.remove(); if (typeof SFX !== 'undefined') SFX.click();
+        done = true; activeChoiceRows.delete(rowEl); rowEl.remove(); if (typeof SFX !== 'undefined') SFX.press();
         onPick(it.confirm ? Object.assign({}, it, { values: (items || []).filter(x => !x.skip && !x.confirm && picked.has(x.value)).map(x => x.value) }) : it);
       };
       if (multi && it.confirm) { confirmBtn = b; b.classList.add('confirm'); syncConfirm(); }
@@ -10611,5 +10713,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
+  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
 })();

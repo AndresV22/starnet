@@ -6761,8 +6761,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // a skill evaluation row (kind 'evaluation') may have finished: what it lacks is a price, so it is never counted
         // as an interrupted run; a mix of both kinds gets the wording that is true of each
         const evals = open ? st.unsettled.filter(r => r && r.kind === 'evaluation').length : 0;
-        const missing = evals === open
+        // an unreadable line of the spend record (kind 'damaged') is not a run: say what it is
+        const damagedLines = open ? st.unsettled.filter(r => r && r.kind === 'damaged').length : 0;
+        const missing = damagedLines === open
+          ? (open === 1 ? 'a line of your spend record is damaged (what it recorded is unknown)' : open + ' lines of your spend record are damaged (what they recorded is unknown)')
+          : evals === open
           ? (open === 1 ? 'a skill evaluation run has no recorded price' : open + ' skill evaluation runs have no recorded price')
+          : damagedLines ? open + ' items in your spend history have no recorded charge'
           : evals ? open + ' runs never recorded what they spent'
             : (open === 1 ? 'an interrupted run never recorded what it spent' : open + ' interrupted runs never recorded what they spent');
         const floor = (st.atLeast && typeof st.atLeast.today === 'number') ? ' At least ' + fmtUsd(st.atLeast.today) + ' today.' : '';
@@ -6800,7 +6805,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             refresh();
             return;
           }
-          paint(j); setMsg('✓ ' + (r.kind === 'evaluation' ? 'skill evaluation run' : 'interrupted run') + ' settled — its spend is in your history', true); sfx('click');
+          paint(j); setMsg('✓ ' + (r.kind === 'evaluation' ? 'skill evaluation run' : r.kind === 'damaged' ? 'damaged record line' : 'interrupted run') + ' settled — its spend is in your history', true); sfx('click');
         })
         .catch(() => { setMsg('could not reach the sidecar'); sfx('bad'); btns.forEach(b => { b.disabled = false; }); });
     };
@@ -6821,7 +6826,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // A skill evaluation run (budgetUnsettledRuns tags it kind 'evaluation' from its runId, which survives a restart)
         // may well have finished: what it lacks is a recorded price, so it reads UNPRICED, never INTERRUPTED.
         const evaluation = r.kind === 'evaluation';
-        row.setAttribute('data-tip', (evaluation ? 'This skill evaluation run has no recorded price: its provider usage came back without one, or the call failed or was cut off'
+        // a DAMAGED record line (sidecar ledgerIo): one line of the spend record could not be read, so its charge is
+        // unknown. It is never rewritten or deleted; settling it books the verified charge once and history is whole again.
+        const damaged = r.kind === 'damaged';
+        if (damaged) row.setAttribute('data-tip', 'One line of your spend record could not be read (an older crash can leave a torn line), so what it recorded is unknown' +
+          (r.model ? ' (it names ' + r.model + ')' : '') + '. Match it to StarNet Recent Activity or your provider billing records, then enter only its verified charge: StarNet books it once, keeps the damaged line untouched, and your spending limits can be checked again.');
+        else row.setAttribute('data-tip', (evaluation ? 'This skill evaluation run has no recorded price: its provider usage came back without one, or the call failed or was cut off'
           : 'This run stopped before StarNet recorded what it spent') +
           (managed ? ' (it ran on your StarNet credits' + (r.model ? ', ' + r.model : '') + ')' : (where ? ' (it started on ' + where + ')' : '')) +
           (managed ? '. Enter what StarNet charged for it — SETTINGS → AI & MODELS › STORE › RECENT ACTIVITY lists those charges as ' + creditRunTag(r.runId)
@@ -6830,10 +6840,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         what.className = 'bg-un-what';
         const name = document.createElement('b');
         name.textContent = String(r.title || r.agentId || 'a run').slice(0, 80);
-        what.appendChild(document.createTextNode(evaluation ? 'UNPRICED — ' : 'INTERRUPTED — '));
+        what.appendChild(document.createTextNode(damaged ? 'DAMAGED RECORD — ' : evaluation ? 'UNPRICED — ' : 'INTERRUPTED — '));
         what.appendChild(name);
         what.appendChild(document.createTextNode(' · ' + whenOf(r.ts)));
-        if (!managed && !byok) what.appendChild(document.createTextNode(' · BILLING SOURCE UNKNOWN'));
+        if (!managed && !byok && !damaged) what.appendChild(document.createTextNode(' · BILLING SOURCE UNKNOWN'));
         const usd = document.createElement('input');
         usd.className = 'key-input bg-cap bg-un-usd';
         usd.type = 'number'; usd.min = '0'; usd.step = '0.01'; usd.placeholder = '$ charged';
@@ -9218,6 +9228,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (kind && !(opts && opts.transient)) {
       const key = (opts && opts.key) || '';
       if (key) store.notifs = store.notifs.filter(n => !(n.key === key && !n.done));   // one entry per live condition
+      // the same ask filed again is still waiting (after a reload, reapDeadPrompts marks the earlier life's entry handled,
+      // then the snapshot re-files the background worker's ask it belongs to): the stale entry goes, so one ask never reads
+      // both Handled and Waiting on you
+      if (opts && opts.prompt) store.notifs = store.notifs.filter(n => !(n.done && n.kind === 'needs' && n.prompt === String(opts.prompt)));
       rec = { id: uid('n'), t: Date.now(), txt: String(text || ''), cls: cls || '', read: false, kind };
       if (go) rec.go = go;
       if (key) rec.key = key;
@@ -9232,7 +9246,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (opts && opts.quiet && rec) return;
     let tOpts = opts;
     if (go && !(opts && opts.onClick)) tOpts = Object.assign({}, opts, { onClick: () => openNotif(rec, go) });
-    toast(String(text || ''), cls || '', pref.sound, tOpts);
+    // opts.silent: a receipt for a press the user JUST made (a model/effort pick) — the press already sounded, a bell on top is noise
+    toast(String(text || ''), cls || '', (opts && opts.silent) ? false : pref.sound, tOpts);
   }
   function goToNotif(go) {
     if (!go) return false;
@@ -9286,6 +9301,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      SIZE flip dispatches a synthetic resize, so that path is covered too).
      Fail open, never closed: a screen that isn't the station — or a frame mid-boot — leaves the
      CSS fallbacks alone rather than seating the rack against a degenerate rect. */
+  /* WHERE A DOCK MENU'S TOP WILL REST (review of rc walk #29): its pop-in (panelchrome pc-menu-in) starts 5px low and a hair
+     small, so the first rect overstates the top and a raised toast overlapped the opening menu by ~2px until animationend.
+     The menu's LAYOUT box ignores transforms: offsetTop against its positioned dock group, scaled by that group's own
+     visual/local ratio (so the text-size zoom is never guessed). Falls back to the painted rect when the layout can't be read. */
+  function menuRestTop(menu, mr) {
+    const g = menu && menu.offsetParent;
+    const gr = g && g.getBoundingClientRect ? g.getBoundingClientRect() : null;
+    if (!gr || !(gr.height > 0) || !(g.offsetHeight > 0) || typeof menu.offsetTop !== 'number') return mr.top;
+    return Math.min(mr.top, gr.top + menu.offsetTop * (gr.height / g.offsetHeight));
+  }
   function seatToastRack(stack) {
     if (!stack || typeof document === 'undefined') return;
     const game = document.getElementById('screen-game');
@@ -9309,13 +9334,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       ? coach.getBoundingClientRect() : null;
     let floor = window.innerHeight - stage.bottom;
     if (cr && cr.height > 0) floor = Math.max(floor, window.innerHeight - cr.top + 6);
+    /* AN OPEN DOCK MENU IS NEVER COVERED (rc walk #29: an approval toast landed on the open BUILD menu, over CONNECT / NEW APP).
+       The rack stacks above a dock popover that reaches into its column, the way it stacks above the coach; navdock re-seats
+       it when a menu opens or closes. */
+    const rackW = Math.min(356, cap > 0 ? cap : 356) * z;   // the rack's own column, visual px (its CSS width cap, #toast-stack)
+    document.querySelectorAll('#bottombar .bb-group.open .bb-menu').forEach(menu => {
+      const mr = menu.getBoundingClientRect ? menu.getBoundingClientRect() : null;
+      if (mr && mr.height > 0 && mr.left < bar.left + rackW && mr.right > bar.left) floor = Math.max(floor, window.innerHeight - menuRestTop(menu, mr) + 6);
+    });
     stack.style.setProperty('--toast-x', (bar.left / z) + 'px');
     stack.style.setProperty('--toast-b', (floor / z) + 'px');
     if (cap > 0) stack.style.setProperty('--toast-cap', cap + 'px');
   }
   // a card that is already up must follow the cabinet too — its seat is measured, not declarative,
   // so the resize path re-runs it (a TEXT SIZE flip dispatches a synthetic resize, so that is covered).
-  function reseatToasts() { try { seatToastRack(document.getElementById('toast-stack')); } catch (_) {} }
+  // an empty rack is invisible and is seated again when its next card is emitted: no layout read for a menu click with no card up
+  function reseatToasts() { try { const st = document.getElementById('toast-stack'); if (st && st.childElementCount) seatToastRack(st); } catch (_) {} }
   // transient on-screen toast — a station readout card that seats in, holds for its dwell, then leaves.
   // The persistent record still lives in the NOTIFICATIONS panel (buildNotifs); this is the
   // ephemeral heads-up so a result isn't silent when that panel is closed.
@@ -11690,7 +11724,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // GROWTH Tier 3: repaint the Settings AUTONOMY panel's EARNED badge if it is open (no-op otherwise — the paint fn
   // queries its own (possibly detached) host nodes, so a closed panel costs nothing). Called after a trust accept.
   const repaintAutonomy = () => { try { if (repaintAutonomyDial) repaintAutonomyDial(); } catch (_) {} };
-  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState };
+  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, showTerm, showAgent, notifsMarkRead, notifsClear, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { visibleTerminalRect, clampTerminalSize };

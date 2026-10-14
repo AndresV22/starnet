@@ -370,6 +370,9 @@
     if (/interrupted before its spend was recorded/.test(low)) {
       return "Your spending limits can't be checked — an earlier run stopped before StarNet recorded what it spent, so this run was stopped. Settle that run in SETTINGS › SPENDING LIMITS.";
     }
+    if (/line of the spend record is damaged/.test(low)) {
+      return "Your spending limits can't be checked — a line of StarNet's spend record is damaged, so what it recorded is unknown and this run was stopped. Settle it in SETTINGS › SPENDING LIMITS.";
+    }
     if (/could not be saved to disk/.test(low)) {
       return "Your spending limits can't be checked — StarNet couldn't save its spend history to disk, so this run was stopped. Restart StarNet to recover it; SETTINGS › SPENDING LIMITS shows the details.";
     }
