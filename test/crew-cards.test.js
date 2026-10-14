@@ -204,8 +204,8 @@ function load(startAt = 1000000) {
 {
   const chat = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'chat.js'), 'utf8');
   const clar = chat.slice(chat.indexOf('function clarifyRow('), chat.indexOf('function permissionRow('));
-  A.ok((clar.match(/U\.bus\.emit\('permission\.response', ?\{ ?promptId: ?p\.promptId, ?decision: ?'once' ?\}\)/g) || []).length === 2,
-    'both question paths (buttons and the conversation) announce the answer on the bus');
+  A.ok((clar.match(/U\.bus\.emit\('permission\.response', ?\{ ?promptId: ?p\.promptId, ?decision: ?'once', ?via: ?'desk' ?\}\)/g) || []).length === 2,
+    'both question paths (buttons and the conversation) announce the local desk answer on the bus');
   const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
   A.ok(/onAutoDeny: \(promptId\) => \{ try \{ emit\('permission\.response', \{ promptId, decision: 'deny', expired: true \}\);/.test(idx),
     'a prompt that expired or lost its run is announced on the run stream');
