@@ -2349,7 +2349,7 @@
       "surfaceLocators": [
         {
           "path": "frontend/app/stationui.js",
-          "needle": "ASK respects the selected reach profile and pauses before risky calls."
+          "needle": "ASKS FIRST respects the selected reach profile and pauses before risky calls."
         }
       ],
       "authorityChecks": [
@@ -2668,7 +2668,7 @@
       "surfaceLocators": [
         {
           "path": "frontend/app/stationui.js",
-          "needle": "Reusable procedures this agent created or learned"
+          "needle": "created or learned. These appear as a compact index in"
         }
       ],
       "authorityChecks": [
