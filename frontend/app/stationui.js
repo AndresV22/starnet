@@ -7227,21 +7227,25 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { key: 'maxSubscriptionTokens', label: 'CLAUDE CODE TOKEN CEILING', hint: 'tokens one run may use on a Claude subscription sign-in (cache re-reads count 1/10). 0 = no ceiling.', min: 0, max: 100000000, step: 100000 }
   ];
   /* the STANDING APPROVALS heading's tip (org P02): when an ask nobody answers is denied, in minutes, and where to change
-     it. The number is the sidecar's own CONSENT TIMEOUT (GET /api/runtime/knobs, effective) and its ack bound — an ask
-     whose card is on screen waits 5× as long, capped at 15 min (sidecar CONSENT_ACK_EXTEND_MS). Unknown → no number. */
+     it. The number is the deadline the sidecar ENFORCES now (GET /api/runtime/knobs consentTimeoutMs.live — frozen at
+     boot) and its ack bound (liveAckMs: an ask whose card is on screen waits 5× as long, capped at 15 min). A CONSENT
+     TIMEOUT saved (or cleared) since boot is not enforced yet: the tip says it changes after a restart, never states it as the
+     deadline. Unknown → no number. */
   function consentMinutes(ms) { const m = Math.round(Number(ms) / 6000) / 10; return (m >= 10 ? Math.round(m) : m) + ' min'; }
-  function consentTipText(ms) {
+  function consentTipText(ms, ackMs, nextMs) {
     const where = ' · change it in APP & BACKUP › Runtime limits';
     if (!(Number(ms) > 0)) return 'unanswered asks are denied on a timer' + where;
-    const seen = Math.min(Number(ms) * 5, 900000);
-    return 'unanswered asks are denied after ' + consentMinutes(ms) + ' (' + consentMinutes(seen) + ' once the card is on screen)' + where;
+    const seen = Number(ackMs) > 0 ? Number(ackMs) : Math.min(Number(ms) * 5, 900000);
+    const next = Number(nextMs) > 0 && Number(nextMs) !== Number(ms) ? ' · changes to ' + consentMinutes(nextMs) + ' after a restart' : '';
+    return 'unanswered asks are denied after ' + consentMinutes(ms) + ' (' + consentMinutes(seen) + ' once the card is on screen)' + next + where;
   }
   function paintConsentTip(host) {
     const h = host && host.querySelector ? host.querySelector('#perm-standing-h') : null;
     if (!h || typeof Harness === 'undefined' || !Harness.api || !Harness.api.get) return;
     Harness.api.get('/api/runtime/knobs').then(st => {
       const f = st && st.fields && st.fields.consentTimeoutMs;
-      if (f && Number(f.effective) > 0) h.setAttribute('data-tip', consentTipText(f.effective));
+      // only the enforced (boot-frozen) deadline is stated; a sidecar that does not report it keeps the numberless tip
+      if (f && Number(f.live) > 0) h.setAttribute('data-tip', consentTipText(f.live, f.liveAckMs, f.effective));
     }).catch(e => { if (typeof console !== 'undefined') console.warn('[permissions] consent timeout tip unavailable', e); });   // the numberless tip stays
   }
   function wireAdvanced(body) {

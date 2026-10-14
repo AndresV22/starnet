@@ -14309,6 +14309,10 @@ function runtimeKnobsStatus() {
     const effective = resolveKnob(d.env, d.key, d.def);
     fields[d.key] = { effective, default: d.def, saved, envLocked: locked, min: d.min, max: d.max };
   }
+  // the consent deadline the waiters ENFORCE right now: frozen at boot, so a value saved since then is `effective` but not
+  // yet `live` (org P02 — the STANDING APPROVALS tip states only this, never an unapplied number)
+  fields.consentTimeoutMs.live = CONSENT_TIMEOUT_MS;
+  fields.consentTimeoutMs.liveAckMs = CONSENT_ACK_EXTEND_MS;
   return { fields };
 }
 function handleRuntimeKnobsGet(req, res) {
