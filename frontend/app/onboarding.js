@@ -655,9 +655,10 @@ const Onboarding = (() => {
         ...(!interviewOnly ? [{ label: 'Quick setup — ' + quickSays, value: 'quick' }] : []),
         // the pace hint rides IN the label (no sentence under a choice). Only the quick path carries a count: the talks
         // ask the opening, its follow-ups (loose 1, deep FOLLOWUP_BUDGET), the mission and the cadence, so a second
-        // "three" there read no longer than quick's three (P31 polish). The labels step up: short, then in depth.
+        // "three" there read no longer than quick's three (P31 polish). The labels step up: short, then in depth, each one
+        // short enough to stay on one line of its choice key.
         { label: 'A short conversation — your work and goals', value: 'loose' },
-        { label: 'Let’s talk it through — your work and goals, in depth', value: 'deep' }
+        { label: 'Let’s talk it through — your goals, in depth', value: 'deep' }
       ]
     });
     if (!running) return;

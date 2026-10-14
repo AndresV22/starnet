@@ -55,7 +55,7 @@ async function quickRun(answers, stopAt, wake = false, mind = null, receipts = [
   // org P31: the quick label counts what it really asks — no station pick on offer here, so two questions — and only it
   // carries a count: the talks step up (short, then in depth) instead of a second "three" that read no longer than quick
   assert.deepEqual(Array.from(result.prompts[0].options, o => o.label),
-    ['Quick setup — two questions', 'A short conversation — your work and goals', 'Let’s talk it through — your work and goals, in depth']);
+    ['Quick setup — two questions', 'A short conversation — your work and goals', 'Let’s talk it through — your goals, in depth']);
   assert(/start with two setup questions/.test(result.prompts[0].lines[0].text), 'the greeting counts the same two');
   // a fresh starter room offers the lead's station pick, so the quick path is THREE questions, numbered 1-3 of 3
   const stations = { fresh: () => true, recommend: () => 'studio', apply: () => ({ ok: true }),
