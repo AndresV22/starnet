@@ -1178,3 +1178,5 @@ test/group-add.test.js
 test/group-kickoff.test.js
 
 test/ask-cards-readable.test.js
+
+test/desktop-custom-truth.test.js

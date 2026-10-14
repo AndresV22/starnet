@@ -525,7 +525,9 @@ const Harness = (() => {
     if (p === 'grok' || p === 'kimi') return DESKTOP ? !!_configuredByProvider[p] : (getProv() === p);
     if (p === 'ollama') return false;                      // an endpoint is configuration, never a credential
     if (p === 'claude-cli') return false;                  // the local CLI's own sign-in is not a StarNet credential
-    if (p === 'custom' && !getKey(p)) return false;        // a keyless custom endpoint must not manufacture a key row
+    // a keyless custom endpoint must not manufacture a key row. On desktop getKey is '' by design, so the keychain
+    // map below is the custom key's only truth (GitHub #111: a saved desktop CUSTOM key read as keyless).
+    if (p === 'custom' && !DESKTOP && !getKey(p)) return false;
     if (DESKTOP) return !!(_configuredByProvider[p] || (p === 'openrouter' && _configured));
     if (!!readScoped(LS.key, p)) return true;              // a real key is stored in this browser
     // DEV seed: the host may hold a server-side runtime key for the seeded provider. It is not a given —
@@ -730,13 +732,17 @@ const Harness = (() => {
   const getProv = () => normalizeProviderId(localStorage.getItem(LS.prov) || 'openrouter');
   const setProv = p => { selectionRevision++; localStorage.setItem(LS.prov, normalizeProviderId(p || 'openrouter')); };
   const getBaseUrl = provider => readScoped(LS.baseUrl, provider);
+  // GitHub #111: a rejected desktop endpoint store used to be swallowed, so SETTINGS said "saved" while the station never
+  // got the endpoint. setBaseUrl still never rejects; it resolves the failure in the { engine } shape warnIfStationLacksKey reads.
+  function desktopEndpointFailed(p, e) {
+    console.warn('[harness] ' + p + ': desktop endpoint store failed: ' + ((e && e.message) || e));
+    return { engine: { ok: false, error: 'the endpoint change is saved in this window, but the desktop could not apply it to the station — retry STATION LINK before running' } };
+  }
   const setBaseUrl = (u, provider) => {
     selectionRevision++;
     const p = normalizeProviderId(provider || getProv());
     writeScoped(LS.baseUrl, p, u || '');
-    if (DESKTOP) {
-      return invoke('harness_store_provider_key', { provider: p, baseUrl: u || '' }).catch(() => {});
-    }
+    if (DESKTOP) return invoke('harness_store_provider_key', { provider: p, baseUrl: u || '' }).catch(e => desktopEndpointFailed(p, e));
     return syncEngineKey(p).then(engine => ({ engine }));   // #89: an endpoint saved here reaches unattended runs too (resolves { engine } like setKey)
   };
   function defaultReasoningEffortForProvider(provider) {
