@@ -62,6 +62,30 @@
   function tauriCore() {
     return (typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.core) ? window.__TAURI__.core : null;
   }
+  /* WHERE A LIBRARY FILE IS SAVED (org pass 10-14, P24), read off the backend's own openUrl — never rebuilt from display
+     fields: { agentId, path, inProject }. 'path' is what the shared folder / copy-path keys take (relative = the agent's
+     workspace, absolute as is); 'inProject' is true only when the URL proves the file sits in that project folder
+     (?project=), false only when it proves the file is NOT in it (an agent-workspace path), null when there is no project. */
+  function savedLocation(r, f, project) {
+    const url = String((f && f.openUrl) || '');
+    const isAbs = p => /^(?:[A-Za-z]:[\\/]|\/)/.test(p);
+    const norm = p => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const dec = s => { try { return decodeURIComponent(s); } catch (_) { return ''; } };
+    const within = full => project ? norm(full).indexOf(norm(project) + '/') === 0 : null;
+    const ws = /^\/workshop-run\/([^/?#]+)\/([^/?#]+)\/([^?#]+)/.exec(url);
+    if (ws) return { agentId: dec(ws[1]) || r.agentId || 'agent', path: 'workshop/' + dec(ws[2]) + '/' + ws[3].split('/').map(dec).join('/'), inProject: project ? false : null };
+    const agent = dec((/[?&]agent=([^&#]*)/.exec(url) || [])[1] || '') || r.agentId || 'agent';
+    const rel = artifactPath(f);
+    if (!rel) return null;
+    const root = dec((/[?&]project=([^&#]*)/.exec(url) || [])[1] || '');
+    if (root && !isAbs(rel)) {
+      const sep = root.indexOf('\\') >= 0 ? '\\' : '/';
+      const full = root.replace(/[\\/]+$/, '') + sep + rel.replace(/^[\\/]+/, '').replace(/[\\/]/g, sep);
+      return { agentId: agent, path: full, inProject: within(full) };
+    }
+    if (isAbs(rel)) return { agentId: agent, path: rel, inProject: within(rel) };
+    return { agentId: agent, path: rel, inProject: project ? false : null };   // relative, no project: the agent's own workspace
+  }
   function revokePreview(state) {
     if (!state) return;
     state.previewId = (state.previewId || 0) + 1;
@@ -70,7 +94,7 @@
     if (state.blobUrl) try { URL.revokeObjectURL(state.blobUrl); } catch (_) {}
     state.blobUrl = '';
   }
-  async function openDesktop(r, f, href, say) {
+  async function openDesktop(r, f, href, say, folderKey) {
     const core = tauriCore();
     if (!core || !core.invoke) return false;
     if (f.sandboxed) {
@@ -85,7 +109,11 @@
       if (/declined at the host/i.test(String(err || ''))) return true;
       // re-mint: the host confirmation above may have outlasted the first ticket's few-minute life
       try { await core.invoke('open_external_url', { url: fileHref(f) }); }
-      catch (_) { if (say) say('Could not open that file — use its session or workspace folder to find it on disk.', true); }
+      // the file row's own folder key takes over (org pass 10-14, P24): reveal it in its folder, or copy its full path
+      catch (_) {
+        if (folderKey && folderKey.click) { folderKey.click(); if (say) say('Could not open that file — showing where it is saved instead.', true); }
+        else if (say) say('Could not open that file — its folder key shows where it is saved.', true);
+      }
     }
     return true;
   }
@@ -177,7 +205,7 @@
     if ((!core || !core.invoke) && (!f.preview || f.sandboxed)) { try { link.href = fileHref(f); } catch (_) {} return false; }
     ev.preventDefault();
     ev.stopPropagation();
-    if (core && core.invoke) return openDesktop(r, f, fileHref(f), say);
+    if (core && core.invoke) { const li = link.closest('li'); return openDesktop(r, f, fileHref(f), say, li && li.querySelector ? li.querySelector('.dlv-floc .deliverable-folder') : null); }
     return previewInCard(f, card.querySelector('[data-preview]'), state || {}, say);
   }
 
@@ -324,7 +352,7 @@
         // the main file leads the list (its OPEN is the drawer's first key — org pass 10-14, P13); the rows are built in the
         // backend's order first, so every data-file index still points at its own file
         ? '<ul class="dlv-files">' + mainFirst((r.files || []).map((f, fi) => f.openUrl
-            ? '<li><a class="bb sm' + (r.main && f.path === r.main ? ' dlv-hero' : '') + '" data-file="' + fi + '" href="' + esc(fileHref(f)) + '" target="_blank" rel="noopener">OPEN</a><span class="dlv-fname">' + esc(f.path) + '</span><span class="dlv-fsize">' + esc(fmtSize(f.bytes)) + '</span>' + (r.main && f.path === r.main ? '<span class="dlv-fmain">the main one</span>' : '') + '</li>'
+            ? '<li><a class="bb sm' + (r.main && f.path === r.main ? ' dlv-hero' : '') + '" data-file="' + fi + '" href="' + esc(fileHref(f)) + '" target="_blank" rel="noopener">OPEN</a><span class="dlv-floc" data-floc="' + fi + '"></span><span class="dlv-fname">' + esc(f.path) + '</span><span class="dlv-fsize">' + esc(fmtSize(f.bytes)) + '</span>' + (r.main && f.path === r.main ? '<span class="dlv-fmain">the main one</span>' : '') + '</li>'
             : '<li><span class="dlv-fname off">' + esc(f.path) + '</span><span class="dlv-fsize">no longer available</span></li>')) + '</ul>'
         : '<p class="dlv-none">This run recorded no files.</p>';
       const openSession = (r.jobId ? '<button class="bb sm" data-act="workflow">OPEN IN WORKFLOWS</button>' : '') + ((run && run.streamId) ? '<button class="bb sm" data-act="session">↗ OPEN THE FULL CONVERSATION</button>' : '');
@@ -570,7 +598,30 @@
         headBtn.setAttribute('aria-expanded', 'true');
         headBtn.classList.add('on');
         wireDiscards();   // the drawer's DISCARD only exists once it is open
+        wireLocations(card);
       }
+    }
+    /* FIND IT ON DISK (org pass 10-14, P24): each FILES row gets the COMMS '▤ saved' row's own keys — folder (desktop reveals
+       the file, a browser copies its path) and, on desktop, copy path. The full path rides the key's tip, never printed on the
+       card (Andrew cut a printed path); when the file provably sits outside this item's project, the tip says so first. */
+    function wireLocations(card) {
+      if (typeof Chat === 'undefined' || !Chat.folderButton || !Chat.copyPathButton) return;
+      const r = rows[Number(card.dataset.i)]; if (!r) return;
+      const projLeaf = p => { const s = String(p || '').replace(/[\\/]+$/, ''); return s.split(/[\\/]/).pop() || s; };
+      card.querySelectorAll('.dlv-floc[data-floc]').forEach(slot => {
+        if (slot.dataset.wired === '1') return;
+        const f = r.files && r.files[Number(slot.dataset.floc)];
+        const loc = f && savedLocation(r, f, r.project || '');
+        if (!loc) return;
+        slot.dataset.wired = '1';
+        const keys = [Chat.folderButton(loc.agentId, loc.path)];
+        if (tauriCore()) keys.push(Chat.copyPathButton(loc.agentId, loc.path));
+        const lead = loc.inProject === false ? 'saved in ' + agentLabel(loc.agentId) + ' workspace, not in ' + projLeaf(r.project) + ' — ' : '';
+        const tip = p => keys.forEach(k => { k.removeAttribute('title'); k.setAttribute('data-tip', lead + p); });
+        keys.forEach(k => { k.classList.add('bb', 'sm', 'dlv-loc-key'); slot.appendChild(k); });
+        tip(loc.path);
+        if (Chat.fullSavedPath) Promise.resolve(Chat.fullSavedPath(loc.agentId, loc.path)).then(full => { if (full) tip(full); }, () => tip(loc.path));
+      });
     }
 
     list.addEventListener('click', async ev => {
@@ -649,5 +700,5 @@
     if (!runId || !body || typeof body._deliverablesShowRun !== 'function') return false;
     body._deliverablesShowRun(runId, label); return true;
   }
-  return { esc, safeMarkdown, plainLine, safeCsv, openUrl, fileHref, artifactPath, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, rowsForRun, BUCKETS };
+  return { esc, safeMarkdown, plainLine, safeCsv, openUrl, fileHref, artifactPath, savedLocation, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, rowsForRun, BUCKETS };
 });

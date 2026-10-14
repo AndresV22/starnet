@@ -104,7 +104,7 @@ A.ok(/el\.addEventListener\('click', \(\) => showInterruption\(''\)\)/.test(voic
   const detailHtml = new Function('esc', 'fileHref', 'fmtSize', 'safeMarkdown', src + '; return detailHtml;')(v => String(v), f => f.openUrl, n => n + 'B', v => v);
   const html = detailHtml({ status: 'produced', main: 'out/report.md', files: [{ path: 'notes.txt', openUrl: 'u0', bytes: 1 }, { path: 'out/report.md', openUrl: 'u1', bytes: 2 }, { path: 'gone.csv', bytes: 3 }], actions: { keep: true } });
   A.ok(html.indexOf('report.md') < html.indexOf('notes.txt') && html.indexOf('notes.txt') < html.indexOf('gone.csv'), 'the main file is listed first, the rest keep their order');
-  A.ok(/class="bb sm dlv-hero" data-file="1"/.test(html) && /data-file="0"[^>]*>OPEN<\/a><span class="dlv-fname">notes\.txt/.test(html), 'each OPEN keeps its original backend index');
+  A.ok(/class="bb sm dlv-hero" data-file="1"/.test(html) && /data-file="0"[^>]*>OPEN<\/a>(<span class="dlv-floc" data-floc="0"><\/span>)?<span class="dlv-fname">notes\.txt/.test(html), 'each OPEN keeps its original backend index');
   A.ok(html.lastIndexOf('data-act="clear"') > html.lastIndexOf('data-act="keep"'), '✓ DONE · CLEAR is the last key');
 }
 A.report('declutter-strips.test');

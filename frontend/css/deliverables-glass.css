@@ -141,3 +141,7 @@
 .term.dlv-win .cfg.dlv .dlv-tools[open] > summary { color: var(--ph-bright); border-color: rgba(var(--ph-rgb),.45); }
 .term.dlv-win .cfg.dlv .dlv-tools-keys { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .term.dlv-win .cfg.dlv .dlv-tools-car { font-size: 14px; }
+/* FILES rows (org pass 10-14, P24): the shared folder / copy-path keys sit beside OPEN as the window's quiet glass keys */
+.term.dlv-win .cfg.dlv .dlv-floc { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+.term.dlv-win .cfg.dlv .dlv-floc:empty { display: none; }
+.term.dlv-win .cfg.dlv .dlv-floc .dlv-loc-key { margin: 0; color: var(--ph-dim); opacity: 1; }
