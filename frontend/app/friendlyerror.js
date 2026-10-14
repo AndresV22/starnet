@@ -186,9 +186,22 @@
   const PROVIDER_PROSE = { openrouter: 'OpenRouter', codex: 'ChatGPT', grok: 'Grok', kimi: 'Kimi', starnet: 'StarNet', openai: 'OpenAI',
     anthropic: 'Anthropic', gemini: 'Gemini', xai: 'xAI', groq: 'Groq', mistral: 'Mistral', deepseek: 'DeepSeek', together: 'Together AI',
     fireworks: 'Fireworks', perplexity: 'Perplexity', cerebras: 'Cerebras' };
+  /* A SIGN-IN SUBSCRIPTION HAS NO WALLET (org P03, final round). The keyless sign-ins — ChatGPT (codex), Grok on SuperGrok /
+     X Premium+, Kimi for Coding — are PLANS (sidecar/providers/registry.js: oauth_device_code + unmetered), so a billing or
+     quota verdict on one is a spent plan allowance that resets on the provider's own schedule: never "out of credit — top
+     it up" (there is no balance to top up). */
+  const SUBSCRIPTION_IDS = ['codex', 'grok', 'kimi'];
+  function quotaMessage(provider) {
+    const nm = SUBSCRIPTION_IDS.indexOf(provider) >= 0 ? PROVIDER_PROSE[provider] : null;
+    if (!nm) return KINDS.quota_exhausted.msg;
+    return 'Your ' + nm + " plan allowance is used up — it resets on " + nm + "'s own schedule"
+      + (provider === 'codex' ? ' (a ChatGPT subscription resets weekly, not in seconds)' : ', not in seconds')
+      + '. To keep working now, switch to another provider or key under SETTINGS → AI & MODELS.';
+  }
   function providerFromRaw(raw) {
     const low = String(raw || '').toLowerCase();
-    let m = low.match(/\b(openrouter|anthropic|gemini|grok \(xai\)|kimi for coding) http \d{3}\b/);
+    // (the ChatGPT adapter signs its failures 'codex http <status> — …': sidecar/providers/codex.js)
+    let m = low.match(/\b(openrouter|anthropic|gemini|codex|grok \(xai\)|kimi for coding) http \d{3}\b/);
     if (m) return m[1].indexOf('grok') === 0 ? 'grok' : m[1].indexOf('kimi') === 0 ? 'kimi' : m[1];
     m = low.match(/connect an? (.+?) api key\b/) || low.match(/configure the (.+?) base url/);
     if (m) {
@@ -469,6 +482,8 @@
     if (/overloaded|over capacity|temporarily unavailable|try again later/.test(low)) return 'provider_server_error';
     if (QUOTA_EXHAUSTED_RE.test(low) && !SHORT_WINDOW_RE.test(low)) return 'quota_exhausted';
     if (/rate limit|too many requests|rate-limit/.test(low)) return 'rate_limit';
+    // (kept in step with sidecar/providers/errorClass.js; a sign-in SUBSCRIPTION's "quota"/"insufficient" is re-read as its
+    // spent plan allowance in friendlyError, which knows the provider — never "out of credit")
     if (/insufficient|out of credit|not enough credit|quota|payment required|add credits|billing/.test(low) || NO_CREDIT_RE.test(low)) return 'billing';
     if (/unauthorized|invalid api key|invalid key|no auth credentials|authentication|key was rejected|rejected/.test(low) || REJECTED_KEY_RE.test(low)) return 'auth';
     if (/no endpoints|model not found|not a valid model|unknown model/.test(low)) return 'model_not_found';
@@ -588,6 +603,14 @@
     } else {
       kind = kindFromRaw(raw, status);
     }
+    /* A sign-in subscription's spent plan (org P03, final round), on BOTH ladders: the fallbacks read any "insufficient" /
+       "quota" / 402 as billing, and a ChatGPT plan 429 can read like any rate limit ("Codex quota exceeded" — its decisive
+       code rides in a body the page never sees). When the adapter's own signature names a subscription provider, that
+       is its plan allowance (a per-minute quota stays a rate limit). */
+    if ((kind === 'billing' || kind === 'rate_limit') && SUBSCRIPTION_IDS.indexOf(providerFromRaw(raw)) >= 0
+        && (kind === 'billing' || (/quota/i.test(raw) && !SHORT_WINDOW_RE.test(raw.toLowerCase())))) {
+      kind = 'quota_exhausted';
+    }
     const k = KINDS[kind] || KINDS.unknown;
     // a page the station kept its key from: say why, with no RELOAD door (a reload re-runs the same check)
     if (kind === 'stale_session') {
@@ -641,14 +664,17 @@
       }
       return { userMessage: userMessage, kind: kind, retryable: k.retryable, action: k.action, provider: providerFromRaw(raw), raw: raw };
     }
-    // billing: name the account that is out of credit when the error proves which provider it was (org P03)
+    // billing: name the account that is out of credit when the error proves which provider it was (org P03) — a wallet
+    // provider only: a sign-in subscription was turned into quota_exhausted above
     if (kind === 'billing') {
       const provider = providerFromRaw(raw);
       const userMessage = provider && PROVIDER_PROSE[provider] ? 'Your ' + PROVIDER_PROSE[provider] + ' account is out of credit — top it up, then try again.' : k.msg;
       return { userMessage: userMessage, kind: kind, retryable: k.retryable, action: k.action, provider: provider, raw: raw };
     }
+    // a spent plan allowance names the plan when it is a sign-in subscription's (quotaMessage); otherwise the neutral copy
     if (kind === 'quota_exhausted') {
-      return { userMessage: k.msg, kind: kind, retryable: k.retryable, action: k.action, provider: providerFromRaw(raw), raw: raw };
+      const provider = providerFromRaw(raw);
+      return { userMessage: quotaMessage(provider), kind: kind, retryable: k.retryable, action: k.action, provider: provider, raw: raw };
     }
     if (kind === 'spend_unknown') {
       return { userMessage: spendUnknownMessage(raw), kind: kind, retryable: k.retryable, action: k.action, raw: raw };
@@ -800,7 +826,8 @@
         // no_model: a provider is connected, only the model is missing — the model dock is the door
         if (verdict.kind === 'no_model' || verdict.kind === 'local_model_memory') return pickModelDoor();
         // other auth/no-key: if ChatGPT is already the connected brain, the honest door is still "reconnect"
-        if (verdict.kind === 'auth' && codexConnected() && !verdict.provider)
+        // (a ChatGPT adapter failure names codex itself: its auth door is the same reconnect — it has no key to fix)
+        if (verdict.kind === 'auth' && (verdict.provider === 'codex' || (codexConnected() && !verdict.provider)))
           return { label: '⏼ RECONNECT CHATGPT', run: () => openSettings('providers', 'codex', { signin: true }) };
         // model_not_found: the fix is repointing the PRIMARY model, which lives in the COMMS model dock —
         // NOT Settings→MODELS (that section is the fallback chain + class tiers and cannot change the primary;

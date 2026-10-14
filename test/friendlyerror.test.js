@@ -580,4 +580,47 @@ for (const raw of [
   A.ok(/the provider answered but did not confirm this key/.test(ui) && /the check got no answer from the provider/.test(ui), 'an empty probe error prints a fallback reason');
 }
 
+/* ---- org P03 (final round): a sign-in SUBSCRIPTION has no wallet ----
+   ChatGPT (codex), Grok (SuperGrok / X Premium+) and Kimi for Coding are plans (registry: oauth_device_code + unmetered).
+   Naming the account made a ChatGPT 402 read "Your ChatGPT account is out of credit — top it up": there is nothing to top
+   up — the plan allowance resets on the provider's schedule. Every billing/quota verdict on one says that instead. */
+{
+  const { providerFromRaw, kindFromRaw } = require('../frontend/app/friendlyerror.js')._internals;
+  A.eq(providerFromRaw("codex http 429 — You've hit your usage limit"), 'codex', 'the ChatGPT adapter signature names codex');
+  const subs = [
+    ['codex http 402 — Payment Required', 402, 'codex', 'ChatGPT'],
+    ['codex http 429 — insufficient_quota', 429, 'codex', 'ChatGPT'],
+    ['codex http 429 — Codex quota exceeded', 429, 'codex', 'ChatGPT'],
+    ['Grok (xAI) http 402 - insufficient credits', 402, 'grok', 'Grok'],
+    ['Kimi For Coding http 429 - quota exceeded', 429, 'kimi', 'Kimi'],
+    ['Kimi For Coding http 402 - payment required', 402, 'kimi', 'Kimi']
+  ];
+  for (const [raw, status, id, nm] of subs) {
+    const v = friendlyError(Object.assign(new Error(raw), { status }));
+    A.eq(v.kind, 'quota_exhausted', raw + ' — a sign-in subscription\'s spent plan, never billing');
+    A.ok(!/out of credit|top (?:it )?up/i.test(v.userMessage), raw + ' — never "out of credit — top it up": ' + v.userMessage);
+    A.ok(new RegExp('^Your ' + nm + ' plan allowance is used up — it resets on ' + nm + "'s own schedule").test(v.userMessage), raw + ' — names the plan and its reset: ' + v.userMessage);
+    A.ok(/switch to another provider or key under SETTINGS → AI & MODELS/.test(v.userMessage), raw + ' — the way to keep working now');
+    A.eq(v.retryable, false, raw + ' — no doomed retry');
+    A.eq(v.provider, id, raw + ' — the verdict carries the provider');
+    A.eq(actionButton(v).label, '▸ OPEN AI & MODELS', raw + ' — the AI & MODELS door');
+  }
+  A.ok(/weekly/.test(friendlyError(Object.assign(new Error('codex http 402 — Payment Required'), { status: 402 })).userMessage), 'ChatGPT keeps its weekly reset');
+  // the BROWSER ladder still reads these as billing (in step with errorClass.js); the provider-aware re-read happens in friendlyError
+  A.eq(kindFromRaw('codex http 402 — payment required', null), 'billing', 'the browser ladder alone says billing (the subscription re-read sits above it)');
+  // a per-minute quota on a subscription is still a busy moment, and a wallet provider is still out of credit
+  const perMin = friendlyError(Object.assign(new Error('Kimi For Coding http 429 - quota exceeded: requests per minute'), { status: 429 }));
+  A.eq(perMin.kind, 'rate_limit', 'a per-minute quota on a subscription stays a rate limit');
+  const wallet = friendlyError(Object.assign(new Error('openrouter http 402 — insufficient credits'), { status: 402 }));
+  A.ok(wallet.kind === 'billing' && /^Your OpenRouter account is out of credit — top it up/.test(wallet.userMessage), 'a wallet provider keeps "out of credit — top it up"');
+  const xaiKey = friendlyError(Object.assign(new Error('xai http 402 - add credits at console.x.ai'), { status: 402 }));
+  A.ok(xaiKey.kind === 'billing' && /^Your xAI account is out of credit/.test(xaiKey.userMessage), 'the xAI API key (a wallet) is not the Grok sign-in: ' + xaiKey.userMessage);
+  const unnamed = friendlyError(Object.assign(new Error("You've hit your usage limit. Resets in 3 days"), { status: 429 }));
+  A.eq(unnamed.userMessage, KINDS.quota_exhausted.msg, 'an unnamed spent allowance keeps the neutral quota copy');
+  // a ChatGPT adapter auth failure names codex: its door is the reconnect, never a key field
+  const codexAuth = friendlyError(Object.assign(new Error('codex http 401 — Unauthorized'), { status: 401 }));
+  A.eq(codexAuth.provider, 'codex', 'a codex 401 names codex');
+  A.eq(actionButton(codexAuth).label, '⏼ RECONNECT CHATGPT', 'its door reconnects ChatGPT');
+}
+
 A.report('friendlyerror.test');
