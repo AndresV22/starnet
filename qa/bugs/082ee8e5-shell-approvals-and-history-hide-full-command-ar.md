@@ -47,3 +47,9 @@ _Filled in when the bug leaves the backlog: what was true, and why it is closed.
 
 
 ## Sibling coverage
+
+## Candidate check — 2026-10-14
+
+Approvals: 4c89890bc is in the 0.13.5 candidate. test/consent-full-request.test.js (29/29) and test/consent-full-args.test.js pass against the candidate's chat.js and sidecar: the approval phrase stays one short line ("run a command: …") while INSPECT and COPY COMMAND hold the full redacted command.
+
+History: still open. Tool rows after a run show the agent.tool_call argsSummary, which the sidecar caps at 80 characters (loop.js summarize); the full text exists only while the approval waits. The transcript's tool chip already has an expand that says "(arguments truncated in the run record)", so no new control is needed to show more. What is needed is a product call from Andrew: carry a bounded full command for shell.exec in the run record (with the same redaction the approval card uses) so that existing expand can show it.
