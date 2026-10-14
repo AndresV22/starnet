@@ -751,6 +751,13 @@ const StationBake = (() => {
      corners a chunk paints at all — one tile wider for safety — so a culled one could not have touched this chunk's pixels.
      A whole-station bake (no viewport) culls nothing. */
   let cullBox = null;
+  /* ONE TEXTURE DENSITY PER STATION (2026-10-13). The dense art plate was sized off each CANVAS — 4096px across a
+     whole-station bake, so ~3.1x on a 1320px floor, but the 6x cap on every 384px BUILD MODE chunk: a chunk painted
+     ~3.7x the plate pixels the live world shows for the same floor (and 4x the GPU memory), and BUILD MODE looked
+     sharper after an edit than before it. Every bake of a station now paints at the station's own density, quantised
+     to 1/128 so a chunk edge (CHUNK_PX * k/128 = 3k plate pixels) always lands on whole plate pixels — which is what
+     lets a chunk be CUT from the whole-station plate instead of re-baked (see slicedChunks). */
+  const detailRef = () => ({ scale: Math.floor(Math.min(6, 4096 / Math.max(W, H, 1)) * 128) / 128 });
   const rectCulled = r => !!cullBox && ((r.x2 + 1) * T < cullBox[0] || r.x1 * T > cullBox[2] || (r.y2 + 1) * T < cullBox[1] || r.y1 * T > cullBox[3]);
   const tileCulled = (tx, ty) => !!cullBox && ((tx + 1) * T < cullBox[0] || tx * T > cullBox[2] || (ty + 1) * T < cullBox[1] || ty * T > cullBox[3]);
   const h2 = (x, y, s) => U.hash(x + ',' + y + ',' + (s || ''));
@@ -4353,7 +4360,7 @@ const StationBake = (() => {
         const g = cv.getContext('2d');
         g.translate(-bounds.x, -bounds.y);
         return { cv, ctx: typeof IndustrialTextures !== 'undefined'
-          ? IndustrialTextures.detailContext(g, { width: CW, height: CH2 }) : g };
+          ? IndustrialTextures.detailContext(g, detailRef()) : g };
       };
       // Dense plates only need the extent surviving the ownership mask. Keep
       // painter coordinates chunk-relative so textures and seams do not move.
@@ -4812,7 +4819,7 @@ const StationBake = (() => {
   function buildBase() {
     const baseCv = canvas(CW, CH);
     const rawContext = translatedContext(baseCv);
-    const b = typeof IndustrialTextures !== 'undefined' ? IndustrialTextures.detailContext(rawContext) : rawContext;
+    const b = typeof IndustrialTextures !== 'undefined' ? IndustrialTextures.detailContext(rawContext, detailRef()) : rawContext;
 
     /* THE EXTERIOR SHELL, PER FOOTPRINT (2026-08-05). Every pass below used to run once for the whole
        station off a single constant; each is now driven by the owning room's HULL_RECIPES entry.
@@ -5399,9 +5406,38 @@ const StationBake = (() => {
     }
     return kept;
   }
+  /* THE WORLD'S BAKE IS ALREADY THE FLOOR (2026-10-13, Andrew: "a huge delay in build mode"). BUILD MODE opens on the
+     live world's whole-station bake (entry never re-bakes), so its FIRST edit found no chunks to keep and re-baked every
+     visible one — ~4.5 s on a large station for the first room or rename. A whole-station bake paints the same pixels a
+     chunk does (the chunk contract, one density per station), so the chunks an edit cannot reach are CUT from it: 1:1
+     copies of its base, light and interior canvases and of its dense plate. Same origin only (a moved origin re-bakes
+     everything, as before), and only the chunks whose rect the new frame keeps; a cut that would not land on whole plate
+     pixels is skipped, and that chunk bakes. */
+  function slicedChunks(prev, geo) {
+    const whole = prev && prev.viewport;
+    if (!(prev && !prev.chunked && prev.baseCv && prev.lightCv && prev.origin && whole && whole.x === 0 && whole.y === 0 &&
+      whole.w === prev.W && whole.h === prev.H && prev.origin.tx === geo.origin.tx && prev.origin.ty === geo.origin.ty)) return null;
+    const grid = chunkGrid(geo), old = { W: prev.W, H: prev.H }, out = new Map();
+    const cut = (cv, v) => {
+      if (!cv) return null;
+      const c = canvas(v.w, v.h), g = c.getContext('2d');
+      g.imageSmoothingEnabled = false; g.drawImage(cv, -v.x, -v.y);
+      return c;
+    };
+    for (let cy = 0; cy < grid.rows; cy++) for (let cx = 0; cx < grid.cols; cx++) {
+      const v = chunkViewport(geo, cx, cy), o = chunkViewport(old, cx, cy);
+      if (o.w <= 0 || o.h <= 0 || v.x !== o.x || v.y !== o.y || v.w !== o.w || v.h !== o.h) continue;
+      const baseCv = cut(prev.baseCv, v);
+      if (typeof IndustrialTextures !== 'undefined' && IndustrialTextures.cropBase && !IndustrialTextures.cropBase(prev.baseCv, baseCv, v.x, v.y)) continue;
+      out.set(chunkKey(cx, cy), { key: chunkKey(cx, cy), cx, cy, x: v.x, y: v.y, w: v.w, h: v.h,
+        baseCv, lightCv: cut(prev.lightCv, v), interiorCv: cut(prev.interiorCv, v),
+        flickers: prev.flickers || [], lamps: prev.lamps || [], wallFixtures: prev.wallFixtures || [], usedAt: 0 });
+    }
+    return out;
+  }
   function bakeIncremental(geo, previous, dirtyRects, opts) {
     opts = opts || {};
-    const same = sameChunkFrame(previous, geo), grown = same ? null : keptChunks(previous, geo);
+    const same = sameChunkFrame(previous, geo), grown = same ? null : (keptChunks(previous, geo) || slicedChunks(previous, geo));
     const reuse = same || !!grown;
     const generation = reuse ? (previous.generation || 0) + 1 : 1;
     const chunkMap = same ? new Map(previous.chunkMap) : grown || new Map();

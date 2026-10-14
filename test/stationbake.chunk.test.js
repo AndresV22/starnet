@@ -331,6 +331,23 @@ const everything = StationBake.bakeIncremental(before, beforeBake, [], { visible
 A.eq(everything.stats.rebakedChunks, 1, 'a station-wide edit bakes the visible chunk, not all six');
 A.eq(everything.stats.chunkCount, 1, '…and drops the stale others');
 A.eq(StationBake.missingVisibleChunks(everything, { x: 384, y: 0, w: 384, h: 384 }), ['1,0'], '…which the pan path re-bakes on sight');
+/* THE WORLD'S BAKE IS ALREADY THE FLOOR (2026-10-13): BUILD MODE's first edit starts from the live world's WHOLE-station
+   bake. The chunks the edit cannot reach are cut from it (never re-baked) and the composite is still the edited floor. */
+const wholeBefore = StationBake.bake(before);
+const firstSame = StationBake.bakeIncremental(before, wholeBefore, [{ x1: 10, y1: 5, x2: 12, y2: 6 }]);
+A.eq(firstSame.stats.fullReset, false, 'a first edit keeps the frame of the whole-station bake');
+A.eq(firstSame.chunkMap.size, 6, '…every chunk of the floor is present');
+A.eq(firstSame.stats.rebakedChunks, 1, '…and only the one the edit reaches is baked');
+A.eq(pixelDiff(composeLayer(firstSame, 'base'), wholeBefore.baseCv), 0, 'cut chunks compose the whole-station bake exactly');
+A.eq(pixelDiff(composeLayer(firstSame, 'light'), wholeBefore.lightCv), 0, '…its light too');
+A.eq(firstSame.lamps.length, wholeBefore.lamps.length, '…and every lamp');
+const firstGrown = StationBake.bakeIncremental(grownGeo, wholeBefore, [southRoom]);
+A.eq(firstGrown.stats.fullReset, false, 'a first edit that grows the floor south keeps the frame too');
+A.eq(firstGrown.stats.reusedChunks, 3, '…cutting the row the new size leaves unchanged');
+A.eq(pixelDiff(composeLayer(firstGrown, 'base'), grownMono.baseCv), 0, '…and the composite is the grown floor, pixel for pixel');
+A.eq(pixelDiff(composeLayer(firstGrown, 'light'), grownMono.lightCv), 0, '…its light too');
+A.eq(StationBake.bakeIncremental(movedOrigin, wholeBefore, [northRoom]).stats.fullReset, true, 'an origin move still bakes every chunk');
+
 // A CHUNK PAINTS ONLY WHAT CAN REACH IT: far-apart rounded rooms, chunked == monolithic
 const spread = roomsGeo([{ z: 'a', x1: 2, y1: 3, x2: 12, y2: 12 }, { z: 'b', x1: 52, y1: 3, x2: 70, y2: 14 }, { z: 'c', x1: 20, y1: 36, x2: 40, y2: 48 }], 52, true);
 const spreadMono = StationBake.bake(spread), spreadChunks = StationBake.bakeIncremental(spread, null, null);
