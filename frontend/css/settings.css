@@ -1,6 +1,6 @@
 /* Settings: shared glass language, scoped to this console and its expanded controls. */
 .settings-console .con-pane { padding: 22px; container: settings-pane / inline-size; }
-.settings-console .con-sec-desc { font-size: 16px; line-height: 1.5; margin-bottom: 20px; }
+.settings-console .con-sec-desc { font-size: 16px; line-height: 1.5; margin-bottom: 20px; text-wrap: pretty; }   /* no lone last word under a section head */
 .settings-console.sn-menu .con-rail-list { padding: 8px; gap: 4px; }
 .settings-console.sn-menu .con-rail-item { flex: 0 0 auto; min-height: 36px; grid-template-columns: 16px minmax(0,1fr); gap: 8px; padding: 8px 10px; margin: 0; border-radius: 7px; background: transparent; font-size: 14px; line-height: 1.25; }
 .settings-console.sn-menu .con-rail-label { font-size: 14px; letter-spacing: .15px; line-height: 1.25; }
