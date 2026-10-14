@@ -4204,7 +4204,7 @@ const App = (() => {
   }
   function railModelFull(w) { return (w.lastModel || '').trim(); }
   function railRowLabel(w, st, project = false) {
-    const title = w.title || 'General', name = railAgentName(w);
+    const title = Workstreams.titleOf(w), name = railAgentName(w);
     return title + (w.conversationMode === 'group' ? ' group chat' : ' session') + (name === title ? '' : ', ' + name) + (st.status ? ', ' + st.status : '')
       + (Workstreams.unread(w) && !st.dot.includes('unseen') ? ', unread activity' : '')
       + (project ? '; Enter to open' : '; Enter to open; Shift+F10 for actions');
@@ -4213,7 +4213,7 @@ const App = (() => {
     const full = railModelFull(w);
     // the latest line rides the hover tip: the row itself is name + agent + time (NO SENTENCES UNDER TILES)
     const latest = !project && typeof railReceipt === 'function' ? railReceipt(w) : '';
-    return (w.title || 'General') + (latest ? ' — ' + latest : '') + (w.archived ? ' · archived' : '') + (st.status ? ' · ' + st.status : '')
+    return Workstreams.titleOf(w) + (latest ? ' — ' + latest : '') + (w.archived ? ' · archived' : '') + (st.status ? ' · ' + st.status : '')
       + (Workstreams.unread(w) && !st.dot.includes('unseen') ? ' · unread activity' : '')
       + (w.kind === 'task' ? ' · board: ' + w.lane : '')
       + (full ? ' · last run on ' + full : '')
@@ -4256,7 +4256,7 @@ const App = (() => {
     ul.setAttribute('role', 'listbox');
     ul.setAttribute('aria-label', 'Sessions');
     ul.innerHTML = rows.map((w, i) => {
-      const title = w.title || 'General';
+      const title = Workstreams.titleOf(w);   // only the General home reads "General"; an untitled other session is a "New session"
       const st = railRowState(w);
       const group = headers.get(w.id);
       const groupHead = group ? '<li class="ws-auto-group" role="presentation"><button type="button" data-ws-group="' + U.esc(group.key) + '" aria-expanded="' + railExpanded.has(group.key) + '"><span>' + U.esc(group.name) + '</span><small>' + U.esc(railAgentName(w)) + ' · ' + group.rows.length + ' run' + (group.rows.length === 1 ? '' : 's') + ' · ' + (railExpanded.has(group.key) ? 'collapse' : 'show history') + '</small></button></li>' : '';
@@ -4428,7 +4428,7 @@ const App = (() => {
   function exportSession(id, format) {
     const w = Workstreams.get(id), bundle = w && Workstreams.exportConversation(id, format);
     const ok = sessionDownload(bundle); if (ok) SFX.click(); else SFX.bad();
-    if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(ok ? ('exported “' + ((w && w.title) || 'General') + '” — hidden data and secrets excluded') : 'nothing to export in “' + ((w && w.title) || 'General') + '”', ok ? '' : 'warn', undefined, { transient: true });
+    if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(ok ? ('exported “' + Workstreams.titleOf(w) + '” — hidden data and secrets excluded') : 'nothing to export in “' + Workstreams.titleOf(w) + '”', ok ? '' : 'warn', undefined, { transient: true });
   }
   function renderSessionSearch() {
     const input = el('ws-search'), out = el('ws-search-results'), sessions = el('workstreams'); if (!input || !out) return;
@@ -4443,7 +4443,7 @@ const App = (() => {
       const li = document.createElement('li'); li.className = 'ws-search-hit'; li.tabIndex = 0; li.dataset.id = hit.id;
       // a delegated worker's words are found in its CONVERSATION: say whose work it was, and open it unfolded there
       const worker = hit.match === 'delegated' && hit.workerId ? Workstreams.get(hit.workerId) : null;
-      const title = document.createElement('b'); title.textContent = (hit.title || 'General') + (worker ? ' · ' + (((agents.get(worker.agentId) || {}).name) || worker.agentId) + '\'s work' : '');
+      const title = document.createElement('b'); title.textContent = (hit.title || Workstreams.titleOf(hit.id)) + (worker ? ' · ' + (((agents.get(worker.agentId) || {}).name) || worker.agentId) + '\'s work' : '');
       const snippet = document.createElement('small'); snippet.textContent = hit.snippet;
       li.append(title, snippet);
       const open = () => { switchWorkstream(hit.id); if (worker && typeof Delegated !== 'undefined' && Delegated.reveal) Delegated.reveal(worker.id); input.value = ''; renderSessionSearch(); };
@@ -4575,7 +4575,7 @@ const App = (() => {
     if (act === 'export-json') { exportSession(id, 'json'); return; }
     if (act === 'archive') {
       const wasActive = (id === Workstreams.activeId());
-      const nowArchived = !w.archived, label = w.title || 'General';
+      const nowArchived = !w.archived, label = Workstreams.titleOf(w);
       if (nowArchived && w.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
         try { await GroupChat.pause(id); } catch (e) { StationUI.notify(e.message, 'bad'); return; }
       }
@@ -4622,7 +4622,7 @@ const App = (() => {
     return deleteWorkstream(id);
   }
   function deleteWorkstream(id, groupDeleted) {
-    const w = Workstreams.get(id); const label = w ? (w.title || 'General') : '';
+    const w = Workstreams.get(id); const label = w ? Workstreams.titleOf(w) : '';
     if (w && w.conversationMode === 'group' && !groupDeleted && typeof GroupChat !== 'undefined') {
       GroupChat.remove(id).then(() => deleteWorkstream(id, true)).catch(e => StationUI.notify(e.message, 'bad'));
       return false;
@@ -4664,7 +4664,7 @@ const App = (() => {
     const w = Workstreams.get(id); if (!w) return;
     const input = document.createElement('input');
     input.type = 'text'; input.className = 'ws-rename'; input.maxLength = 80;
-    input.value = w.title || ''; input.placeholder = 'General';
+    input.value = w.title || ''; input.placeholder = Workstreams.titleOf(w);
     li.classList.add('renaming');
     titleSpan.replaceWith(input);
     input.focus(); input.select();

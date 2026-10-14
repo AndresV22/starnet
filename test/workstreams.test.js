@@ -401,6 +401,7 @@ function deletionHarness(busy) {
   const remove = new Function('CTX', `
     const Workstreams = {
       get: id => CTX.streams.get(id),
+      titleOf: w => (w && w.title) || 'New session',
       activeId: () => 'work-1',
       del: id => { CTX.events.push('del:' + id); return CTX.streams.delete(id); }
     };
