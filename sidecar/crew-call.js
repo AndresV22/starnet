@@ -66,7 +66,8 @@ function crewMentions(text, crew, leadId, mode) {
   // turn "Have Ada and Quill's report" into a directive for just Ada.
   const action = new RegExp(LEAD + (seat ? SEAT_ASK : ASK) + '\\s+(' + list + ')' + (seat ? SEAT_FILL + '\\s+' + HERE + '(?![A-Za-z0-9_-])' : ''), 'i').exec(t);
   const tail = action ? t.slice(action[0].length) : '';
-  const targets = new Set(action && !/^(?:['’]|\s*(?:,|&|and\b))/i.test(tail)
+  // (a seat's match already ends past WHERE, so what follows it — ", I want to talk it through" — is the rest of the ask)
+  const targets = new Set(action && (seat || !/^(?:['’]|\s*(?:,|&|and\b))/i.test(tail))
     ? Array.from(action[1].matchAll(new RegExp('(?:^|' + separator + ')' + target, 'ig')), m => m[1].toLowerCase())
     : []);
   // Resolve exact captured cues: Ada is not the Ada prefix inside another member's Ada-Aux name.

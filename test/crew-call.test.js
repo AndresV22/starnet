@@ -149,6 +149,14 @@ A.eq(crewCallNote('Delegate this to the other agents: find three facts about JWS
   // a seat ask with a filler word before WHERE still seats ("bring Ada in to this chat", "get Ada over here too")
   for (const text of ['bring Ada in to this chat', 'get Ada over here', 'bring Ada and Quill in here too', 'add Ada into the chat'])
     A.ok(/IN THIS CHAT/.test(crewCallNote(text, crew, 'chiefops', both)), 'a seat with a filler word: ' + text);
+  // a seat ask that goes on after WHERE is still a seat (live 10-14, Haiku: "get FORGE in here, I want to talk through the
+  // release checklist with both of you" got the DISPATCH note — the list-continuation check read the comma after "here")
+  for (const [text, want] of [['get Ada in here, I want to talk it through with both of you', ['researcher']],
+    ['bring Ada and Quill into this chat, and let us plan the launch', ['researcher', 'writer']], ['add Quill to this chat & start drafting', ['writer']]]) {
+    const n = crewCallNote(text, crew, 'chiefops', both);
+    A.ok(/IN THIS CHAT/.test(n) && !/Hand that part/.test(n), 'a seat that goes on after WHERE: ' + text + ' -> ' + n.slice(0, 70));
+    A.eq(JSON.parse(n.match(/"agents": (\[[^\]]*\])/)[1]), want, 'and seats exactly who was named: ' + text);
+  }
   const t0 = process.hrtime.bigint();
   crewMentions('bring Ada ' + 'in '.repeat(100000), crew, 'chiefops', 'seat');
   crewMentions('bring Ada and Quill and '.repeat(20000) + 'here', crew, 'chiefops', 'seat');
