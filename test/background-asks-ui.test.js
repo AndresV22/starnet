@@ -111,6 +111,20 @@ ctx.__reconcile({ ts: 21000, prompts: [{ runId: 'lead1', promptId: 'p9', backgro
 A.ok(Channels.pendingAllOf('ws_lead').some(p => p.promptId === 'p9'), 'an ask younger than the snapshot\'s grace is never withdrawn on an absence');
 Channels.reset();
 
+// ---------------- the row's receipt while a worker's write waits on you ----------------
+{
+  // the worker's call is durably recorded before it runs (per-turn transcript), its result only after you answer: the
+  // receipt must not read "Wrote launch-email.md" for a write that has not happened (live walk 2026-10-13)
+  global.DeskScreen = { parseScreens: require('../frontend/app/deskscreen.js')._parseScreens || require('../frontend/app/deskscreen.js').parseScreens };
+  const D = require('../frontend/app/delegated.js');
+  const waiting = [{ role: 'assistant', toolCalls: JSON.stringify([{ id: 'w1', function: { name: 'fs_write', arguments: JSON.stringify({ path: 'launch-email.md', content: '# x' }) } }]) }];
+  const live = D._internals.foldReceipt(null, waiting);
+  A.eq(live.steps.map(s => s.verb + ':' + s.arg + ':' + s.done).join('|'), 'writing:launch-email.md:false', 'a write still waiting reads "writing", unfinished');
+  const done = D._internals.foldReceipt(null, waiting.concat([{ role: 'tool', toolCallId: 'w1', content: 'wrote launch-email.md (47 B)' }]));
+  A.eq(done.steps.map(s => s.verb + ':' + s.done).join('|'), 'wrote:true', 'once its result lands it reads "wrote"');
+  delete global.DeskScreen;
+}
+
 // ---------------- wiring that the lift cannot see ----------------
 A.ok(/U\.bus\.on\('permission\.prompt', fileBackgroundAsk\)/.test(ch), 'the page listens for background asks on its bus (the station bridge re-emits SSE there)');
 A.ok(/const p = runPendingOf\(activeWs\);/.test(ch) && /const pend = runPendingOf\(activeWs\);/.test(ch), 'the live presence card reads only the run\'s own ask (a worker waiting never reads AWAITING APPROVAL on a working lead)');
