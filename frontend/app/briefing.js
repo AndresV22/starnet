@@ -144,10 +144,11 @@ const Briefing = (() => {
      everything that had ended since the PREVIOUS one — work the Commander had watched land. While they are here the page
      stamps their presence (throttled), and on the way out (tab hidden, reload, close) it stamps the moment they left.
      Never before the boot delivery settles and never while a delivery is in flight: a stamp racing ahead of a return
-     would swallow the very absence it is about to brief. */
+     would swallow the very absence it is about to brief. A page with the briefing OFF (the awakening) still stamps: a
+     stamp delivers nothing, and without it a new station's first reload briefed its whole first session (review 10-14). */
   function stampPresence(leaving) {
     // isAway: an idle page is not a present Commander — hiding or reloading it after an hour untouched must not erase that hour
-    if (!enabled || !bootSettled || inFlight || isAway()) return;
+    if (!wired || !bootSettled || inFlight || isAway()) return;
     const now = Date.now();
     if (!leaving && now - lastSeenAt < SEEN_EVERY_MS) return;
     lastSeenAt = now;
@@ -158,8 +159,8 @@ const Briefing = (() => {
     const now = Date.now();
     const wasAway = isAway(now);
     lastInputAt = now;
-    if (wasAway) deliver('return').catch(e => console.warn('[briefing] return delivery failed', e));
-    else stampPresence(false);
+    if (wasAway && enabled) deliver('return').catch(e => console.warn('[briefing] return delivery failed', e));
+    else stampPresence(false);   // present — or back on a page that never briefs (the awakening): either way they are here now
   }
   function onVisibility() {
     try {
@@ -176,7 +177,7 @@ const Briefing = (() => {
     enabled = opts.enabled !== false;
     if (opts.agentId) agentId = String(opts.agentId);
     lastInputAt = Date.now();
-    bootSettled = false;
+    bootSettled = !enabled;   // no boot delivery to wait for on a page that never briefs: presence stamps from the first input
     if (!wired && typeof window !== 'undefined') {
       wired = true;
       try {
@@ -189,7 +190,8 @@ const Briefing = (() => {
     if (enabled) setTimeout(() => deliver('boot').catch(e => console.warn('[briefing] boot delivery failed', e)).then(() => { bootSettled = true; }), BOOT_DELAY_MS);
   }
   function ownsReturn() { return enabled; }
-  function reset() { enabled = false; lastItems = null; }
+  // a fresh start: nothing stamps until the next page's init (the awakening's own init stamps again from there)
+  function reset() { enabled = false; lastItems = null; bootSettled = false; }
 
   return { init, reset, deliver, presentFor, ownsReturn, isAway, chipsFor, STREAM, TITLE, _ensureSession: ensureSession };
 })();
