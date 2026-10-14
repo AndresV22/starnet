@@ -5697,6 +5697,8 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
 .ob-sec { font-size: 10px; letter-spacing: 2px; color: var(--ph-dim); margin: 10px 0 4px; }
 .ob-sec:first-child { margin-top: 0; }
 .ob-ask, .ob-out { white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; font-size: 12px; color: var(--text); }
+.ob-out.wf-md { white-space: pre-wrap; }   /* WHAT CAME BACK drawn by COMMS' renderer keeps a plain reply's own line breaks, as COMMS' .cmsg .body does (its blocks join with no whitespace) */
+.ob-cut { margin-top: 6px; color: var(--ph-dim); }   /* the 'output truncated' note sits under the answer, never inside it */
 /* dim helper copy inside windows — NOT .mc-detail (that's the CONNECTORS error-detail class, alarm-red) */
 .win-note { font-size: 12px; color: var(--ph-dim); line-height: 1.45; }
 .ob-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 12px; }
@@ -5962,6 +5964,7 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
   scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; }
 /* the closing message rendered (safeMarkdown: one block per line) — paragraphs and headings at the card's own size, no gaps */
 .dlv-said.md { white-space: normal; }
+.dlv-said.wf-md { white-space: pre-wrap; }   /* once COMMS' renderer draws it (proseSaid): a plain reply keeps its line breaks, as in COMMS */
 .dlv-said.md p, .dlv-said.md h1, .dlv-said.md h2, .dlv-said.md h3 { margin: 0 0 6px; font-size: inherit; line-height: inherit; }
 .dlv-said.md h1, .dlv-said.md h2, .dlv-said.md h3 { color: var(--ph-bright); font-weight: normal; letter-spacing: .6px; }
 .dlv-said.md code { font-family: inherit; color: var(--ph-bright); }

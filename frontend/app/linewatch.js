@@ -267,7 +267,9 @@
   }
 
   /* ---------- the per-line numbers, as text ---------- */
-  const fmtUsd = n => '$' + ((+n || 0) >= 1 ? (+n).toFixed(2) : (+n || 0).toFixed(3));
+  /* ONE MONEY FORMAT (walk 10-14: TODAY read '$0.000' beside a '$0.0001' job): the station's canonical spend formatter (util.js
+     U.usd — sub-dime keeps 4 decimals, cents above) wherever it is loaded; the old 3-decimal form only where it is not (node). */
+  const fmtUsd = n => (typeof U !== 'undefined' && U && typeof U.usd === 'function') ? U.usd(+n || 0) : '$' + ((+n || 0) >= 1 ? (+n).toFixed(2) : (+n || 0).toFixed(3));
   const fmtDur = ms => ms == null ? '—' : ms < 1000 ? ms + 'ms' : ms < 60000 ? (Math.round(ms / 100) / 10) + 's' : (Math.round(ms / 6000) / 10) + 'm';
   /* the INBOX plate text — null when the server has not answered for this line:
        [0] the one-line plate that sits on the floor at rest (the counts you watch move);

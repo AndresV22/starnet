@@ -1214,3 +1214,5 @@ test/world-await-tags.test.js
 test/group-stop-truth.test.js
 test/crew-card-fit.test.js
 test/comms-render-seams.test.js
+test/markdown-everywhere.test.js
+test/walk-consistency-1014.test.js

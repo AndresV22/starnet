@@ -1169,6 +1169,17 @@ const Chat = (() => {
         invoke('open_external_url', { url: link.href }).catch(() => { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('could not open your browser for that link', 'warn'); });
       });
     }
+    // CODE BLOCKS OUTSIDE COMMS (walk 10-14): the WORKFLOWS results, the Workflow panel and DELIVERABLES draw replies through this
+    // renderProse too (.wf-md), and a fenced block's ⧉ key there copies that block exactly as it does in COMMS — wired once.
+    if (typeof document !== 'undefined' && !document.__proseCopyWired) {
+      document.__proseCopyWired = true;
+      document.addEventListener('click', e => {
+        const codeBtn = (e.target && e.target.closest) ? e.target.closest('.wf-md .md-copy') : null;
+        if (!codeBtn) return;
+        const wrap = codeBtn.closest('.md-pre-wrap'), codeEl = wrap && wrap.querySelector('.md-pre');
+        if (codeEl) copyText(codeEl.textContent || '').then(ok => showCopyResult(codeBtn, ok));
+      });
+    }
     // COPY: one delegated click handler for every (current + future) message row's ⧉ button — copies the
     // row's prose, then flashes a ✓ confirm. Wired once per log element so a re-init can't stack handlers.
     if (log && !log.__copyWired) {
@@ -4780,6 +4791,12 @@ const Chat = (() => {
      opts.fed === false (world feedState, server-proven) adds the CHANNELS door, so the NO-FEED nag's promised
      click-through survives this card owning the intake click. */
   let sampleCardEl = null;
+  /* the glance of a reply quoted on a card: plain words, the library's own markdown → one line (Deliverables.plainLine) — walk
+     10-14: the delivered card quoted '“## Findings - **Item one:** … `code`”' while every other place reads the reply rendered */
+  function plainQuote(raw, max) {
+    const t = (typeof Deliverables !== 'undefined' && Deliverables.plainLine) ? Deliverables.plainLine(raw) : String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+    return t ? '“' + (t.length > max ? t.slice(0, max).trimEnd() + '…' : t) + '”' : '';
+  }
   function sampleCard(opts) {
     opts = opts || {};
     if (!log) return;
@@ -4862,10 +4879,14 @@ const Chat = (() => {
         text.textContent = clean
           ? ('✔ job delivered — ' + who + ' finished the last step' + cost + '.' + (folded ? ' the result is on the OUTBOX.' : ''))
           : ('⚠ the job rode the line, but the run did not finish clean — the reply below says why.');
-        const reply = (j.replies && j.replies.length) ? String(j.replies[j.replies.length - 1]).replace(/\s+/g, ' ').trim() : '';
+        // a long answer reaches the line's channel in chunks: a clean job is quoted from its OPENING words (where TO REVIEW's glance
+        // starts), never whichever chunk came last ('“All done.”' for a 5k answer, review 10-14); a job that did not finish clean
+        // is quoted by its last word — the reason the text above promises
+        const said = (j.replies && j.replies.length) ? (clean ? j.replies.join('\n') : j.replies[j.replies.length - 1]) : '';
+        const reply = said ? plainQuote(said, 220) : '';
         if (reply) {
           const out = document.createElement('div'); out.className = 'turnin-text';
-          out.textContent = '“' + (reply.length > 220 ? reply.slice(0, 220).trimEnd() + '…' : reply) + '”';
+          out.textContent = reply;
           note.appendChild(out);
         }
         const acts = document.createElement('div'); acts.className = 'turnin-rate';
