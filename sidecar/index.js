@@ -199,7 +199,7 @@ const WorkspaceReserved = require('./workspace-reserved.js');   // agent ids tha
 const { runRouteFailure } = require('./runroute.js');   // a failure escaping handleRun must never read as an empty 200
 const { json: respondJson, readJsonBody, isAgentId } = require('./respond.js');   // canonical json()/body/agent-id helpers — adopt incrementally, don't mass-migrate
 const { readBody, readBodyBuffer } = require('./http-body.js');
-const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveDeliverable, parseRange } = require('./file-response.js');
+const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveDeliverable, parseRange, isTextDocument, documentViewHtml, DOC_VIEW_CSP, DOC_VIEW_MAX_BYTES } = require('./file-response.js');
 const { reflect, reflectSalient, recordFromProposal, feedbackFor, highStakes } = require('./reflect.js');
 const FeedbackMemory = require('./feedbackmemory.js');   // THE COMMANDER'S TASTE: verdicts + corrections -> durable like/dislike memory
 const TasteRef = require('./tasteref.js');   // DESIGN ANCHOR: the rated run's real files / palette / fonts / image args / method, captured on a verdict
@@ -11546,6 +11546,11 @@ const ROUTES = [
       // the parent's DELEGATED card (frontend/app/delegated.js): who, which dispatch, and whether STOP can act
       agentId: w.agentId, parentRunId: w.parentRunId || '', generation: w.generation, completedAt: w.completedAt || 0,
       canInterrupt: !!w.canInterrupt, reason: w.reason || '',
+      // the files this worker really saved (its own artifacts ledger), by workspace-relative path — never the disk path —
+      // so the conversation's report can OPEN what it names (live walk 10-14; delegated.js linkSavedFiles)
+      files: (Array.isArray(w.artifacts) ? w.artifacts : []).filter(a => a && (a.kind === 'file' || a.kind === 'image') && a.path)
+        .slice(-12).map(a => ({ path: String(a.path), agentId: String(a.agentId || w.agentId || 'agent') })),
+      projectRoot: w.projectRoot || '',
       // the ledger's own explanation of a refused or failed worker (the crew-cap or sign-in sentence, a run's error) for
       // the card's hover tip and NEEDS YOU, as `failure` and only when there is one. This polled route never carries a
       // worker's `result` (heavy, and a timeout's or rejected answer's result is partial work, never a reason).
@@ -24066,6 +24071,12 @@ function awayBriefingState(raw) {
   return { through: Math.max(0, Number(s.through) || 0), last: (s.last && typeof s.last === 'object') ? s.last : null };
 }
 function readAwayBriefingState() { try { return awayBriefingState(awayBriefingStore.get('briefing')); } catch (_) { return awayBriefingState(null); } }
+// the OPEN consent prompts awaiting the Commander right now (the same pendingByRun /api/state/snapshot lists)
+function openAskCount() {
+  let n = 0;
+  try { for (const pending of pendingByRun.values()) n += (pending && pending.size) || 0; } catch (e) { failNote('away-briefing.asks', e); }
+  return n;
+}
 async function awayBriefingInputs(since, now, tzOffsetMin) {
   let runs = []; try { runs = runStore.list(null, { limit: 500, since: Math.max(0, since - 1) }) || []; } catch (_) { runs = []; }
   // the run row keeps deliveryText only for session-scoped runs; a routine/loop's own words live in its durable
@@ -24126,7 +24137,11 @@ async function handleAwayBriefingDeliver(req, res) {
     let out = null;
     await awayBriefingStore.update('briefing', async (raw) => {
       const st = awayBriefingState(raw), now = Date.now();
-      const since = st.through || (now - AWAY_BRIEFING_FIRST_WINDOW_MS);
+      // THE ABSENCE (live walk 10-14): { seen:true } is the page stamping the Commander's presence; minAwayMs is the
+      // page's own away threshold — a stamp fresher than it is a reload or a restart, never a "While you were away"
+      const gap = AwayBriefing.absence({ through: st.through, now, seen: body.seen === true, minAwayMs: Number(body.minAwayMs) || 0, firstWindowMs: AWAY_BRIEFING_FIRST_WINDOW_MS });
+      if (!gap.brief) { out = { delivered: false, why: gap.why }; return { through: gap.through, last: st.last }; }
+      const since = gap.since;
       const inputs = await awayBriefingInputs(since, now, tz);
       const b = AwayBriefing.compose(inputs);
       if (b.empty) { out = { delivered: false, counts: b.counts }; return { through: now, last: st.last }; }
@@ -24135,7 +24150,10 @@ async function handleAwayBriefingDeliver(req, res) {
       const quoted = (inputs.runs || []).find(r => r && r.taintedBy && (Number(r.endedAt) || Number(r.ts) || 0) > since);
       transcriptStore.append({ streamId: AwayBriefing.STREAM_ID, agentId: AWAY_BRIEFING_AGENT, role: 'assistant', taint: quoted ? 'away briefing quoting ' + String(quoted.taintedBy).slice(0, 80) : null, content: b.text });
       const last = { at: now, since: b.since, items: b.items, counts: b.counts };
-      out = { delivered: true, at: now, text: b.text, items: b.items, counts: b.counts };
+      // asksWaiting: open approvals/questions on the station right now. A waiting ask outranks the report — the page keeps
+      // the Commander on the conversation that needs them instead of jumping to the briefing (a reloaded page may not
+      // have refiled a background worker's ask yet; the station's own list is the truth)
+      out = { delivered: true, at: now, text: b.text, items: b.items, counts: b.counts, asksWaiting: openAskCount() };
       return { through: now, last };
     });
     json(200, Object.assign({ ok: true, streamId: AwayBriefing.STREAM_ID, agentId: AWAY_BRIEFING_AGENT, title: AwayBriefing.TITLE }, out || { delivered: false }));
@@ -26042,9 +26060,10 @@ async function handleAttachmentUpload(req, res) {
 // STREAMS the bytes (createReadStream, never the whole file in memory) and honors HTTP Range so the COMMS
 // <video>/<audio> elements can seek — the Node analogue of Starlette's FileResponse in the reference gateway.
 async function serveWorkspaceFile(req, res) {
-  let abs;
+  let abs, docView = false;
   try {
     const u = new URL(req.url, 'http://127.0.0.1');
+    docView = u.searchParams.get('view') === 'doc';   // the readable document view (file-response.js documentViewHtml)
     const agent = u.searchParams.get('agent') || 'agent';
     const rel = u.searchParams.get('path') || '';
     const project = u.searchParams.get('project') || '';
@@ -26077,6 +26096,19 @@ async function serveWorkspaceFile(req, res) {
   if (!st.isFile()) { res.writeHead(404); return res.end('not found'); }
 
   const ext = path.extname(abs).toLowerCase();
+  /* ?view=doc on a TEXT deliverable (live walk 10-14): the station's dark reading page instead of raw text on a white tab.
+     Inert by construction (escaped into one <pre>, sandboxed, no script, loads nothing). A file too large, or one that is
+     not really text (a NUL byte), falls through to the plain bytes below. */
+  if (docView && req.method === 'GET' && isTextDocument(abs) && st.size <= DOC_VIEW_MAX_BYTES) {
+    let text = null;
+    try { text = await fsp.readFile(abs, 'utf8'); } catch (e) { failNote('file.doc-view', e); text = null; }
+    if (text != null && text.indexOf('\0') === -1) {
+      const html = documentViewHtml(abs, text);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': DOC_VIEW_CSP,
+        'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Length': Buffer.byteLength(html) });
+      return res.end(html);
+    }
+  }
   const active = isActiveDeliverable(abs);
   const headers = {
     'Content-Type': active ? 'application/octet-stream' : (MIME[ext] || 'text/plain; charset=utf-8'),
