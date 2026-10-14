@@ -46,4 +46,16 @@ const px = v => { const m = String(v || '').match(/(\d+(?:\.\d+)?)px/); return m
   A.ok(!!m && +m[1] >= 7, 'the OUTBOX / board / case world tag is set at a world-tag size (>= 7 world px like RUN and NO FEED), got ' + (m && m[1]));
 }
 
+/* #15 the Workflow panel diagram: a 1-step line whose joins carry labels ("the job", "the finished result") ran its OUTBOX
+   tile past the panel's right edge at 1440x900 — the strip was min-width:max-content and no join could give way. */
+{
+  const wp = rulesOf('frontend/css/workflow-panel.css');
+  A.eq(decl(wp, '.wf-strip', 'min-width'), 'min-content', 'the strip is the panel\'s width while its parts fit at their narrowest; it scrolls only past that');
+  A.ok(/^0 1 /.test(decl(wp, '.wf-belt', 'flex') || ''), 'a join gives way (shrinks) toward its floor before the strip overflows');
+  A.ok(decl(wp, '.wf-belt', 'width') !== 'max-content', 'a join is not width:max-content (that made its min-content its widest label, so the strip never let it give way)');
+  A.eq(decl(wp, '.wf-belt', 'min-width'), '60px', 'a join keeps its 60px floor (Andrew\'s diagram law: belts >= 60)');
+  A.ok(parseFloat(decl(wp, '.wf-belt .carry', 'max-height') || '0') >= 3.3, 'a narrowed join\'s label keeps three short lines');
+  A.ok(/class="carry" data-tip="' \+ esc\(carry\)/.test(read('frontend/app/workflowpanel.js')), 'and its whole label is the join\'s hover tip');
+}
+
 A.report('ui-layout-fit.test');
