@@ -55,7 +55,8 @@ const row = (id, role, content, ts) => ({ streamId: 'ws_a', agentId: 'agent', ro
   A.eq(lines.length, 1, 'exactly one station line: the run that waited on an approval when its page closed');
   const line = lines[0] || {};
   A.eq(out.indexOf(line), 3, 'the line sits right after that run\'s last row (before the next request)');
-  A.eq(line.content, '■ the run ended when this page closed or reloaded while it waited for your approval to write opportunity-brief.md — nothing was approved',
+  // "reconnected": the page's own teardown (App.disconnect → Chat.abort → re-entry) drops the stream the same way a reload does
+  A.eq(line.content, '■ the run ended when this page closed, reloaded or reconnected while it waited for your approval to write opportunity-brief.md — nothing was approved',
     'the line names what waited and that nothing was approved');
   A.eq(line.transcriptPending, true, 'the line is the station\'s copy (merges replace, never stack it)');
   A.eq(line.error, true, 'the line is a status row the model never reads back as its own words');
@@ -68,21 +69,31 @@ const row = (id, role, content, ts) => ({ streamId: 'ws_a', agentId: 'agent', ro
 }
 {
   // two such runs in one conversation: each gets its own line after its own rows
-  const runs2 = { a: Object.assign({}, runs.closed, { runId: 'a' }), b: Object.assign({}, runs.closed, { runId: 'b', pageClosed: { at: 5, waitingOn: ['your approval to run a command: npm test', 'your approval to write c.md'] } }) };
+  const runs2 = { a: Object.assign({}, runs.closed, { runId: 'a' }), b: Object.assign({}, runs.closed, { runId: 'b', pageClosed: { at: 5, waitingOn: ['your approval to run a command: npm test', 'your approval for ROOK to write c.md'] } }) };
   const out = projectConversation([row('a', 'user', 'one', 1), row('b', 'user', 'two', 2), row('b', 'tool', 'x', 3)], id => runs2[id] || null);
   A.eq(out.map(t => t.sys ? 'LINE:' + t.sourceRunId : t.sourceRunId + ':' + t.role).join(','), 'a:user,LINE:a,b:user,b:tool,LINE:b', 'each run\'s line follows its own rows');
-  A.ok(/run a command: npm test and your approval to write c\.md/.test(out[4].content), 'several open approvals are all named');
+  A.ok(/run a command: npm test and your approval for ROOK to write c\.md/.test(out[4].content), 'several open approvals are all named, a worker\'s by its name');
 }
 
 // ---- host wiring (sidecar/index.js; never require()d — it boots a real sidecar) ----
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
   const close = /res\.on\('close', \(\) => \{\s*if \(!leadOver && !ac\.signal\.aborted && !internal\) \{ try \{ notePageClosed\(runId, pending\); \}/.test(src);
+  // ...registered before the disconnect law's own close listener (which aborts the signal), so it reads the signal first
+  const np = src.indexOf('try { notePageClosed(runId, pending); }');
+  const ap = src.indexOf("res.on('close', () => { ac.abort(); runs.delete(runId); runsMeta.delete(runId); });", np);
+  A.ok(np > 0 && ap > np && ap - np < 300, 'the page-closed note listener is registered right before handleRun\'s abort listener (listeners run in order)');
   A.ok(close, 'handleRun notes the open approvals only when the CLOSE is what stops a live run (STOP / E-STOP abort the signal first)');
   A.ok(/leadOver = true;\s*pageClosedRuns\.delete\(runId\);/.test(src), 'the note never outlives its run (dropped in the finally, after the record read it)');
-  A.ok(/pageClosed: pageClosedRuns\.get\(runId\) \|\| null \}\);/.test(src), 'runOnce writes the note into the run record');
+  A.ok(/pageClosed: pageClosedRuns\.get\(runId\) \|\| null, taintedBy: execution\.taintedBy\(\) \|\| '' \}\);/.test(src), 'runOnce writes the note into the run record');
   const note = src.slice(src.indexOf('function notePageClosed('), src.indexOf('function notePageClosed(') + 900);
   A.ok(/f\.detached/.test(note) && /brief\.ask/.test(note), 'a background worker\'s ask and a question are not counted (they outlive / restore on their own)');
+  // a foreground worker's open ask names the worker that asked ("your approval to change x" alone read as the lead's own)
+  A.ok(/row\.workerAgentId \? 'for ' \+ remoteAgentName\(row\.workerAgentId\) \+ ' ' : ''/.test(note), 'a worker\'s open ask is named for the worker that asked');
+  // a "session" answer to a background ask after its lead's turn: that session is over, so it approves this call only (a
+  // grant written under the ended run outlived every run that could use it — e2e.approval-lifecycle proves it live)
+  A.ok(/const sessionOver = \(d\) => \(detached && leadOver && d === 'session'\) \? 'once' : d;/.test(src) && /v = sessionOver\(v\);/.test(src) && /d === 'session' \? sessionOver\(d\) : 'deny'/.test(src),
+    'a background ask\'s "session" answer after its lead ended applies once (desk and phone alike)');
   // a background worker's ask answered after its lead's turn ended: "full" still names the lead whose broker it rides
   A.ok(/const agentId = \(meta && meta\.agentId\) \|\| \(finish && finish\.detached && finish\.askRow && finish\.askRow\.agentId\) \|\| undefined;/.test(src),
     'POST /api/consent resolves the agent for a background ask whose lead run already ended');

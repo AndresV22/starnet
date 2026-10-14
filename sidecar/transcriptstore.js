@@ -171,7 +171,8 @@
     const pc = run && run.reason === 'cancelled' && run.pageClosed;
     const waiting = pc && Array.isArray(pc.waitingOn) ? pc.waitingOn.map(str).filter(Boolean) : [];
     if (!waiting.length) return '';
-    return '■ the run ended when this page closed or reloaded while it waited for ' + waiting.join(' and ') + ' — nothing was approved';
+    // "reconnected": the page's own teardown (App.disconnect → Chat.abort, then re-entry) drops the stream like a reload does
+    return '■ the run ended when this page closed, reloaded or reconnected while it waited for ' + waiting.join(' and ') + ' — nothing was approved';
   }
 
   function makeTranscriptStore(opts) {

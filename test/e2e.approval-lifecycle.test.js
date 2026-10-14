@@ -14,6 +14,10 @@
       carries one station line naming what was waiting and that nothing was approved. STOP (POST /api/cancel first)
       is a different cause and never gets that line.
 
+   3. (2026-10-14 review) A background worker STOPPED while its ask waits settles that ask as stopped (never "nobody
+      answered in time"), and a "session" answer after the lead's turn approves that one call: session grants end with
+      the lead's run, so none is left behind under the ended run and the same worker's next write asks again.
+
    Boots the actual sidecar (hermetic fixture) on a scripted local model. */
 'use strict';
 
@@ -78,7 +82,10 @@ function startMockProvider() {
           else say('writer tool said: ' + lastTool.slice(0, 160));
         } else if (!isLead && /Draft the pricing page/.test(user)) {
           // the second worker asks only AFTER the lead's turn is over (its first step is slow)
-          if (used.indexOf('fs_write') < 0) { await sleep(1500); call('fs_write', { path: 'pricing-page.md', content: '# Pricing\n' }); }
+          const writes = used.filter(n => n === 'fs_write').length;
+          if (!writes) { await sleep(1500); call('fs_write', { path: 'pricing-page.md', content: '# Pricing\n' }); }
+          // a second page of the same kind once the first landed (part 4: does a "session" answer carry over?)
+          else if (writes === 1 && /^Wrote /.test(lastTool)) call('fs_write', { path: 'pricing-faq.md', content: '# FAQ\n' });
           else say('drafter tool said: ' + lastTool.slice(0, 160));
         } else say('Done.');
         res.write('data: [DONE]\n\n');
@@ -272,7 +279,7 @@ async function until(fn, ms, label) {
     A.ok(rec.pageClosed && Array.isArray(rec.pageClosed.waitingOn) && rec.pageClosed.waitingOn.some(w => /opportunity-brief\.md/.test(w)),
       'the run record says the page closed while it waited on the opportunity-brief.md approval');
     const tr = await (await fetch(B + '/api/transcript?agent=agent&stream=ws_reload&limit=50', { headers: H })).json();
-    const line = (tr.turns || []).find(t => t && t.sys && /closed or reloaded/.test(t.content || ''));
+    const line = (tr.turns || []).find(t => t && t.sys && /closed, reloaded or reconnected/.test(t.content || ''));
     A.ok(!!line, 'after the reload the conversation carries the station\'s line about the ended run');
     if (line) {
       A.ok(/nothing was approved/.test(line.content) && /opportunity-brief\.md/.test(line.content), 'the line names what waited and that nothing was approved: ' + line.content);
@@ -304,7 +311,47 @@ async function until(fn, ms, label) {
     A.eq(stopRec.reason, 'cancelled', 'STOP cancels the run');
     A.ok(!stopRec.pageClosed, 'a STOP is never recorded as the page closing');
     const trStop = await (await fetch(B + '/api/transcript?agent=agent&stream=ws_stop&limit=50', { headers: H })).json();
-    A.ok(!(trStop.turns || []).some(t => t && t.sys && /closed or reloaded/.test(t.content || '')), 'a stopped run gets no page-closed line');
+    A.ok(!(trStop.turns || []).some(t => t && t.sys && /closed, reloaded or reconnected/.test(t.content || '')), 'a stopped run gets no page-closed line');
+
+    /* ---------------- 4. a background worker STOPPED while its ask waits, and a "session" answer after the lead ended ---------------- */
+    let lead2RunId = '';
+    const lead2 = startRun(B, H, { key: 'sk-or-v1-local-proof', model: 'test/model', agentId: 'agent', isTask: true, streamId: 'ws_handoff2',
+      messages: [{ role: 'user', content: 'hand off in the background' }] }, async (ev) => {
+      if (ev.name === 'agent.run.start' && ev.payload && !lead2RunId) lead2RunId = ev.payload.runId;
+      if (ev.name === 'permission.prompt' && ev.payload && !ev.payload.workerAgentId) {
+        await fetch(B + '/api/consent', { method: 'POST', headers: H, body: JSON.stringify({ runId: lead2RunId, promptId: ev.payload.promptId, decision: 'once' }) });
+      }
+    });
+    await lead2.done;
+    const ask2 = who => bus.events.find(e => e.name === 'permission.prompt' && e.payload && e.payload.workerAgentId === who && e.payload.runId === lead2RunId);
+    await until(() => ask2('writer') && ask2('drafter'), 15000, 'both background workers of the second hand-off asking');
+    const w2 = ask2('writer').payload, d2 = ask2('drafter').payload;
+    // the Commander stops the writer (its row's STOP: POST /api/subagents/interrupt) while its write waits on them
+    const recs = await (await fetch(B + '/api/subagents?leadId=agent', { headers: H })).json();
+    const wrec = (recs.records || []).find(r => r.runId === w2.workerRunId);
+    A.ok(!!wrec, 'the waiting writer has its durable background record');
+    const intr = wrec ? await (await fetch(B + '/api/subagents/interrupt', { method: 'POST', headers: H, body: JSON.stringify({ id: wrec.id }) })).json() : {};
+    A.eq(intr.ok, true, 'the writer is interrupted');
+    const stoppedResp = await until(() => bus.events.find(e => e.name === 'permission.response' && e.payload && e.payload.promptId === w2.promptId), 5000, 'the stopped worker\'s ask settling');
+    A.eq(stoppedResp.payload.decision, 'deny', 'a stopped worker\'s ask approves nothing');
+    A.eq(stoppedResp.payload.stopped, true, 'and is announced as stopped (its card says the worker stopped)');
+    A.ok(!stoppedResp.payload.expired, 'never as "nobody answered in time" — it was stopped, not left unanswered');
+    A.ok(stoppedResp.at - w2.askedAt < CONSENT_TIMEOUT_MS - 1000, 'it settled at the stop, not on the consent timeout');
+    // a "session" answer (a paired phone offers it) to the drafter's ask after the lead's turn: session grants end with
+    // the lead's run (handleRun's finally), and that run is already over — so it approves this one call, and no grant
+    // is written under the ended run (it would outlive every run that could ever clear it)
+    const sess = await (await fetch(B + '/api/consent', { method: 'POST', headers: H, body: JSON.stringify({ runId: lead2RunId, promptId: d2.promptId, decision: 'session' }) })).json();
+    A.eq(sess.ok, true, 'a "session" answer to a background ask after its lead ended is accepted');
+    const drafterFile = path.join(fixture.workspace, 'drafter', 'pricing-page.md');
+    await until(() => fs.existsSync(drafterFile), 8000, 'the approved pricing page landing');
+    A.ok(fs.existsSync(drafterFile), 'the approved background write ran');
+    const settledAs = bus.events.find(e => e.name === 'permission.response' && e.payload && e.payload.promptId === d2.promptId);
+    A.eq(settledAs && settledAs.payload.decision, 'once', 'every surface is told what was applied: approved once');
+    const again = await until(() => bus.events.find(e => e.name === 'permission.prompt' && e.payload && e.payload.workerAgentId === 'drafter' && e.payload.runId === lead2RunId && e.payload.promptId !== d2.promptId), 8000, 'the drafter\'s second write asking');
+    A.ok(/pricing-faq\.md/.test(again.payload.argsSummary || ''), 'the same worker\'s next write of that kind asks again (no grant was left under the ended run)');
+    await fetch(B + '/api/consent', { method: 'POST', headers: H, body: JSON.stringify({ runId: lead2RunId, promptId: again.payload.promptId, decision: 'deny' }) });
+    await until(() => bus.events.some(e => e.name === 'permission.response' && e.payload && e.payload.promptId === again.payload.promptId), 5000, 'the second ask settling');
+    A.ok(!fs.existsSync(path.join(fixture.workspace, 'drafter', 'pricing-faq.md')), 'the denied second write never ran');
   } catch (e) {
     e.message += '\nsidecar output (tail):\n' + fixture.output().slice(-4000);
     throw e;

@@ -3917,7 +3917,10 @@ function notePageClosed(runId, pending) {
     const row = f && f.askRow;
     // a background worker's ask outlives this run (askHuman detached); a question has its own durable restore path
     if (!row || f.detached || row.tool === 'brief.ask') continue;
-    waitingOn.push(/^browser\.login/.test(String(row.tool)) ? 'your OK to open a login window' : 'your approval to ' + remoteAskWords(row).replace(/^wants to /, ''));
+    // a foreground worker's ask names that worker: the conversation is the lead's, so "your approval to change x" alone
+    // read as the lead's own step
+    const forWho = row.workerAgentId ? 'for ' + remoteAgentName(row.workerAgentId) + ' ' : '';
+    waitingOn.push(/^browser\.login/.test(String(row.tool)) ? 'your OK ' + forWho + 'to open a login window' : 'your approval ' + forWho + 'to ' + remoteAskWords(row).replace(/^wants to /, ''));
   }
   pageClosedRuns.set(runId, { at: Date.now(), waitingOn: waitingOn.slice(0, 4) });
 }
@@ -19064,12 +19067,11 @@ async function handleRun(req, res) {
   // res 'close' fires when the response stream ends — premature on a dead client — and on normal end it's inert
   // here (runOnce's finally has already settled + deleted; the abort hits a spent controller).
   // #60: when the close is what stops a LIVE run (STOP / E-STOP / a superseding message abort the signal first), note
-  // the approvals it was still waiting on — the abort below denies them, and the conversation must say so after a reload
+  // the approvals it was still waiting on — the abort below denies them, and the conversation must say so after a reload.
+  // Registered FIRST: listeners run in order, so it reads the signal before the disconnect law aborts it.
   let leadOver = false;   // this run's own finally ran: a close after it is just the stream's normal end
-  res.on('close', () => {
-    if (!leadOver && !ac.signal.aborted && !internal) { try { notePageClosed(runId, pending); } catch (e) { failNote('run.pageClosed.note', e); } }
-    ac.abort(); runs.delete(runId); runsMeta.delete(runId);
-  });
+  res.on('close', () => { if (!leadOver && !ac.signal.aborted && !internal) { try { notePageClosed(runId, pending); } catch (e) { failNote('run.pageClosed.note', e); } } });
+  res.on('close', () => { ac.abort(); runs.delete(runId); runsMeta.delete(runId); });
 
   // the "bus" writes one validated, REDACTED NDJSON line per event (key-shaped secrets are scrubbed even
   // if a tool ever echoes one back); makeEmitter validates against the frozen registry first.
@@ -19101,11 +19103,16 @@ async function handleRun(req, res) {
        at once), keeps this run's answer slot (pendingByRun[runId]) open until it settles, and is announced on the
        station bus — where the worker's other events already ride — stamped with this run's id and conversation, so
        any page files it under that conversation and answers it with POST /api/consent { runId }. The fail-closed
-       consent timeout is unchanged: unanswered, it still expires to a denial (expired:true). */
+       consent timeout is unchanged: unanswered, it still expires to a denial (expired:true). A worker STOPPED while its
+       ask waits settles it as stopped:true instead — "no answer in time" would blame the Commander for a stop.
+       Session grants end with this run (the finally below): a "session" answer that lands after the turn is over has
+       no session left to live in, so it approves that one call (`sessionOver`) and no grant is written under the
+       ended run — it would outlive every run that could ever clear it. */
     const detached = !!(by && by.detached && by.signal);
     const say = detached ? chanEmit : emit;
     let askId = '', announced = false;
     if (detached && pendingByRun.get(runId) !== pending) pendingByRun.set(runId, pending);   // the turn already ended: reopen its answer slot
+    const sessionOver = (d) => (detached && leadOver && d === 'session') ? 'once' : d;
     return makeConsentWait({
       timeoutDecision: opts && opts.timeoutDecision,
       // Node 18 / 20.0-20.2 have no AbortSignal.any: the ask then rides the run's own signal and the timeout (still
@@ -19114,7 +19121,7 @@ async function handleRun(req, res) {
       uuid: () => crypto.randomUUID(),
       // nobody answered in time (or the run dropped): the prompt fail-closed to deny — say so on the run's stream
       // (expired:true, additive) so the desk card and the CREW frame stop asking
-      onAutoDeny: (promptId) => { announced = true; try { say('permission.response', { promptId, decision: 'deny', expired: true }); } catch (e) { failNote('consent.autoDenyResponse', e); } },
+      onAutoDeny: (promptId, expired) => { announced = true; try { say('permission.response', (detached && !expired) ? { promptId, decision: 'deny', stopped: true } : { promptId, decision: 'deny', expired: true }); } catch (e) { failNote('consent.autoDenyResponse', e); } },
       emitPrompt: (promptId) => {
         askId = promptId;
         const row = { promptId, agentId, tool: (fields && fields.tool) || 'tool', scope: (fields && fields.scope) || 'write', argsSummary: (fields && fields.argsSummary) || '' };
@@ -19135,13 +19142,14 @@ async function handleRun(req, res) {
         if (orig) {
           // a phone's answer to a QUESTION (brief.ask) is { __clarify, text }: it answers the prompt too, so the desk's card is
           // told (decision 'once' = answered), not left live on a question the run already moved past (sweep 2026-10-01)
-          const viaRemote = (d) => { orig(d); const decision = typeof d === 'string' ? (d === 'once' || d === 'session' ? d : 'deny') : (d && d.__clarify ? 'once' : null); if (decision) { announced = true; try { say('permission.response', { promptId, decision }); } catch (e) { failNote('remote.index.deskPermissionResponse', e); } } };
+          const viaRemote = (d) => { orig(d); const decision = typeof d === 'string' ? (d === 'once' || d === 'session' ? sessionOver(d) : 'deny') : (d && d.__clarify ? 'once' : null); if (decision) { announced = true; try { say('permission.response', { promptId, decision }); } catch (e) { failNote('remote.index.deskPermissionResponse', e); } } };
           viaRemote.extend = orig.extend;
           try { untrack = remoteApprovals.add(Object.assign({ runId, surface: 'desk', finish: viaRemote }, row)); } catch (e) { failNote('remote.index.trackDeskPrompt', e); }
         }
       }
     }).ask().then((v) => {
       if (untrack) untrack();
+      v = sessionOver(v);   // a "session" answer after this run ended: its session is over, so this call only
       if (detached) {
         // a desk answer (POST /api/consent) settles it on one page: tell every other page and surface on the station bus
         if (!announced && askId) {
@@ -22790,7 +22798,7 @@ async function runOnceCore(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', taintedBy: execution.taintedBy() || '', pageClosed: pageClosedRuns.get(runId) || null });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
+      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new

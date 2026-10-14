@@ -87,8 +87,11 @@ function load() {
   A.ok((clar.match(/U\.bus\.emit\('permission\.response', ?\{ ?promptId: ?p\.promptId, ?decision: ?'once' ?\}\)/g) || []).length === 2,
     'both question paths (buttons and the conversation) announce the answer on the bus');
   const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
-  A.ok(/onAutoDeny: \(promptId\) => \{ try \{ emit\('permission\.response', \{ promptId, decision: 'deny', expired: true \}\);/.test(idx),
-    'a prompt that expired or lost its run is announced on the run stream');
+  // a run's own ask on its stream; a background worker's ask (it outlives the lead's turn) on the station bus, and a
+  // background worker that was STOPPED says stopped, not expired (2026-10-14)
+  A.ok(/const say = detached \? chanEmit : emit;/.test(idx)
+    && /onAutoDeny: \(promptId, expired\) => \{ announced = true; try \{ say\('permission\.response', \(detached && !expired\) \? \{ promptId, decision: 'deny', stopped: true \} : \{ promptId, decision: 'deny', expired: true \}\);/.test(idx),
+    'a prompt that expired or lost its run is announced where its surfaces listen');
 }
 
 A.report('crew-cards');
