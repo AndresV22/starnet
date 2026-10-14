@@ -195,6 +195,47 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   A.eq(st({ ws: ws(), worker: { status: 'running', startedAt: Date.now() } }).cls, 'waiting', 'an ask on the worker\'s own thread outranks working');
   pend.clear(); busy.add('k');
   A.eq(st({ ws: ws(), worker: null }).cls + '|' + st({ ws: ws(), worker: null }).t, 'working|1:05', 'a foreground worker is working while its thread channel is live');
+  // Exact worker clocks are independent of the agent aggregate, and available only for the current channel run.
+  {
+    const calls = [], exact = new Map([['a', 120000], ['b', 60000]]);
+    global.CrewClock = {
+      elapsedOf: () => { throw new Error('a delegated row must never read the agent aggregate'); },
+      elapsedForRun: (id, now) => { calls.push({ id, now }); return exact.has(id) ? exact.get(id) : null; }
+    };
+    const a = { ws: ws({ id: 'ka', agentId: 'researcher', runIds: ['old-a'] }), worker: null };
+    const b = { ws: ws({ id: 'kb', agentId: 'researcher', runIds: ['old-b'] }), worker: null };
+    busy.add('ka'); busy.add('kb'); runOf.set('ka', 'a'); runOf.set('kb', 'b');
+    A.eq([st(a).t, st(b).t], ['2:00', '1:00'], 'same-agent foreground rows select their current run, never the oldest agent run');
+    A.eq(calls.map(x => x.id), ['a', 'b'], 'only the two current channel identities reached the exact clock');
+    A.ok(calls.every(x => Number.isFinite(x.now)), 'each exact clock receives an observation time');
+    exact.set('a', 0);
+    A.eq(st(a).t, '0:00', 'zero exact elapsed is valid and must not fall back to the thread clock');
+    exact.set('b', null);
+    A.eq(st(b).t, '1:05', 'unseen start or ambiguous accounting uses the existing thread clock with NOW');
+    exact.set('b', NaN);
+    A.eq(st(b).t, '1:05', 'invalid exact accounting cannot paint a fabricated zero');
+    runOf.delete('ka'); calls.length = 0;
+    A.eq(st(a).t, '1:05', 'a connecting channel cannot borrow a historical run clock');
+    A.eq(calls.length, 0, 'no exact lookup is attempted without current run identity');
+    delete global.CrewClock.elapsedForRun;
+    A.eq(st(b).t, '1:05', 'older or unavailable CrewClock API retains thread fallback, never aggregate fallback');
+    delete global.CrewClock;
+    busy.delete('ka'); busy.delete('kb'); runOf.delete('kb');
+  }
+  // The background ledger path retains its wall-time fallback, freshness check and Stop authority.
+  {
+    const realNow = Date.now;
+    Date.now = () => 100000;
+    global.CrewClock = { elapsedForRun: () => { throw new Error('background ledger clock must retain its existing fallback'); } };
+    try {
+      const worker = { status: 'running', startedAt: 30000, canInterrupt: true, id: 'bg', runId: 'background' };
+      const row = st({ ws: ws({ id: 'bg-thread', agentId: 'researcher' }), worker });
+      A.eq([row.cls, row.t, row.stop, row.worker.id], ['working', '1:10', true, 'bg'], 'background ledger timing and interrupt ownership are unchanged');
+      global.Overseer = { fresh: () => false };
+      const unknown = st({ ws: ws({ id: 'bg-thread' }), worker });
+      A.eq([unknown.cls, unknown.t, !!unknown.stop], ['unknown', '', false], 'an unreachable background worker still offers neither clock nor Stop');
+    } finally { Date.now = realNow; delete global.CrewClock; delete global.Overseer; }
+  }
   busy.clear();
   A.eq(st({ ws: ws({ runIds: ['r9'], lastRunReason: 'done' }), worker: null }).cls, 'done', 'a confirmed completed foreground worker is done');
   A.eq(st({ ws: ws({ runIds: ['r9'] }), worker: null }).cls, 'recorded', 'a legacy delivery with unknown terminal reason is never claimed complete');

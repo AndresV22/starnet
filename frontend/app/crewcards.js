@@ -10,8 +10,8 @@
    Everything is gated on the row's own .working class, so a card never claims more than crewTick does. */
 (() => {
   'use strict';
-  const runs = new Map();   // runId → { agentId, startedAt, tool, pausedMs }
-  const asks = new Map();   // promptId → { agentId, at }
+  const runs = new Map();   // runId → aggregate CREW state + independent exact-run wait accounting
+  const asks = new Map();   // promptId → { agentId, runId (only when stamped), at }
   /* A run the page saw start but never saw END (Stop, E-STOP, a dropped stream: agent.run.end never reaches the bus)
      used to stay here forever — the agent's NEXT run showed the old run's clock, step and gold "needs your OK" frame
      (sweep 2026-10-02). crewTick's .working is the truth; once a row has been not-working for a short grace (the same
@@ -44,12 +44,44 @@
     if (oldest) elapsed = Math.max(0, now - oldest.startedAt - (oldest.pausedMs || 0) - (openFrom ? Math.max(0, now - Math.max(openFrom, oldest.startedAt)) : 0));
     return { start: oldest ? oldest.startedAt : 0, elapsed, tool, asking };
   }
-  // a wait on you closed (answered, denied, or its run ended): its span stops counting toward every run it paused
+  // Only the worker stamp proves whose time a delegated ask consumes. The outer lead run owns the consent endpoint,
+  // not the worker clock; ordinary raw prompts have no run stamp. Once an ambiguous wait is observed, that run's
+  // exact accounting stays unavailable (even after the wait closes), so its caller can use the thread clock.
+  function openAsk(p) {
+    const who = p && (p.workerAgentId || p.agentId);
+    if (!p || !p.promptId || !who) return;
+    const id = String(p.promptId), agentId = String(who), runId = String(p.workerRunId || '');
+    const r = runId && runs.get(runId);
+    if (asks.has(id) || (r && r.seenPrompts.has(id))) return;
+    const now = Date.now();
+    asks.set(id, { agentId, runId, at: now });
+    if (r) {
+      r.seenPrompts.add(id);
+      if (r.agentId !== agentId) r.runClockKnown = false;
+      if (r.runPauseAt === null) r.runPauseAt = now;
+    } else if (!runId) {
+      // Agent identity can rule out unrelated agents, but cannot choose between this agent's concurrent runs.
+      for (const candidate of runs.values()) if (candidate.agentId === agentId) candidate.runClockKnown = false;
+    }
+    paint();
+  }
+  function elapsedForRun(runId, now = Date.now()) {
+    const r = runs.get(String(runId || ''));
+    if (!r || !r.runClockKnown || !Number.isFinite(now)) return null;
+    const open = r.runPauseAt === null ? 0 : Math.max(0, now - r.runPauseAt);
+    return Math.max(0, now - r.startedAt - r.runPausedMs - open);
+  }
+  // Preserve CREW's aggregate accounting; the exact-run clock separately subtracts the UNION of its own waits.
   function closeAsk(promptId, now) {
     const a = asks.get(promptId);
     if (!a) return false;
     asks.delete(promptId);
     for (const r of runs.values()) if (r.agentId === a.agentId) r.pausedMs = (r.pausedMs || 0) + Math.max(0, now - Math.max(a.at, r.startedAt));
+    const r = a.runId && runs.get(a.runId);
+    if (r && r.runPauseAt !== null && ![...asks.values()].some(x => x.runId === a.runId)) {
+      r.runPausedMs += Math.max(0, now - r.runPauseAt);
+      r.runPauseAt = null;
+    }
     return true;
   }
   function dropAgent(id) {
@@ -99,12 +131,24 @@
   function wire() {
     seatSummary();
     if (typeof U !== 'undefined' && U.bus) {
-      U.bus.on('agent.run.start', (p) => { if (p && p.runId && p.agentId) { idleSince.delete(String(p.agentId)); runs.set(String(p.runId), { agentId: String(p.agentId), startedAt: Date.now(), tool: '', pausedMs: 0 }); } paint(); });
+      U.bus.on('agent.run.start', (p) => {
+        if (p && p.runId && p.agentId) {
+          const runId = String(p.runId), agentId = String(p.agentId);
+          idleSince.delete(agentId);
+          // A repeated start must not reset either clock or discard waits already observed for this run.
+          if (!runs.has(runId)) runs.set(runId, { agentId, startedAt: Date.now(), tool: '', pausedMs: 0,
+            runPausedMs: 0, runPauseAt: null, seenPrompts: new Set(),
+            runClockKnown: ![...asks.values()].some(a => a.runId === runId || (!a.runId && a.agentId === agentId)) });
+        }
+        paint();
+      });
       U.bus.on('agent.tool_call', (p) => { const r = p && runs.get(String(p.runId)); if (r && p.name) { r.tool = String(p.name); paint(); } });
       U.bus.on('agent.tool_result', (p) => { const r = p && runs.get(String(p.runId)); if (r) { r.tool = ''; paint(); } });
       const end = (p) => {
         const r = p && runs.get(String(p.runId));
         if (!r) return;
+        // Ending one of several same-agent runs settles only the prompts explicitly owned by that run.
+        for (const [id, a] of asks) if (a.runId === String(p.runId)) closeAsk(id, Date.now());
         runs.delete(String(p.runId));
         // a run that ends with a prompt still open (stopped, failed) can no longer be waiting on you
         if (![...runs.values()].some((x) => x.agentId === r.agentId)) for (const [k, a] of asks) if (a.agentId === r.agentId) asks.delete(k);
@@ -113,7 +157,7 @@
       U.bus.on('agent.run.end', end);
       U.bus.on('agent.run.error', end);
       // a delegated worker's ask names the worker (workerAgentId): its card says "needs your OK", not the lead's
-      U.bus.on('permission.prompt', (p) => { const who = p && (p.workerAgentId || p.agentId); if (p && p.promptId && who && !asks.has(String(p.promptId))) { asks.set(String(p.promptId), { agentId: String(who), at: Date.now() }); paint(); } });
+      U.bus.on('permission.prompt', openAsk);
       U.bus.on('permission.response', (p) => { if (p && p.promptId && closeAsk(String(p.promptId), Date.now())) paint(); });
     }
     const crew = document.getElementById('crew');
@@ -121,9 +165,11 @@
     setInterval(paint, 1000);
     paint();
   }
-  /* ONE CLOCK PER WORKER (live walkthrough 2026-10-13): CREW read RESEARCH "3:04" while its DELEGATED row read "4:04" —
-     the row's thread clock never saw the worker's approval waits (they are filed on the lead's conversation). The row
-     reads this one: the same run, with every wait on the Commander excluded. null = no live run for that agent here. */
-  if (typeof window !== 'undefined') window.CrewClock = { elapsedOf: (agentId, now) => { const f = forAgent(String(agentId || ''), now || Date.now()); return f.start ? f.elapsed : null; } };
+  // CREW remains an aggregate view. Delegated rows use only elapsedForRun: null means this page cannot account for
+  // that exact run (unseen start, or an unstamped wait), never permission to borrow another run of the same agent.
+  if (typeof window !== 'undefined') window.CrewClock = {
+    elapsedOf: (agentId, now) => { const f = forAgent(String(agentId || ''), now || Date.now()); return f.start ? f.elapsed : null; },
+    elapsedForRun
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
 })();
