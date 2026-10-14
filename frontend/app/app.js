@@ -1090,9 +1090,15 @@ const App = (() => {
       return (m && typeof m === 'object') ? m : {};
     } catch (_) { return {}; }
   }
-  function resolveTierModel(tier, baseModel) {
+  // the SETTINGS › New agent defaults pin for a class tier, or null — the ONE reader the summon path and the
+  // Recruitment Bay's MODEL helper share, so the bay never promises a copy that applyLoadout then replaces.
+  function tierModelFor(tier) {
     const pinned = tier && tierModelMap()[tier];
-    if (pinned && String(pinned).trim()) return String(pinned).trim();
+    return (pinned && String(pinned).trim()) ? String(pinned).trim() : null;
+  }
+  function resolveTierModel(tier, baseModel) {
+    const pinned = tierModelFor(tier);
+    if (pinned) return pinned;
     return baseModel || ((typeof Harness !== 'undefined' && Harness.getModel) ? Harness.getModel() : null) || null;
   }
   // fold the class loadout (model tier + effort + skills) onto an agent record. A class's `kit` is NOT placed
@@ -5891,6 +5897,7 @@ const App = (() => {
   // currentAgent/agents/applyConfig (slash-plan): the slash-command suite reads/writes the live roster
   // and per-agent config (/agents, /model, /personality, …).
   return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, waitingSessionOf, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
+    tierModelFor,   // org P22 fix: the bay's MODEL helper names a SETTINGS tier pin instead of promising a copy
     // a team.spawn clone ('sub-<id>', never on the roster) is a HELPER: its raw id was the name on its approval card and NEEDS
     // YOU once its ask could outlive the lead's turn (live walk 2026-10-14); the sidecar says "a helper" for it too
     agentName: id => { const a = agents.get(id); return a ? (a.name || a.id) : (/^sub-/.test(String(id || '')) ? 'HELPER' : null); },

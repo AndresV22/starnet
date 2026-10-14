@@ -65,6 +65,33 @@ A.ok(/'recruit a new agent onto your crew — it gets its own session'/.test(MKT
 A.ok(!/Same as the orchestrator|Inherits your orchestrator/.test(MKT) && !/inheritLabel: 'Same as the station default'/.test(MKT) && /Copies the model of the agent on the line now/.test(MKT),
   'P22: the model copy says an unpinned recruit copies the on-the-line agent\'s model (it does not track the station default)');
 A.ok(/model:\s*\(pin && pin\.model\)\s*\|\|\s*agent\.model/.test(read('frontend/app/app.js')), 'P22: …which stays true: summonAgent copies the focused agent\'s model');
+// P22 fix (review): a SETTINGS › New agent defaults tier pin REPLACES the copy (applyLoadout → resolveTierModel), so the
+// bay must name that pin, never promise a copy. Run the shipped helpers in a vm with and without a tier pin.
+{
+  const APPJS = read('frontend/app/app.js');
+  A.ok(/function tierModelFor\(tier\)/.test(APPJS) && /const pinned = tierModelFor\(tier\);/.test(APPJS) && /\n\s+tierModelFor,/.test(APPJS),
+    'P22 fix: resolveTierModel and the bay read the tier pin through ONE exported reader (App.tierModelFor)');
+  const vmP = require('vm');
+  const src = ['function modelHelpHTML(', 'function tierModelOf(', 'function summonModelSummary(', 'function shortModel('].map(h => A.fnBody(MKT, h)).join('\n');
+  const helpFor = (tierMap, pin) => {
+    const sb = { App: { tierModelFor: t => tierMap[t] || null }, pickedSummonModel: pin || null, esc: x => String(x),
+      clearanceLabel: m => ({ reasoning: 'DEEP', balanced: 'BALANCED', fast: 'FAST' })[m] || String(m).toUpperCase() };
+    vmP.createContext(sb); vmP.runInContext(src, sb);
+    const s = { model: 'reasoning', reasoningEffort: 'high' };
+    return { help: sb.modelHelpHTML(s), sum: sb.summonModelSummary(s) };
+  };
+  const none = helpFor({}), tierPinned = helpFor({ reasoning: 'anthropic/claude-opus' });
+  const hand = helpFor({ reasoning: 'anthropic/claude-opus' }, { model: 'openai/gpt-x', effort: '' });
+  A.ok(/^Copies the model of the agent on the line now/.test(none.help) && none.sum === 'Copies the agent on the line',
+    'P22 fix: no tier pin → the helper and summary say the recruit copies the agent on the line');
+  A.ok(/uses <b>claude opus<\/b>, your <b>deep<\/b> tier model from SETTINGS › New agent defaults/.test(tierPinned.help) && !/Copies/.test(tierPinned.help) && /tier model/.test(tierPinned.sum),
+    'P22 fix: a tier pin → the helper names the pinned model and where it is set, never a copy');
+  A.ok(/overrides the class default/.test(hand.help), 'P22 fix: a hand-picked model still beats the tier pin (applyLoadout skips the tier when pin.model is set)');
+  A.ok(/inheritLabel: tierModelOf\(s\) \? 'Use your '/.test(MKT), 'P22 fix: the blank MODEL option names the tier model when one is pinned');
+}
+A.ok(!/AS A SPECIALTY|SAVE SPECIALTY|EDIT SPECIALTY|none of your specialists|as a specialty above|before summoning|its own <span data-hint="workstream">chat thread/.test(MKT) &&
+  MKT.includes('＋ SAVE THIS AGENT AS A CLASS') && MKT.includes("'none of your classes match your search — '") && MKT.includes('before recruiting') &&
+  MKT.includes('its own <span data-hint="workstream">session</span>'), 'P22 fix: the hints, save key, name helper and CTA sub-line speak RECRUIT / CLASS / session too');
 A.ok(read('frontend/index.html').includes('grow the crew — recruit a class, or re-spec your agent') && /Recruitment Bay and RECRUIT one/.test(MAN), 'P22: the dock subtitle and the manual say RECRUIT');
 
 /* ---------- P26: name the open session in the COMMS title (behaviour, run in a vm against the shipped functions) ---------- */

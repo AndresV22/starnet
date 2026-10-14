@@ -647,7 +647,7 @@ const Marketplace = (() => {
     // deploy mode keeps the SAVE-THIS-AGENT toolbar; summon drops the stale "pre-fills the wake screen" hint —
     // the subtitle already states the summon promise, and the dossier's CONFIGURE panel + shelves carry the rest.
     const toolbar = deploy
-      ? '<div class="mkt-toolbar"><button class="bb sm mkt-saveas">＋ SAVE THIS AGENT AS A SPECIALTY</button></div>'
+      ? '<div class="mkt-toolbar"><button class="bb sm mkt-saveas">＋ SAVE THIS AGENT AS A CLASS</button></div>'
       : '';
     let html = toolbar;
 
@@ -667,7 +667,7 @@ const Marketplace = (() => {
       html += sectH('▮ YOUR CLASSES');
       html += customs.length
         ? '<div class="mkt-grid mkt-rows">' + customs.map(cardHTML).join('') + buildTile + '</div>'
-        : '<p class="mkt-hint mkt-yours-hint">' + (query ? 'none of your specialists match your search — '
+        : '<p class="mkt-hint mkt-yours-hint">' + (query ? 'none of your classes match your search — '
             : 'none yet — ') + 'build one from scratch below.</p><div class="mkt-grid mkt-rows">' + buildTile + '</div>';
       return html;
     }
@@ -693,8 +693,8 @@ const Marketplace = (() => {
     if (!pinCustoms) {
       html += sectH('▮ YOUR CLASSES');
       if (!customs.length) html += '<p class="mkt-hint mkt-yours-hint">' +
-        (query ? 'none of your specialists match your search — ' : 'none yet — ') +
-        'build one from scratch below' + (deploy && !query ? ', or save the live agent as a specialty above' : '') + '.</p>';
+        (query ? 'none of your classes match your search — ' : 'none yet — ') +
+        'build one from scratch below' + (deploy && !query ? ', or save the live agent as a class above' : '') + '.</p>';
       html += '<div class="mkt-grid mkt-rows">' + customs.map(cardHTML).join('') + buildTile + '</div>';
     }
     if (!filtering) html += '<details class="mkt-library-more"><summary>Suggestions for your station</summary>' +
@@ -760,14 +760,25 @@ const Marketplace = (() => {
       (pin.effort ? ' at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort' : '') + ' — overrides the class default.';
     // ORG P22: an unpinned recruit COPIES the model of the agent on the line at recruit time (app.js summonAgent:
     // pin.model || agent.model) — it does not follow later station-default changes, so the copy never says it does.
+    // UNLESS SETTINGS › New agent defaults pins this class's tier: applyLoadout then replaces the copy with that
+    // model (resolveTierModel), so the helper names the pin instead of promising a copy that will not happen.
+    const tierPin = tierModelOf(s);
+    const tier = '<b>' + esc(clearanceLabel(s && s.model).toLowerCase()) + '</b>';
+    if (tierPin) return 'uses <b>' + esc(shortModel(tierPin)) + '</b>, your ' + tier + ' tier model from SETTINGS › New agent defaults' +
+      (pin && pin.effort ? ', at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort' : '') + '.';
     if (pin && pin.effort) return 'copies the model of the agent on the line now, at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort.';
-    return 'Copies the model of the agent on the line now; tuned for <b>' + esc(clearanceLabel(s && s.model).toLowerCase()) + '</b>' +
+    return 'Copies the model of the agent on the line now; tuned for ' + tier +
       (s && s.reasoningEffort ? ' · ' + esc(String(s.reasoningEffort).toLowerCase()) + ' effort' : '') + '.';
   }
+  // the SETTINGS tier pin summon will apply to this class (App.tierModelFor — the same reader applyLoadout uses), or null
+  function tierModelOf(s) {
+    return (s && s.model && typeof App !== 'undefined' && App && typeof App.tierModelFor === 'function') ? App.tierModelFor(s.model) : null;
+  }
 
-  function summonModelSummary() {
+  function summonModelSummary(s) {
     const pin = pickedSummonModel;
-    return (pin && pin.model ? shortModel(pin.model) : 'Copies the agent on the line') +
+    const tierPin = tierModelOf(s);
+    return (pin && pin.model ? shortModel(pin.model) : tierPin ? shortModel(tierPin) + ' (tier model)' : 'Copies the agent on the line') +
       (pin && pin.effort ? ' · ' + pin.effort : '');
   }
   function shortModel(m) { return String(m || '').split('/').pop().replace(/[-_]+/g, ' ').trim() || String(m || ''); }
@@ -821,7 +832,7 @@ const Marketplace = (() => {
     const used = ((typeof AgentId !== 'undefined' && AgentId.normalizeName) ? AgentId.normalizeName(pickedSummonName) : String(pickedSummonName || '')).length;
     const max = (ctx && ctx.displayNameLimit) || (typeof AgentId !== 'undefined' && AgentId.NAME_MAX) || 18;
     const issue = summonNameIssue(), dup = summonNameConflict();
-    const helper = issue === 'too-long' ? 'too long — shorten this name before summoning'
+    const helper = issue === 'too-long' ? 'too long — shorten this name before recruiting'
       : dup ? 'duplicate name — recruiting needs a second confirmation; the agent id will remain unique'
       : 'blank uses the proposed default: ' + summonCandidateName((focusAgent && Specialties.get(focusAgent)) || null);
     return '<div class="mkt-skinbar mkt-namebar"><label class="mkt-skinlabel" for="mkt-summon-name">NAME</label>' +
@@ -864,7 +875,7 @@ const Marketplace = (() => {
     if (!(ctx && ctx.mode === 'pick' && ctx.summon) || typeof ModelPicker === 'undefined') return '';
     return '<div class="mkt-skinbar mkt-modelbar"><div class="mkt-skinlabel">MODEL &amp; EFFORT</div>' +
       '<div class="mkt-modelpick" id="mkt-model-pick">' +
-        ModelPicker.shellHTML({ id: 'mkt-model', inheritLabel: 'Copy the model of the agent on the line', ariaLabel: 'New agent model', effort: true }) +
+        ModelPicker.shellHTML({ id: 'mkt-model', inheritLabel: tierModelOf(s) ? 'Use your ' + clearanceLabel(s.model).toLowerCase() + ' tier model (' + shortModel(tierModelOf(s)) + ')' : 'Copy the model of the agent on the line', ariaLabel: 'New agent model', effort: true }) +
       '</div>' +
       '<div class="mkt-field-help" id="mkt-model-help">' + modelHelpHTML(s) + '</div></div>';
   }
@@ -1125,7 +1136,7 @@ const Marketplace = (() => {
       : ('⏼ RECRUIT <span class="mkt-candidate-name">' + esc(summonCandidateName(s)) + '</span>');
     const ctaSub = deploy
       ? 'replaces ' + esc((ctx && ctx.agentName) || 'your agent') + '’s purpose &amp; standing orders — no new agent'
-      : 'joins your crew with its own <span data-hint="workstream">chat thread</span>, pre-filled from this class';
+      : 'joins your crew with its own <span data-hint="workstream">session</span>, pre-filled from this class';
     const custActs = s.custom
       ? '<div class="mkt-cta-row"><button class="bb sm mkt-edit" data-id="' + esc(s.id) + '">✎ EDIT</button>' +
         '<button class="bb sm danger mkt-del" data-id="' + esc(s.id) + '">⌫ DELETE</button></div>' : '';
@@ -2162,7 +2173,7 @@ const Marketplace = (() => {
       const issue = summonNameIssue(), dup = summonNameConflict();
       const help = root.querySelector('.mkt-name-help');
       if (help) {
-        help.textContent = issue === 'too-long' ? 'too long — shorten this name before summoning'
+        help.textContent = issue === 'too-long' ? 'too long — shorten this name before recruiting'
           : dup ? 'duplicate name — recruiting needs a second confirmation; the agent id will remain unique'
           : 'blank uses the proposed default: ' + summonCandidateName(s);
         help.classList.toggle('warn', !!(issue || dup));
@@ -2212,7 +2223,7 @@ const Marketplace = (() => {
         const help = sc.querySelector('#mkt-model-help');
         if (help) help.innerHTML = modelHelpHTML((focusAgent && Specialties.get(focusAgent)) || null);
         const choice = sc.querySelector('.mkt-model-choice');
-        if (choice) choice.textContent = summonModelSummary();
+        if (choice) choice.textContent = summonModelSummary((focusAgent && Specialties.get(focusAgent)) || null);
       });
     }
   }
@@ -2362,7 +2373,7 @@ const Marketplace = (() => {
       const s = Specialties.get(del.dataset.id);
       Specialties.removeCustom(del.dataset.id);
       if (focusAgent === del.dataset.id) focusAgent = (Specialties.builtins()[0] || {}).id || null;
-      note('removed specialty: ' + ((s && s.name) || del.dataset.id), 'good'); renderStage();
+      note('removed class: ' + ((s && s.name) || del.dataset.id), 'good'); renderStage();
     }));
     const rDel = sc.querySelector('.mkt-recipe-del');
     if (rDel) rDel.addEventListener('click', () => armDelete(rDel, '⌫ DELETE', () => {
@@ -3593,13 +3604,13 @@ const Marketplace = (() => {
     const editing = editingId ? Specialties.get(editingId) : null;
     const d = editing || (ctx && ctx.draftFromAgent && ctx.draftFromAgent()) || { name: 'My Specialist', emoji: '✦', tagline: '', purpose: '', manual: '' };
     const hasMission = (d.purpose && d.purpose.trim()) || (d.manual && d.manual.trim());
-    const title = editing ? 'EDIT SPECIALTY' : ('SAVE ' + (((ctx && ctx.agentName) || 'THIS AGENT')).toUpperCase() + ' AS A SPECIALTY');
+    const title = editing ? 'EDIT CLASS' : ('SAVE ' + (((ctx && ctx.agentName) || 'THIS AGENT')).toUpperCase() + ' AS A CLASS');
     const intro = editing
-      ? 'rename or re-icon this saved specialty — its purpose &amp; standing orders are kept as they are.'
-      : 'captures this agent’s current purpose + standing orders as a reusable template you can deploy later.' +
+      ? 'rename or re-icon this saved class — its purpose &amp; standing orders are kept as they are.'
+      : 'captures this agent’s current purpose + standing orders as a reusable class you can recruit or re-spec an agent as later.' +
         (hasMission ? '' : ' <b>heads up:</b> this agent has no purpose / standing-orders set yet, so the template would be near-empty.');
     const ctaCls = (editing || hasMission) ? '' : ' caution';
-    const ctaText = editing ? '✓ SAVE CHANGES' : (hasMission ? '✓ SAVE SPECIALTY' : '✓ SAVE ANYWAY');
+    const ctaText = editing ? '✓ SAVE CHANGES' : (hasMission ? '✓ SAVE CLASS' : '✓ SAVE ANYWAY');
     return '<div class="mkt-save">' +
       '<div class="mkt-save-h">' + esc(title) + '</div>' +
       '<p class="mkt-hint">' + intro + '</p>' +
@@ -3615,7 +3626,7 @@ const Marketplace = (() => {
       const editing = editingId ? Specialties.get(editingId) : null;
       const base = editing || (ctx && ctx.draftFromAgent && ctx.draftFromAgent()) || {};
       const name = (stage.querySelector('#mkt-f-name').value || '').trim();
-      if (!name) { sfx('bad'); note('give your specialty a name', 'bad'); return; }
+      if (!name) { sfx('bad'); note('give your class a name', 'bad'); return; }
       const spec = Object.assign({}, base, {
         name, emoji: (stage.querySelector('#mkt-f-emoji').value || '✦').trim() || '✦',
         tagline: (stage.querySelector('#mkt-f-tag').value || '').trim()
@@ -3624,7 +3635,7 @@ const Marketplace = (() => {
       try {
         const saved = Specialties.saveCustom(spec);
         focusAgent = saved.id;
-        sfx('click'); note((editing ? 'updated' : 'saved') + ' specialty: ' + saved.name, 'good');
+        sfx('click'); note((editing ? 'updated' : 'saved') + ' class: ' + saved.name, 'good');
         editingId = null; view = 'grid'; renderStage();
       } catch (e) { sfx('bad'); note((e && e.message) || 'could not save', 'bad'); }
     });
