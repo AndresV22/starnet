@@ -3996,11 +3996,28 @@ const WorldModel = (() => {
       let belts = 0;
       for (const k in ba) if (ba[k] !== bb[k] && rects.length < 400) { const q = k.split(','); rects.push({ x1: +q[0], y1: +q[1], x2: +q[0], y2: +q[1] }); belts++; }
       for (const k in bb) if (!(k in ba) && rects.length < 400) { const q = k.split(','); rects.push({ x1: +q[0], y1: +q[1], x2: +q[0], y2: +q[1] }); belts++; }
+      /* ROOMS SAY THEIR NAME TOO (walk 10-14: undoing a stamped room floated a generic UNDID · EDIT): a room that came or went is
+         ROOM (a hallway HALLWAY) — it outranks the pieces that left or returned with it; a room only renamed is ROOM NAME, only
+         re-floored FLOOR, only re-clad WALLS, otherwise ROOM. `at` = the changed rooms' rects, where the word floats when no
+         machine or belt moved (never fed to the re-bake: restoreEmit reads the rooms itself). */
+      const ra = a.rooms || {}, rb = b.rooms || {}, at = [], roomCame = [], roomChanged = [];
+      for (const id of new Set(Object.keys(ra).concat(Object.keys(rb)))) {
+        const x = ra[id], y = rb[id];
+        if (x && y && JSON.stringify(x) === JSON.stringify(y)) continue;
+        if (!x || !y) roomCame.push(x || y); else roomChanged.push([x, y]);
+        for (const r of ((x && x.rects) || []).concat((y && y.rects) || [])) if (at.length < 60) at.push({ x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 });
+      }
+      const ROOM_PART = { name: 'ROOM NAME', floorStyle: 'FLOOR', floorMat: 'FLOOR', floorPaint: 'FLOOR', wallStyle: 'WALLS', wallMat: 'WALLS', hullStyle: 'WALLS', hullMat: 'WALLS' };
+      const partOf = ([x, y]) => { const w = new Set(); for (const k of new Set(Object.keys(x).concat(Object.keys(y)))) if (JSON.stringify(x[k]) !== JSON.stringify(y[k])) w.add(ROOM_PART[k] || 'ROOM'); return w.size === 1 ? [...w][0] : 'ROOM'; };
+      const roomWord = roomCame.length + roomChanged.length > 1 ? (roomCame.length + roomChanged.length) + ' ROOMS'
+        : roomCame.length ? (roomCame[0].kind === 'corridor' ? 'HALLWAY' : 'ROOM')
+        : roomChanged.length ? partOf(roomChanged[0]) : '';
       const one = came.length + went.length === 1 ? (came[0] || went[0]) : null;
-      const word = one ? (LABEL_OF[one.t] || String(one.t).toUpperCase().replace(/_/g, ' '))
+      const word = roomCame.length ? roomWord
+        : one ? (LABEL_OF[one.t] || String(one.t).toUpperCase().replace(/_/g, ' '))
         : (came.length + went.length > 1) ? (came.length + went.length) + ' PIECES'
-        : moved.length ? 'MOVE' : belts ? 'BELT' : rects.length ? 'SETTINGS' : 'EDIT';
-      return { rects, word };
+        : moved.length ? 'MOVE' : belts ? 'BELT' : rects.length ? 'SETTINGS' : roomWord || 'EDIT';
+      return { rects, word, at };
     }
     /* AN UNDO RE-BAKES ONLY WHAT IT PUT BACK (2026-10-13, Andrew: "a huge delay in build mode"). undo()/redo() used to
        emit [] — re-bake the whole station — for every slot, so Ctrl+Z on one stool froze BUILD MODE for ~6 s on a
@@ -4039,7 +4056,7 @@ const WorldModel = (() => {
       const d = editDiff(cur, back);
       restore(back);
       restoreEmit(cur, back, d);
-      return { ok: true, label: back._label || d.word, rects: d.rects };
+      return { ok: true, label: back._label || d.word, rects: d.rects.length ? d.rects : d.at };   // a room-only edit floats over its room
     }
     function redo() {
       if (!redoStack.length) return fail('NOTHING', 'nothing to redo');
@@ -4049,7 +4066,7 @@ const WorldModel = (() => {
       const d = editDiff(cur, fwd);
       restore(fwd);
       restoreEmit(cur, fwd, d);
-      return { ok: true, label: fwd._label || d.word, rects: d.rects };
+      return { ok: true, label: fwd._label || d.word, rects: d.rects.length ? d.rects : d.at };
     }
     const canUndo = () => undoStack.length > 0;
     const canRedo = () => redoStack.length > 0;
