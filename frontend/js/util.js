@@ -297,15 +297,10 @@ const SFX = {
   },
   // press: a COMMS control (send, chips, the model selector's rows + effort keys). Andrew 10-13: the
   // bright Click_02 tick was annoying there — COMMS must sound exactly like the CREW/WORK/BUILD/SYSTEM
-  // docks, i.e. Data_Point_04 at full pitch (open()'s sample), on its own gate so it never eats open().
-  press() {
-    if (!SFX._gate('press', 40)) return;
-    if (SFX._sample('open', { rate: 1, vol: 0.55 })) return;
-    SFX.noise({ dur: 0.005, cut: 7000, type: 'highpass', vol: 0.06 });
-    SFX.voice({ freq: 920, glide: 680, dur: 0.05, type: 'sine', vol: 0.21, atk: 0.001, cut: 6000 });
-    SFX.voice({ freq: 1950, dur: 0.026, type: 'sine', vol: 0.08, atk: 0.001, cut: 7000 });
-    SFX.voice({ freq: 281, dur: 0.05, when: 0.012, type: 'sine', vol: 0.06, atk: 0.003 });
-  },
+  // docks, i.e. Data_Point_04 at full pitch — open() itself, gate included: a COMMS key that also opens a
+  // window (the browser globe awaits the station, then its window rises with open()) sounds ONCE, where a
+  // separate gate fired the same sample twice a few ms apart.
+  press() { SFX.open(); },
   // toggle: a settings switch flipping — the click sample pitched up a hair so checkboxes and
   // radios feel related to but distinct from plain buttons. Used by the delegated UI layer.
   toggle() {
