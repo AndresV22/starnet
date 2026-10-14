@@ -93,8 +93,9 @@ const px = v => { const m = String(v || '').match(/(\d+(?:\.\d+)?)px/); return m
   A.ok(a > 0 && b > a && b - a < 6000, 'world.js has one bounded caption layout block');
   const T = 12, rects = [{ x1: 0, y1: 0, x2: 9, y2: 4 }, { x1: 3, y1: 5, x2: 6, y2: 12 }];   // A: 10x5 wing · B: 4x8 stem
   const lwRoomBox = (tx, ty) => { const r = rects.find(q => tx >= q.x1 && tx <= q.x2 && ty >= q.y1 && ty <= q.y2); return r ? { x: r.x1 * T + 2, y: r.y1 * T + 2, w: (r.x2 - r.x1 + 1) * T - 4, h: (r.y2 - r.y1 + 1) * T - 4 } : null; };
-  const make = (pan = { x: 0, y: 100 }) => new Function('geo', 'T', 'StationBake', 'panX', 'panY', 'scale', 'cv', 'nagLabelBoxes', 'routingPlan', 'bayPlateBox', 'lwRoomBox',
-    world.slice(a, b) + '; return captionInStation;')({ allRects: rects }, T, { WALL: { up: 30 } }, pan.x, pan.y, 1, { width: 2000, height: 2000 }, [], null, () => ({}), lwRoomBox);
+  const GhostLine = require('../frontend/app/ghostline.js');
+  const make = (pan = { x: 0, y: 100 }) => new Function('geo', 'T', 'StationBake', 'panX', 'panY', 'scale', 'cv', 'nagLabelBoxes', 'routingPlan', 'bayPlateBox', 'lwRoomBox', 'GhostLine',
+    world.slice(a, b) + '; return captionInStation;')({ allRects: rects }, T, { WALL: { up: 30 } }, pan.x, pan.y, 1, { width: 2000, height: 2000 }, [], null, () => ({}), lwRoomBox, GhostLine);
   const fit = make();
   const capAt = (tx, ty, w, below) => ({ box: { x: (tx + 0.5) * T - w / 2, y: below ? (ty + 1) * T + 3 : ty * T - 3 - 10, w, h: 10 }, n: { x: tx, y: ty, text: 'X' } });
   // a caption wider than the narrow stem, on a stem tile: the stem cannot hold it and left of the stem is open space
@@ -118,8 +119,8 @@ const px = v => { const m = String(v || '').match(/(\d+(?:\.\d+)?)px/); return m
 }
 
 /* #14 the OUTBOX / board / case world tag (review 10-14): at its 8px world size "1 pending" is wider than a 2-tile OUTBOX,
-   and drawn centred with no clamp it ran across the hull wall when the OUTBOX stood against it. world.js hands each tagged
-   prop its room's floor (tagRoom); the tag is drawn inside it. */
+   and drawn centred with no clamp a long tag could run past the hull. world.js hands each tagged prop its room out to the
+   hull's outer face (tagRoom); the tag is drawn inside it, and stays centred under its prop wherever that already holds. */
 {
   const pm = read('frontend/app/propremaster.js');
   const a = pm.indexOf('  function approvedState('), b = pm.indexOf('  const ready=(async()=>{');
@@ -141,7 +142,7 @@ const px = v => { const m = String(v || '').match(/(\d+(?:\.\d+)?)px/); return m
   approvedState(ctx, 'outbox', e, 96, 40, { crates: 1 });
   A.ok(drawn[0] && Math.abs(drawn[0].left + drawn[0].w / 2 - 108) < 0.01, 'with no room known (BUILD MODE, the catalog) it is centred as before');
   const world = read('frontend/app/world.js');
-  A.ok(/tagRoom: lwRoomBox\(p\.x, p\.y\)/.test(world), 'world.js hands a tagged prop its room\'s floor');
+  A.ok(/tagRoom: tagRoomOf\(p\)/.test(world) && /const side = \(\(typeof StationBake !== 'undefined' && StationBake\.WALL && StationBake\.WALL\.side\) \|\| 0\) \+ 2;/.test(world), 'world.js hands a tagged prop its room, side walls included');
   A.ok(/tagRoom: f\.tagRoom \|\| null/.test(read('frontend/app/propsprites.js')), 'propsprites passes it to the prop\'s drawn state');
 }
 

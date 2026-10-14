@@ -312,13 +312,20 @@ const geoChain = bound => ({
   const fs = require('fs'), path = require('path');
   const build = fs.readFileSync(path.join(__dirname, '../frontend/app/build.js'), 'utf8');
   A.ok(/ghost\.draw\(ctx, now, t, capFs\(\), \(box, paint\) => voiceSay\('ghostCaption', box, box, paint\), ghostCaptionFit\)/.test(build), 'BUILD MODE lays its WOULD-captions out with ghostCaptionFit');
-  const src = (build.match(/function ghostCaptionFit\(box\) \{[\s\S]*?\n  \}/) || [''])[0];
+  const src = (build.match(/function ghostCaptionFit\(box, n\) \{[\s\S]*?\n  \}/) || [''])[0];
   A.ok(!!src, 'ghostCaptionFit is defined in build.js');
-  const fit = src ? new Function('captionFit', 'T', 'frameBayLabels', src + '; return ghostCaptionFit;')(b => b, () => 12, [{ x: 5, y: 3, w: 2, agentId: 'nova', t: 'bay' }]) : () => ({});
+  // one room, tiles 0..11 x 0..7 (px 0..144 x 0..96, its north wall face 30px above), and a bound bay at tiles 5-6 x 3
+  const rooms = GhostLine.roomBoxes([{ x1: 0, y1: 0, x2: 11, y2: 7 }], 12, 0, 0, 30);
+  const fit = src ? new Function('captionFit', 'T', 'frameBayLabels', 'GhostLine', 'buildRoomBoxes', src + '; return ghostCaptionFit;')(b => b, () => 12, [{ x: 5, y: 3, w: 2, agentId: 'nova', t: 'bay' }], GhostLine, () => rooms) : () => ({});
+  const bay = { x: 5, y: 3, text: '◇ NOVA WOULD RUN IT' };
   // the plate: centred on the 2-wide bay (x 60..84 -> 60.5..83.5), straddling its top edge (y 31.5..42.5)
-  A.eq(fit({ x: 50, y: 22, w: 40, h: 11 }), null, 'a caption over the bay\'s name plate is refused');
-  A.ok(!!fit({ x: 50, y: 60, w: 40, h: 11 }), 'a caption under the bay is kept');
-  A.ok(!!fit({ x: 90, y: 30, w: 20, h: 11 }), 'a caption beside the plate is kept');
+  A.eq(fit({ x: 50, y: 22, w: 40, h: 11 }, bay), null, 'a caption over the bay\'s name plate is refused');
+  A.ok(!!fit({ x: 50, y: 60, w: 40, h: 11 }, bay), 'a caption under the bay is kept');
+  A.ok(!!fit({ x: 50, y: 44, w: 40, h: 11 }, bay), 'a caption just clear of the plate is kept');
+  // …and it keeps the live floor's on-station law (GhostLine.onStation): in its room, never past the hull into space
+  const wide = fit({ x: 120, y: 60, w: 60, h: 11 }, { x: 11, y: 4, text: 'X' });
+  A.ok(!!wide && wide.x + wide.w <= 142 + 0.01, 'a caption at the hull wall slides back into its room (it ran past the hull in BUILD MODE)');
+  A.eq(fit({ x: 50, y: 100, w: 40, h: 11 }, { x: 5, y: 7, text: 'X' }), null, 'a caption under the last floor row (the hull\'s skirt, then space) is refused, so it takes its other side');
   const ps = fs.readFileSync(path.join(__dirname, '../frontend/app/propsprites.js'), 'utf8');
   A.ok(/const width = Math\.max\(12,\(p\.w \|\| 1\)\*TILE-1\)/.test(ps) && /const x=\(p\.x\+\(p\.w\|\|1\)\/2\)\*TILE,anchor=p\.y\*TILE-surfaceLift\(p\)\+1,h=11;/.test(ps), 'the plate it refuses is the one PropSprites.drawBayNames paints (same width, centre, top edge, 11px)');
 }

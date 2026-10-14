@@ -162,7 +162,7 @@ A.ok(/const RING_DOCK_T = \{ bay: 1, intake: 1, outbox: 1 \}/.test(build) && /'C
   A.ok(/ghost\.draw\(ctx, now, T, capPx, plates\.length \? \(bx, paint\) => \{ if \(onPlate\(bx\)\) return false; paint\(\); return true; \} : null, \(bx, n\) => captionInStation\(bx, n, plates\)\)/.test(world), 'on the live floor a caption never prints over a line plate, and is kept on the station (walk 10-14 #13)');
   const fitSrc = world.slice(world.indexOf('function captionInStation('), world.indexOf('function stationRoomBoxes('));
   A.ok(fitSrc.length > 200 && fitSrc.length < 4000, 'world.js has one bounded captionInStation');
-  A.ok(/lwRoomBox\(/.test(fitSrc) && /stationRoomBoxes\(\)/.test(fitSrc) && /overStation\(b, rooms\)/.test(fitSrc), 'a caption is held inside its room, and every part of it over a room (ui-layout-fit runs it) — never across the hull into space');
+  A.ok(/GhostLine\.onStation\(b, n, stationRoomBoxes\(\), T, onStage\)/.test(fitSrc), 'a caption is held inside its room, and every part of it over a room (GhostLine.onStation, shared with BUILD MODE; ui-layout-fit runs it) — never across the hull into space');
   A.ok(/\(4 - panX\) \/ scale/.test(fitSrc), '…and on the visible stage, never past its frame');
   A.ok(/nagLabelBoxes\.some\(hit\)/.test(fitSrc) && /return null;/.test(fitSrc), 'a spot on a routing callout (NO FEED — CLICK) is refused, so the caption moves to its next spot');
   A.ok(/nagLabelBoxes = labels\.map\(/.test(world), 'drawRoutingNags records where its labels landed');

@@ -327,7 +327,43 @@ const GhostLine = (() => {
     return { setContext, tick, draw, reset, peek };
   }
 
-  return { create };
+  /* ---------- ON THE STATION: where a WOULD-caption may sit (walk 10-14 #13, review 10-14) ----------
+     One law for the live floor (world.js) and BUILD MODE (build.js): a caption crossed the hull into space, and the first
+     cut held it inside the bounding box of every room — on a cross-shaped station mostly empty space between the wings.
+     `rooms` = roomBoxes(...) in the caller's px frame. A caption sits in its OWN room across when it fits (a caption wider
+     than its room stays centred on its tile and may run on over the floor beside it); `slide(box)` is the caller's keep-it-on-
+     the-visible-glass step (it may move the box across, and answers false for a spot off the glass); then every part of the
+     caption must be over some room's body (its tiles plus the north wall face standing above them), and it must overlap its
+     own tile across, so its "HERE" stays beside the machine it names. Answers the moved box, or null: that spot is off the
+     station — the caller's draw() tries the caption's next spot. */
+  function roomBoxes(rects, T, ox, oy, wallUp) {
+    return (rects || []).map(r => ({
+      floor: { x: (r.x1 + ox) * T + 2, y: (r.y1 + oy) * T + 2, w: (r.x2 - r.x1 + 1) * T - 4, h: (r.y2 - r.y1 + 1) * T - 4 },
+      body: { x: (r.x1 + ox) * T, y: (r.y1 + oy) * T - (wallUp || 0), w: (r.x2 - r.x1 + 1) * T, h: (r.y2 - r.y1 + 1) * T + (wallUp || 0) }
+    }));
+  }
+  function onStation(b, n, rooms, T, slide) {
+    if (!b || !rooms || !rooms.length) return b;
+    const px = n ? (Math.floor(n.x) + 0.5) * T : b.x + b.w / 2, py = n ? (Math.floor(n.y) + 0.5) * T : b.y + b.h / 2;
+    let room = null, bd = Infinity;
+    for (const r of rooms) {
+      const f = r.floor, dx = Math.max(f.x - px, 0, px - f.x - f.w), dy = Math.max(f.y - py, 0, py - f.y - f.h), d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; room = f; }   // the room holding its tile (distance 0), else the nearest one
+    }
+    if (room && b.w <= room.w) b.x = Math.max(room.x, Math.min(room.x + room.w - b.w, b.x));
+    if (slide && slide(b) === false) return null;
+    if (n && (b.x >= (Math.floor(n.x) + 1) * T || b.x + b.w <= Math.floor(n.x) * T)) return null;
+    // rooms are tile-aligned: a probe every half tile along the top and bottom edges finds any gap between them
+    const over = (x, y) => rooms.some(r => x >= r.body.x && x <= r.body.x + r.body.w && y >= r.body.y && y <= r.body.y + r.body.h);
+    const x2 = b.x + b.w - 0.5, ys = [b.y + 0.5, b.y + b.h - 0.5];
+    for (let x = b.x + 0.5; ; x = Math.min(x2, x + T / 2)) {
+      for (const y of ys) if (!over(x, y)) return null;
+      if (x >= x2) break;
+    }
+    return b;
+  }
+
+  return { create, roomBoxes, onStation };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = GhostLine;
