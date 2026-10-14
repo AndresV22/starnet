@@ -2726,7 +2726,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     '</div>';
   }
 
-  // Per-agent APPROVAL posture (dossier CONFIG card): the same ASK / FULL ACCESS choice as the create screen,
+  // Per-agent APPROVAL posture (dossier CONFIG card): the same ASKS FIRST / FULL POWER choice as the create screen,
   // changeable any time — until now the ONLY post-create path was the /yolo slash command in COMMS, which most
   // Commanders never find (a creation-time picker with no live-app twin — the codex-sign-in escape class).
   // Applies via access.config.setApproval → pushRoster, so the sidecar's per-run consent gate flips with it.
@@ -2856,10 +2856,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<button type="button" class="ov-vchip' + (sel ? ' sel' : '') + '" data-approval="' + id + '" data-name="' + esc(label) + '" data-tip="' + esc(desc) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' + esc(label) + '</button>';
     return '<div class="cf-card" id="ag-approval-card">' +
       '<div class="cf-head"><span class="cf-file">✋ approval prompts</span></div>' +
-      '<div class="cf-desc">ASKS FIRST respects the selected reach profile and pauses before risky calls. NEVER ASKS stops the approval prompts and authorizes the whole local computer: all available tools, host paths, arbitrary commands, visible apps, and screen/input control. <code>/yolo</code> is the never-ask shortcut.</div>' +
+      '<div class="cf-desc">ASKS FIRST respects the selected reach profile and pauses before risky calls. FULL POWER stops the approval prompts and authorizes the whole local computer: all available tools, host paths, arbitrary commands, visible apps, and screen/input control. <code>/yolo</code> is the full-power shortcut.</div>' +
       '<div class="ov-vchips" id="ag-approval-chips">' +
         chip('ask', 'ASKS FIRST', 'stops to check with you before it writes, runs, or reaches out', !full) +
-        chip('full', 'NEVER ASKS', 'never asks first — covers the whole local computer, not just its reach profile', full) +
+        chip('full', 'FULL POWER', 'never asks first — covers the whole local computer, not just its reach profile', full) +
       '</div>' +
       '<div id="ag-approval-msg" class="msg"></div>' +
     '</div>';
@@ -3097,7 +3097,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     }
 
     // APPROVAL chips — apply via access.config.setApproval, then rerender so the sel chip reflects recorded
-    // truth. NEVER ASKS is the dangerous pick, so it keeps the house two-press confirm (the personality
+    // truth. FULL POWER is the dangerous pick, so it keeps the house two-press confirm (the personality
     // UNHINGED pattern): press one names what it means (warn tint), press two applies; anything else disarms.
     const apWrap = body.querySelector('#ag-approval-chips');
     if (apWrap) {
@@ -3112,7 +3112,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (id === 'full' && apArmed !== chip) {
           apDisarm(); apArmed = chip;
           chip.classList.add('arm');
-          chip.textContent = 'NEVER ASKS — SURE?';
+          chip.textContent = 'FULL POWER — SURE?';
           sfx('click');
           return;
         }
@@ -3120,7 +3120,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (!(access.config && access.config.setApproval)) { setApMsg('approval change unavailable', false); sfx('bad'); return; }
         const ok = access.config.setApproval(a && a.id, id);
         if (ok === false) { setApMsg('could not change approval', false); sfx('bad'); return; }
-        notify(id === 'full' ? '⚡ ' + ((a && a.name) || 'agent') + ' never asks now — it can act across the whole local computer' : '✋ ' + ((a && a.name) || 'agent') + ' will ask before risky moves again', id === 'full' ? 'warn' : 'good');
+        notify(id === 'full' ? '⚡ ' + ((a && a.name) || 'agent') + ' has full power now — it stops asking and can act across the whole local computer' : '✋ ' + ((a && a.name) || 'agent') + ' will ask before risky moves again', id === 'full' ? 'warn' : 'good');
         sfx('click'); rerender('agents');
       }));
     }

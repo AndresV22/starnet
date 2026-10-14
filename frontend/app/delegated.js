@@ -462,7 +462,7 @@ const Delegated = (() => {
     stopping.delete(id); repaint();
   }
   // answer a worker's ask from its row: the SAME answer path as the approval card (Chat.answerConsent), once or deny only
-  // (Always / Full access are standing grants; a worker row grants only this request)
+  // (Always / Full power are standing grants; a worker row grants only this request)
   function answer(wsId, decision, key) {
     const r = findRow(wsId); if (!r) return;
     const p = askOf(r, Workstreams.activeId());

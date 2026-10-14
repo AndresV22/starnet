@@ -182,7 +182,7 @@ const NeedsYou = (() => {
     if (i.kind === 'approval') {
       if (hiddenDetail(i.p)) return k('open', 'Review', 'primary') + k('deny', 'Deny', 'deny', sending);
       // org P02: a direct-chat ask always offers Review too — the COMMS card holds the whole request and its Always /
-      // Never ask keys, which the rail never grants. A worker's ask (background ones too) reviews on its Delegated row's
+      // Full power keys, which the rail never grants. A worker's ask (background ones too) reviews on its Delegated row's
       // INSPECT instead, so its row stays Approve once · Deny.
       const worker = !!(i.p && (i.p.workerStreamId || i.p.workerRunId || i.p.background === true));
       return k('once', 'Approve once', 'primary', sending) + k('deny', 'Deny', 'deny', sending) + (worker ? '' : k('open', 'Review', 'quiet ny-review'));

@@ -70,17 +70,19 @@ ok(/function accessAnswerCard\(a\)/.test(src) && /agSkills\(a\.id\) \+ accessAns
 ok(/<details class="cf-access-more"[\s\S]{0,200}executionProfileCard\(a\) \+ approvalCard\(a\)/.test(src), 'the exact reach ladder + asking pair fold under MORE OPTIONS in the dossier');
 ok(/accWrap\.querySelectorAll\('\[data-access-posture\]'\)/.test(src) && /if \(P\.id === 'open'\) ArmConfirm\.wire\(chip/.test(src), 'dossier answers apply through the same paths with a two-press FULL POWER');
 
-// ONE ACCESS (org pass 10-14, P08): FULL POWER is reserved for the answer that ALSO sets reach. The folded asking
-// pair only sets approvalMode, so it reads ASKS FIRST / NEVER ASKS (two-press, whole-computer tip); /yolo is named
-// as its shortcut; and a posture notice names the ON ITS OWN rung it also set, by the dial's rendered label.
+// ONE ACCESS (org pass 10-14, P08 review fix): the folded asking pair sets approvalMode, and approvalMode 'full' IS the
+// FULL POWER grant in the sidecar (agentFullAccessNow → unrestrictedHostNow: the whole local computer), so the same power
+// carries the same word: ASKS FIRST / FULL POWER (two-press, whole-computer tip); /yolo is named as the full-power
+// shortcut; the retired NEVER ASKS name is gone; and a posture notice names the ON ITS OWN rung it also set.
 {
   const ap = /function approvalCard\(a\) \{[\s\S]*?\n  \}\n/.exec(src);
   ok(!!ap, 'the dossier asking pair is still its own card');
-  ok(ap && /chip\('ask', 'ASKS FIRST'/.test(ap[0]) && /chip\('full', 'NEVER ASKS', '[^']*whole local computer/.test(ap[0]), 'the fold reads ASKS FIRST / NEVER ASKS, and NEVER ASKS warns it covers the whole computer');
-  ok(ap && !/ASK FOR APPROVAL|'FULL POWER'/.test(ap[0]), 'the fold never borrows the FULL POWER answer name');
+  ok(ap && /chip\('ask', 'ASKS FIRST'/.test(ap[0]) && /chip\('full', 'FULL POWER', '[^']*whole local computer/.test(ap[0]), 'the fold reads ASKS FIRST / FULL POWER, and FULL POWER warns it covers the whole computer');
+  ok(ap && !/ASK FOR APPROVAL|NEVER ASKS|never-ask/.test(ap[0]), 'the fold carries no retired name (ASK FOR APPROVAL, NEVER ASKS, never-ask)');
+  ok(ap && /FULL POWER stops the approval prompts and authorizes the whole local computer/.test(ap[0]), 'the fold says FULL POWER authorizes the whole local computer');
   ok(ap && /data-tip="' \+ esc\(desc\)/.test(ap[0]) && !/title="/.test(ap[0]), 'the whole-computer warning is a station data-tip, never a native title');
-  ok(ap && /<code>\/yolo<\/code> is the never-ask shortcut/.test(ap[0]), 'the fold names /yolo as the never-ask shortcut');
-  ok(/chip\.textContent = 'NEVER ASKS — SURE\?'/.test(src), 'NEVER ASKS keeps its two-press confirm');
+  ok(ap && /<code>\/yolo<\/code> is the full-power shortcut/.test(ap[0]), 'the fold names /yolo as the full-power shortcut');
+  ok(/chip\.textContent = 'FULL POWER — SURE\?'/.test(src) && !/NEVER ASKS — SURE/.test(src), 'FULL POWER keeps its two-press confirm');
   ok(/r\.levelSet && postureRung\(P\) \? ' — also set ON ITS OWN to ' \+ postureRung\(P\)/.test(src) && /levelSet: !!\(snap && snap\.level === P\.level\)/.test(src) &&/Permissions\.levelPlan\(P\.level\)/.test(src) && /initiativeLabel\(preset\.initiative\)/.test(src),
     'a PERMISSIONS posture notice names the ON ITS OWN rung it set (level → preset → the dial label)');
   ok(/accessPostures: \(\) => STATION_POSTURES\.map/.test(src), 'StationUI exports the ONE access table the create screen reads');

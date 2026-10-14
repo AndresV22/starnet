@@ -123,7 +123,7 @@ const NY = require('../frontend/app/needsyou.js');
   A.ok(/>Review</.test(k(longPath)) && !/data-ny-act="once"/.test(k(longPath)), 'a path longer than the rail shows is reviewed on its card');
   A.ok(/data-ny-act="once"[^>]*>Approve once</.test(k(ask({ promptId: 'p29', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a short request is still one-tap Approve');
   // org P02: a direct-chat ask always offers Review beside Approve once · Deny (the COMMS card holds the whole request
-  // and its Always / Never ask keys); a worker's ask (a background one too) reviews on its Delegated row's INSPECT instead
+  // and its Always / Full power keys); a worker's ask (a background one too) reviews on its Delegated row's INSPECT instead
   const direct = k(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }));
   A.eq((direct.match(/data-ny-act="[a-z]+"[^>]*>[^<]+</g) || []).map(x => x.replace(/^data-ny-act="([a-z]+)"[^>]*>([^<]+)<$/, '$1:$2')).join(' | '), 'once:Approve once | deny:Deny | open:Review', 'a direct-chat row: Approve once · Deny · Review');
   A.ok(/class="ny-key quiet ny-review" data-ny-act="open"/.test(direct), 'Review is the quiet key on its own line');
