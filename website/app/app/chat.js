@@ -1951,7 +1951,8 @@ const Chat = (() => {
      An untitled group reads like its rail row ('ULTRON, CYPHER +3'); every other name is Workstreams.titleOf. */
   function sessionTitleText(ws) {
     if (!ws) return '';
-    if (!ws.title && ws.conversationMode === 'group' && typeof GroupChat !== 'undefined' && GroupChat.membersOf) {
+    // 'Group chat' is the server's placeholder for an untitled group (group-sessions.js create), not a name anyone gave it
+    if ((!ws.title || ws.title === 'Group chat') && ws.conversationMode === 'group' && typeof GroupChat !== 'undefined' && GroupChat.membersOf) {
       const members = GroupChat.membersOf(ws.id) || [];
       if (members.length >= 2) {
         const ids = [ws.agentId].concat(members.filter(id => id !== ws.agentId)).filter(id => members.includes(id));
@@ -2381,6 +2382,9 @@ const Chat = (() => {
     if (!ws) return;
     load(ws);
     prefill(Starters.launchPrompt(st));
+    // a starter's prompt is longer than the composer's max height: show where it STARTS (the caret stays at its end,
+    // so typing still adds to it) instead of leaving the box scrolled to its last lines
+    input.scrollTop = 0; if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { input.scrollTop = 0; });
     if (!st.general) StarterStore.prepare(st, ws.id, input.value);
     clearEmptyState(); refreshWorkflowViews();
   }

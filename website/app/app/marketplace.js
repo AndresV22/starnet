@@ -738,7 +738,7 @@ const Marketplace = (() => {
       '<section class="mkt-appearance" aria-label="Choose a skin"><div class="mkt-appearance-heading">APPEARANCE <span class="mkt-appearance-choice">' +
         esc((typeof DATA !== 'undefined' && DATA.SKINS && DATA.SKINS[pickedSummonSkin || DATA.DEFAULT_SKIN] || {}).name || 'Choose a character') +
         '</span></div>' + summonSkinBarHTML() + '</section>',
-      '<p class="mkt-detail-note">Use the station default, or choose a model for this agent.</p>' + summonModelBarHTML(s),
+      '<p class="mkt-detail-note">Keep the first choice below, or choose a model for this agent.</p>' + summonModelBarHTML(s),
       agentReferenceHTML(s)
     ];
     return '<section class="mkt-config" aria-label="configure this agent">' +
@@ -767,8 +767,9 @@ const Marketplace = (() => {
     if (tierPin) return 'uses <b>' + esc(shortModel(tierPin)) + '</b>, your ' + tier + ' tier model from SETTINGS › New agent defaults' +
       (pin && pin.effort ? ', at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort' : '') + '.';
     if (pin && pin.effort) return 'copies the model of the agent on the line now, at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort.';
+    // `effort: auto` is what applies the class's own effort (app.js summonAgent), so the line says so in the select's word
     return 'Copies the model of the agent on the line now; tuned for ' + tier +
-      (s && s.reasoningEffort ? ' · ' + esc(String(s.reasoningEffort).toLowerCase()) + ' effort' : '') + '.';
+      (s && s.reasoningEffort ? '. Effort auto gives it this class’s <b>' + esc(String(s.reasoningEffort).toLowerCase()) + '</b> effort' : '') + '.';
   }
   // the SETTINGS tier pin summon will apply to this class (App.tierModelFor — the same reader applyLoadout uses), or null
   function tierModelOf(s) {

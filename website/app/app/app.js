@@ -1207,7 +1207,7 @@ const App = (() => {
       // with no way to act. Now the agent says it plainly — "desk", never "OWN PC" — and a chip opens BUILD MODE with
       // desk placement teed up. FINALE (Lane D): the toast is ONE line now — the desk requirement + its door move
       // into the diegetic line + chip below (the standing record no longer duplicates the whole instruction).
-      _notify(a.name + ' summoned — type to task it now.', 'good');
+      _notify(a.name + ' recruited — type to task it now.', 'good');
       // WHERE THAT LINE COMES FROM (2026-08-03): the Chat.load(ws) above opened the new agent's session, and the
       // desk prompt is now a property of THAT SESSION (chat.js maybeDeskPrompt → App.needsWorkstation), not a
       // one-shot printed here. It used to be printed once, DOM-only: the first stream switch (or any reload) wiped
@@ -1225,7 +1225,7 @@ const App = (() => {
       // "took the free desk" vs "desk placed": ensureWorkstation may ADOPT an unbound workstation instead of
       // building one, and saying "placed" for a desk that was already there is a small lie about the floor.
       const deskLine = (desk && desk.ok) ? ((desk.adopted ? 'took the free desk' : 'desk placed') + (deskRoom ? ' in ' + deskRoom : '') + '. ') : '';
-      _notify(a.name + ' summoned — ' + deskLine + 'pick it ON THE LINE in COMMS to talk to it, or let the overseer delegate.', 'good');
+      _notify(a.name + ' recruited — ' + deskLine + 'pick it ON THE LINE in COMMS to talk to it, or let the overseer delegate.', 'good');
     }
     // ONE loadout beat: state plainly what the class summon actually applied — the skills enabled, the effort
     // applied, and the STATION GEAR the class draws on (honest present/missing under the overseer, NOT per-agent
@@ -4328,8 +4328,19 @@ const App = (() => {
     if (!rows.some(w => w.id === railFocusId)) railFocusId = rows.some(w => w.id === activeId) ? activeId : (rows[0] && rows[0].id);
     ul.setAttribute('role', 'listbox');
     ul.setAttribute('aria-label', 'Sessions');
+    // two untitled sessions both read "New session" and could not be told apart: a repeated untitled name carries
+    // whose session it is ("New session · MIRA"), and a number when the same agent has more than one.
+    const baseTitles = rows.map(w => Workstreams.titleOf(w));
+    const untitledName = (w, t) => !w.title && baseTitles.filter(x => x === t).length > 1 ? t + ' · ' + railAgentName(w) : t;
+    const shownTitles = rows.map((w, i) => untitledName(w, baseTitles[i]));
+    const seenTitle = new Map();
+    const titles = shownTitles.map((t, i) => {
+      if (rows[i].title || shownTitles.filter(x => x === t).length < 2) return t;
+      const n = (seenTitle.get(t) || 0) + 1; seenTitle.set(t, n);
+      return n === 1 ? t : t + ' ' + n;
+    });
     ul.innerHTML = rows.map((w, i) => {
-      const title = Workstreams.titleOf(w);   // only the General home reads "General"; an untitled other session is a "New session"
+      const title = titles[i];   // only the General home reads "General"; an untitled other session is a "New session"
       const st = railRowState(w);
       const group = headers.get(w.id);
       const groupHead = group ? '<li class="ws-auto-group" role="presentation"><button type="button" data-ws-group="' + U.esc(group.key) + '" aria-expanded="' + railExpanded.has(group.key) + '"><span>' + U.esc(group.name) + '</span><small>' + U.esc(railAgentName(w)) + ' · ' + group.rows.length + ' run' + (group.rows.length === 1 ? '' : 's') + ' · ' + (railExpanded.has(group.key) ? 'collapse' : 'show history') + '</small></button></li>' : '';

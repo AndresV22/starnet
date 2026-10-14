@@ -1972,13 +1972,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { key: 'purpose', file: 'purpose.md', badge: 'YOU WRITE THIS',
       // P23 REACH: the purpose and house rules are THIS agent's only; rules for every agent are YOU › PREFERENCES'
       // standing orders (DossierStore.composeBlock rides every agent's prompt + cron's withDossier). Name the reach.
-      desc: n => 'What your agent is for. Folded into the prompt so it colours everything it does. Only ' + n + ' · a workflow step’s DOES can add to it.',
+      desc: n => 'What ' + n + ' is for. It rides only ' + n + '’s prompt, so it colours everything ' + n + ' does. In a workflow, a step’s DOES adds to it for that step only.',
       ph: 'e.g. Track AI-policy news and brief me each morning.' },
     { key: 'context', file: 'context.md', badge: 'YOU WRITE THIS',
       desc: 'About you and your world — your project, domain, and what "good" looks like. Grounds every run.',
       ph: 'e.g. I build TypeScript web apps solo; "good" = tested, minimal diffs, no hand-waving.' },
     { key: 'manual', file: 'operating-manual.md', badge: 'YOU WRITE THIS',
-      desc: n => 'Only ' + n + ' follows these house rules — tone, format, the do-nots · rules for every agent live in YOU › PREFERENCES.',
+      desc: n => 'House rules only ' + n + ' follows: tone, format, the do-nots. Rules for every agent live in YOU › PREFERENCES.',
       ph: '- Cite your sources.\n- Keep it terse.\n- Never message anyone without asking first.' }
   ];
 
@@ -2087,7 +2087,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     ];
     return '<div class="ag-setup" role="group" aria-label="How this agent is set up">' +
       rows.map(r =>
-        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" data-tip="' + esc(r.tip) + '">' +
+        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" data-tip="' + esc(r.tip) + '" data-tip-below>' +
           '<span class="ag-setup-lbl">' + r.lbl + '</span>' +
           '<span class="ag-setup-val' + (r.dim ? ' dim' : '') + '">' + esc(r.val) + '</span>' +
           '<span class="ag-setup-go" aria-hidden="true">›</span></button>').join('') +
@@ -2346,7 +2346,23 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // ORG P21: the summary speaks the ONE ACCESS posture words. FULL POWER only when the live authority is unrestricted;
         // otherwise the agent's saved posture if it is an asking one, else custom — never a posture the live answer contradicts.
         const askingPosture = () => { const AP = agentPostureOf(a); return (AP && AP.approval === 'ask') ? AP.label : 'custom'; };
-        if (summary) summary.textContent = authority.unrestricted ? 'FULL POWER · no prompts' : askingPosture() + ' · standing grants apply';
+        // the value is the posture word alone (the tile is narrow); what it means rides the row's tip
+        if (summary) summary.textContent = authority.unrestricted ? 'FULL POWER' : askingPosture();
+        // FULL POWER that comes from OUTSIDE this agent (the launch environment or the station-wide switch) beats its
+        // saved answer: CONFIG › ACCESS says so instead of showing the saved posture as if it were in force.
+        const overrideBy = !authority.unrestricted || authority.source === 'agent' ? ''
+          : authority.source === 'environment' ? 'the SKYNET_FULL_ACCESS launch setting' : 'the station-wide FULL POWER switch';
+        const accessRow = body.querySelector('[data-goconfig="ag-approval-card"]');
+        if (accessRow && accessRow.dataset) accessRow.dataset.tip = (authority.unrestricted
+          ? 'never asks first' + (overrideBy ? ', set by ' + overrideBy : '') : 'asks first; standing grants apply') + ' · change it in CONFIG › ACCESS';
+        if (overrideBy) {
+          const SP = agentPostureOf(a);
+          const said = 'FULL POWER — on for every agent by ' + overrideBy + '. Its saved answer, ' + (SP ? SP.label : 'a custom mix') + ', applies again when that is off.';
+          const groupSummary = body.querySelector('#cf-grp-behaves .cf-group-summary');
+          if (groupSummary) groupSummary.textContent = said;
+          const plain = body.querySelector('#ag-access-plain');
+          if (plain) plain.textContent = said;
+        }
         const reach = body.querySelector('#ag-execution-plain');
         if (reach) reach.textContent = authority.filesystemLabel + (authority.unrestricted ? '. Full Power overrides the saved profile below.' : '. The selected profile and standing grants apply.');
         const html = '<p><b>' + esc(authority.approvalLabel) + '</b><br>' + esc(authority.filesystemLabel) + ' · ' + esc(authority.profileLabel) + '</p>' +
@@ -2417,7 +2433,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // sidecar (station-wide, not per-agent — the reflect loop is a station engine). Plus a plain scope note.
       '<div class="gx-sec"><span class="gx-ref">◈</span><span class="gx-title">Reflection</span></div>' +
       '<div class="mc-note" id="mc-scope">How the station learns from finished work.</div>' +
-      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION (all agents) <span class="dim">— propose memories after a completed task</span></label>' +
+      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION <b id="mc-reflect-state">…</b> (all agents) <span class="dim">— propose memories after a completed task</span></label>' +
       '<div class="set-row"><label for="mc-cooldown">TIME BETWEEN SUGGESTIONS (MINUTES)</label><input id="mc-cooldown" class="key-input" type="number" min="0" max="60" step="1" style="max-width:90px" title="minimum gap between turn-in beats per agent"></div>' +
       '<div class="mc-acts"><button class="bb sm" id="mc-reflect-save">SAVE</button><span class="msg" id="mc-reflect-msg"></span></div></div>' +
       // AWAITING A VERDICT — the durable high-stakes deck. Runs that finish while nobody is watching (a routine, a
@@ -2519,10 +2535,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const onBox = $('#mc-reflect-on'), cd = $('#mc-cooldown'), scope = $('#mc-scope'), msg = $('#mc-reflect-msg'), saveBtn = $('#mc-reflect-save');
     if (!onBox || !cd) return;
     const setMsg = (t, ok) => { if (msg) { msg.textContent = t || ''; msg.className = 'msg' + (ok ? ' ok' : ''); } };
+    // the label says the switch's position in words (ON / OFF), not only the knob
+    const paintState = () => { const o = $('#mc-reflect-on'), st = $('#mc-reflect-state'); if (o && st) st.textContent = o.checked ? 'ON' : 'OFF'; };
+    if (!onBox._stateWired) { onBox._stateWired = true; onBox.addEventListener('change', paintState); }
     Harness.api.get('/api/memory/config').then(cfg => {
       const o = $('#mc-reflect-on'), c = $('#mc-cooldown'), s = $('#mc-scope');
       if (!o || !c) return;   // retabbed mid-fetch
       o.checked = cfg.reflectEnabled !== false;
+      paintState();
       c.value = String(Math.round((cfg.reflectCooldownMs != null ? cfg.reflectCooldownMs : 180000) / 60000));
       if (s && cfg.scopeNote) s.textContent = cfg.scopeNote;
     }).catch(() => { setMsg('could not load reflection settings'); });   // never paint an error body as config
@@ -3814,7 +3834,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const sections = [
       { id: 'market', label: 'SKILL MARKET', glyph: '▦', desc: 'Browse StarNet Originals and credited community skills, and install one for the whole crew in one click.', build: frag(secMarket) },
       { id: 'library', label: 'SKILL LIBRARY', glyph: '▤', desc: 'The procedures your agents follow when a task matches: the ones built into StarNet and the ones you installed from the market.', build: frag(secLibrary) },
-      { id: 'agent', label: 'AGENT SKILLS', glyph: '✎', desc: 'Procedures this agent created or learned itself.', build: frag(secAgent) },
+      { id: 'agent', label: 'AGENT SKILLS', glyph: '✎', desc: 'Each agent keeps its own skill library. Pick whose to see.', build: frag(secAgent) },
       { id: 'exchange', label: 'SKILL EXCHANGE', glyph: '⇩', desc: 'Inspect and install open SKILL.md procedures with provenance and guard review.', build: frag(secExchange) }
     ];
     function wire() {
@@ -4375,17 +4395,27 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     return 'Reusable procedures ' + n + ' created or learned. These appear as a compact index in ' + n + '’s future runs; it loads the full body only when a task matches.';
   }
   // ORG P21: open SETTINGS › LOOK & SOUND with VOICE FOR already on this agent (the existing picker, preselected)
+  // The settings window can be rebuilt right after it opens (the credits re-read rerenders it), which drops a
+  // picker value set from outside and scrolls back to the top. So the wish is kept for a few seconds:
+  // wireLiveVoice preselects it on every (re)build, and land() re-scrolls each NEW picker element it finds.
+  let voiceForWish = null;
+  function voiceForWanted() { return voiceForWish && Date.now() < voiceForWish.until ? voiceForWish.id : ''; }
   function openVoiceFor(agentId) {
+    voiceForWish = { id: agentId, until: Date.now() + 5000 };
     openTerm('settings', 'appearance');
+    let landed = null;
     const land = () => {
       const w = open.settings; const pick = w && w.querySelector('#set-lv-agent');
-      if (!pick) return false;
-      if (Array.from(pick.options).some(o => o.value === agentId)) { pick.value = agentId; if (typeof pick.onchange === 'function') pick.onchange(); }
-      try { pick.scrollIntoView({ block: 'center' }); } catch (_) { /* older engines: the section is already showing */ }
+      if (!pick || pick === landed || !pick.isConnected) return;
+      landed = pick;
+      if (pick.value !== agentId && Array.from(pick.options).some(o => o.value === agentId)) {
+        pick.value = agentId; if (typeof pick.onchange === 'function') pick.onchange();
+      }
+      const group = pick.closest('.settings-group') || pick;
+      try { group.scrollIntoView({ block: 'start' }); } catch (_) { /* older engines: the section is already showing */ }
       pick.focus({ preventScroll: true });
-      return true;
     };
-    requestAnimationFrame(() => { if (!land()) setTimeout(land, 120); });
+    [0, 120, 400, 900, 1800, 3000].forEach(ms => setTimeout(() => requestAnimationFrame(land), ms));
   }
   async function skillReviewPost(action, body, opts) {
     const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: (opts && opts.timeoutMs > 0) ? opts.timeoutMs : action === 'evaluate-candidate' ? 180000 : 60000 });
@@ -8117,6 +8147,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       };
       target.onchange = () => { message.textContent = ''; refresh(); };
       inherit.onclick = () => save('');
+      const wish = voiceForWanted();   // a dossier VOICE door that just opened this window (openVoiceFor)
+      if (wish && Array.from(target.options).some(o => o.value === wish)) target.value = wish;
       refresh();
       const effects = host.querySelector('#set-lv-effect');
       const effectMsg = host.querySelector('#set-lv-effect-msg');
