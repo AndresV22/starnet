@@ -154,7 +154,7 @@ A.eq(panelHalted.reachable, true, 'a halted status is still reachable telemetry'
 A.eq(panelHalted.halted, true, 'panelModel exposes the durable halt');
 A.ok(/E-STOP/i.test(panelHalted.stateText) && /halted/i.test(panelHalted.stateText), 'the state names the halt (E-STOP), prominently');
 A.ok(!/standing by|on watch/i.test(panelHalted.stateText), 'a halted shift NEVER claims "standing by"/"on watch"');
-A.ok(/dial|level/i.test(panelHalted.why), 'the halted why names WHICH control lifts it (the autonomy dial / LEVEL buttons)');
+A.ok(/ON ITS OWN rung/.test(panelHalted.why) && /RESUME AUTOMATION in the top bar/.test(panelHalted.why), 'the halted why names WHICH controls lift it (an ON ITS OWN rung, or RESUME AUTOMATION — org P06)');
 A.ok(/stopped|will not|won.t/i.test(panelHalted.why), 'the halted why says plainly the shift is stopped');
 A.ok(!/\d{1,2}:\d{2}\s*(AM|PM)/.test(panelHalted.nextEligibleText), 'no NEXT ELIGIBLE clock while halted — the shift will NOT run at that time');
 A.ok(/E-STOP|halt/i.test(panelHalted.nextEligibleText), 'the next-eligible slot says WHY there is no next time');

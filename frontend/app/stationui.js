@@ -8630,9 +8630,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         });
       };
       if (nsReportBtn) nsReportBtn.addEventListener('click', () => { renderLastReport(); sfx('click'); });
-      // Re-setting the dial / a LEVEL click is the (silent) act that LIFTS a durable E-STOP halt
-      // (handleAutonomyPosture → clearHalt) — re-read the status shortly after so the ⛔ HALTED card clears
-      // (or appears) from the ROUTE's truth, never from an optimistic guess.
+      // An ON ITS OWN rung or a PERMISSIONS posture click LIFTS a durable E-STOP halt (handleAutonomyPosture → clearHalt;
+      // REACH and PACE never do, org P06) and AutonomyStore says "Automation resumed" when the route reports haltLifted —
+      // re-read the status shortly after so the ⛔ HALTED card clears (or appears) from the ROUTE's truth, never a guess.
       host.querySelectorAll('#auto-init [data-init], #auto-reach [data-reach], #auto-pace [data-pace]')
         .forEach(b => b.addEventListener('click', () => { setTimeout(refreshPanel, 600); }));
       // a PERMISSIONS posture sets the level too (the old level row's job) — its cards are repainted wholesale, so

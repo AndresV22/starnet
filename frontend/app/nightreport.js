@@ -29,7 +29,7 @@
     // "present" confused real users (2026-07-15): "while you're away" read as "while the app is closed". It isn't —
     // away = no clicks/keys for the idle threshold; the app stays open 24/7. Say the actual rule.
     present: 'you were using the station — it waits until you step away (no clicks or keys for a while); the app stays open',
-    halt: 'the emergency stop was engaged — press any ON ITS OWN button in SETTINGS › AUTONOMY to lift it',
+    halt: 'the emergency stop was engaged — press an ON ITS OWN rung in SETTINGS › AUTONOMY, or RESUME AUTOMATION in the top bar, to lift it',
     leash: 'today’s job limit was already used',
     // NS-2 pre-spend readiness: the station lacks grounded knowledge (a fresh/stale dossier AND too little recent
     // activity) so a beat could not have reached a model call. Honest about what feeds it: real work + answers.
@@ -218,7 +218,7 @@
         away: away,
         halted: true,
         stateText: '⛔ HALTED — E-STOP engaged',
-        why: 'autonomy is stopped and will not run until you re-set the autonomy dial — press any ON ITS OWN button above to lift the halt',
+        why: 'autonomy is stopped and will not run until you lift the halt — press an ON ITS OWN rung above, or RESUME AUTOMATION in the top bar',
         presence: away ? 'you’re away' : 'you’re present',
         awayRuleText: awayRuleText(s),
         leashText: leashText,

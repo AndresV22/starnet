@@ -23708,12 +23708,15 @@ async function handleAutonomyPosture(req, res) {
   // Only a dial writer's explicit resumeHalt:true is the Commander's "autonomy back on" signal.
   // halt on the night shift (engaged in handleHalt). Without this an E-STOP would wedge the shift stood-down forever.
   let nightshiftStatePersisted = true;
-  try { if (resumeRequested && nightshift.isHalted(nightshiftState)) saveNightshiftState(nightshift.clearHalt(nightshiftState, Date.now())); }
+  // haltLifted (org P06, additive): TRUE only when this write actually cleared a standing halt — the page's
+  // "Automation resumed" receipt keys on it, never on resumeRequested (a dial click with no halt lifts nothing).
+  let haltLifted = false;
+  try { if (resumeRequested && nightshift.isHalted(nightshiftState)) { saveNightshiftState(nightshift.clearHalt(nightshiftState, Date.now())); haltLifted = true; } }
   catch (e) { nightshiftStatePersisted = false; console.warn('[nightshift] halt-lift persist failed:', (e && e.message) || e); }
   // Lane 4D symmetry: the same "autonomy back on" signal lifts the durable cron E-STOP halt (engaged in
   // handleHalt) and re-arms the timer when the user's arm intent still stands — routines resume with no restart.
   let cronHaltPersisted = true;
-  try { if (resumeRequested) liftCronHalt(); }
+  try { if (resumeRequested && liftCronHalt()) haltLifted = true; }
   catch (e) { cronHaltPersisted = false; console.warn('[cron] halt-lift persist failed:', (e && e.message) || e); }
   // if the (new) posture permits acting and the timer isn't running yet, arm it NOW (no restart); if it dropped
   // below acting, we LEAVE the timer armed — its own gate returns binding:'posture' and no beat fires, which is
@@ -23736,7 +23739,7 @@ async function handleAutonomyPosture(req, res) {
       workshopGranted = workshopOf(NIGHTSHIFT_AGENT);
     }
   } catch (_) { workshopGranted = null; }   // a grant hiccup must never fail the posture write; null = unknown (honest)
-  return json(200, { ok: true, summary: commanderPosture.summary(), postureWritten: postureWritten, resumeRequested: resumeRequested, nightshiftArmed: !!nightshiftTimer, nightshiftStatePersisted: nightshiftStatePersisted, cronHaltPersisted: cronHaltPersisted, workshopGranted: workshopGranted });
+  return json(200, { ok: true, summary: commanderPosture.summary(), postureWritten: postureWritten, resumeRequested: resumeRequested, haltLifted: haltLifted, nightshiftArmed: !!nightshiftTimer, nightshiftStatePersisted: nightshiftStatePersisted, cronHaltPersisted: cronHaltPersisted, workshopGranted: workshopGranted });
 }
 // GET /api/autonomy/posture — the server copy (posture summary + whether a beliefs snapshot is present). Never
 // echoes the raw beliefs texts back to the browser (it already has them); just reports presence + freshness.

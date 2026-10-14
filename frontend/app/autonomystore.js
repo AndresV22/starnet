@@ -6,6 +6,7 @@ const AutonomyStore = (() => {
   let state = null, loaded = false, error = '', pending = 0, epoch = 0;
   let tail = Promise.resolve();
   const listeners = new Set();
+  const RESUMED = 'Automation resumed — schedules and away work will run again';
   const ready = () => typeof Autonomy !== 'undefined';
   const floor = () => ready() ? Autonomy.fresh() : { v: 1, initiative: 'wait', reach: 'sandbox', leashPerDay: 3 };
   const normalize = value => ready() ? Autonomy.normalize(value) : floor();
@@ -38,7 +39,9 @@ const AutonomyStore = (() => {
         if (generation !== epoch) return { ok: false, error: 'Setting changed while loading.' };
         state = normalize(j.summary); loaded = true; error = ''; save();
         if (j.nightshiftStatePersisted === false || j.cronHaltPersisted === false) error = 'Autonomy saved, but emergency stop could not be resumed. Try Resume again.';
-        return { ok: !error, posture: get(), error };
+        // org P06: a write that LIFTED a standing halt says so — the route's haltLifted is the proof, never the request
+        if (j.haltLifted === true && !error) announceResume();
+        return { ok: !error, posture: get(), error, haltLifted: j.haltLifted === true };
       } catch (e) {
         if (generation === epoch) {
           error = 'Autonomy could not be confirmed. ' + ((e && e.message) || 'Check the station connection and try again.');
@@ -53,6 +56,9 @@ const AutonomyStore = (() => {
     tail = job.then(() => undefined, () => undefined);
     return job;
   }
+  function announceResume() {
+    try { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(RESUMED, 'good'); } catch (e) { console.warn('[autonomy] resume notice failed:', (e && e.message) || e); }
+  }
   function init() { get(); return refresh(); }
   function refresh() { return enqueue(() => request()); }
   function write(transform, resumeHalt) { return enqueue(async () => {
@@ -63,8 +69,10 @@ const AutonomyStore = (() => {
   }); }
   function applyPreset(id) { return write(p => ready() ? Autonomy.applyPreset(p, id) : p, true); }
   function setInitiative(level) { return write(p => ready() ? Autonomy.setInitiative(p, level) : p, true); }
-  function setReach(level) { return write(p => ready() ? Autonomy.setReach(p, level) : p, true); }
-  function setLeash(n) { return write(p => ready() ? Autonomy.setLeash(p, n) : p, true); }
+  // org P06: REACH and PACE are tuning, not "autonomy back on" — they never lift an E-STOP halt. The ON ITS OWN rungs
+  // (setInitiative / applyPreset) and RESUME AUTOMATION in the top bar stay the stated lifts.
+  function setReach(level) { return write(p => ready() ? Autonomy.setReach(p, level) : p, false); }
+  function setLeash(n) { return write(p => ready() ? Autonomy.setLeash(p, n) : p, false); }
   async function reset() {
     epoch++; pending = 0; error = '';
     const result = await enqueue(() => request({ posture: floor(), resumeHalt: false }));
