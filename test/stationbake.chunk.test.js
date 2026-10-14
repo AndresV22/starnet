@@ -254,9 +254,11 @@ A.eq(drawn[0].x, 384, 'drawBase preserves chunk world offset when culling');
 
 const fullDrawn = [];
 StationBake.drawBase({ drawImage(cv, x, y) { fullDrawn.push({ cv, x, y, w: cv.width, h: cv.height }); } }, first, 0, 0);
+// every chunk is a whole CHUNK_PX square, the edge ones too (past the floor's edge it is transparent): a floor that grows
+// or shrinks there never changes a chunk's size, so it never re-bakes a chunk its rects do not reach
 A.eq(fullDrawn.map(d => [d.x, d.y, d.w, d.h]), [
-  [0, 0, 384, 384], [384, 0, 384, 384], [768, 0, 132, 384],
-  [0, 384, 384, 266], [384, 384, 384, 266], [768, 384, 132, 266]
+  [0, 0, 384, 384], [384, 0, 384, 384], [768, 0, 384, 384],
+  [0, 384, 384, 384], [384, 384, 384, 384], [768, 384, 384, 384]
 ], 'full chunk composite covers the station without gaps, overlaps, or seam offsets');
 
 canvases.length = 0;
@@ -322,7 +324,8 @@ const grownBake = StationBake.bakeIncremental(grownGeo, beforeBake, [southRoom])
 A.eq(grownBake.stats.fullReset, false, 'a floor that grew south keeps its frame');
 A.ok(grownBake.chunkMap.get('0,0') === beforeBake.chunkMap.get('0,0') && grownBake.chunkMap.get('2,0') === beforeBake.chunkMap.get('2,0'),
   'chunks the new room cannot reach are kept, not re-baked');
-A.ok(grownBake.chunkMap.get('0,1') !== beforeBake.chunkMap.get('0,1'), 'the edge row the new size reshapes is re-baked');
+A.ok(grownBake.chunkMap.get('0,1') !== beforeBake.chunkMap.get('0,1'), 'the edge chunk the new room reaches is re-baked');
+A.ok(grownBake.chunkMap.get('2,1') === beforeBake.chunkMap.get('2,1'), '…and the edge chunk it does not reach is kept: the new size reshapes no chunk');
 const grownMono = StationBake.bake(grownGeo);
 A.eq(pixelDiff(composeLayer(grownBake, 'base'), grownMono.baseCv), 0, 'the kept + re-baked composite is the grown floor, pixel for pixel');
 A.eq(pixelDiff(composeLayer(grownBake, 'light'), grownMono.lightCv), 0, '…its light too');
@@ -345,11 +348,16 @@ A.eq(firstSame.stats.rebakedChunks, 1, '…and only the one the edit reaches is 
 A.eq(pixelDiff(composeLayer(firstSame, 'base'), wholeBefore.baseCv), 0, 'cut chunks compose the whole-station bake exactly');
 A.eq(pixelDiff(composeLayer(firstSame, 'light'), wholeBefore.lightCv), 0, '…its light too');
 A.eq(firstSame.lamps.length, wholeBefore.lamps.length, '…and every lamp');
-const firstGrown = StationBake.bakeIncremental(grownGeo, wholeBefore, [southRoom]);
+/* (the floor here ends on a chunk row: this canvas mock has no readback, so its hull pass paints its band over every
+   transparent pixel of a chunk, beyond the floor too, which a real canvas masks away — a chunk cut from a whole-station bake
+   ends at that bake's edge. The real-canvas cut of a part-row edge chunk is stationbake.plate-parity's south room.) */
+const before768 = roomsGeo([northRoom], 64), whole768 = StationBake.bake(before768);
+const southRoom768 = { z: 'r2', x1: 4, y1: 70, x2: 30, y2: 76 }, grown768 = roomsGeo([northRoom, southRoom768], 80), grownMono768 = StationBake.bake(grown768);
+const firstGrown = StationBake.bakeIncremental(grown768, whole768, [southRoom768]);
 A.eq(firstGrown.stats.fullReset, false, 'a first edit that grows the floor south keeps the frame too');
-A.eq(firstGrown.stats.reusedChunks, 3, '…cutting the row the new size leaves unchanged');
-A.eq(pixelDiff(composeLayer(firstGrown, 'base'), grownMono.baseCv), 0, '…and the composite is the grown floor, pixel for pixel');
-A.eq(pixelDiff(composeLayer(firstGrown, 'light'), grownMono.lightCv), 0, '…its light too');
+A.eq(firstGrown.stats.reusedChunks, 4, '…cutting every chunk of the old floor the new room cannot reach');
+A.eq(pixelDiff(composeLayer(firstGrown, 'base'), grownMono768.baseCv), 0, '…and the composite is the grown floor, pixel for pixel');
+A.eq(pixelDiff(composeLayer(firstGrown, 'light'), grownMono768.lightCv), 0, '…its light too');
 A.eq(StationBake.bakeIncremental(movedOrigin, wholeBefore, [northRoom]).stats.fullReset, true, 'an origin move still bakes every chunk');
 /* THE LIGHTS ARE THE FLOOR'S NOW (2026-10-13): every chunk lists the whole station's lamps as they stood when it baked —
    removing a room in-frame must take its lamps out of the cache, even from chunks the edit never reached. */
@@ -371,8 +379,8 @@ A.eq(pixelDiff(handedBack.baseCv, wholeBefore.baseCv), 0, '…its base is the wh
 A.eq(pixelDiff(handedBack.lightCv, wholeBefore.lightCv), 0, '…and so is its light');
 A.eq([handedBack.W, handedBack.H, handedBack.lamps.length, handedBack.doorOccluders.length],
   [wholeBefore.W, wholeBefore.H, wholeBefore.lamps.length, wholeBefore.doorOccluders.length], '…with the same frame, lamps and door occluders');
-const grownHandedBack = StationBake.stitchWhole(grownGeo, firstGrown);
-A.ok(grownHandedBack && pixelDiff(grownHandedBack.baseCv, grownMono.baseCv) === 0, 'a grown floor hands back its grown whole bake');
+const grownHandedBack = StationBake.stitchWhole(grown768, firstGrown);
+A.ok(grownHandedBack && pixelDiff(grownHandedBack.baseCv, grownMono768.baseCv) === 0, 'a grown floor hands back its grown whole bake');
 const holes = StationBake.bakeIncremental(before, null, [], { visibleRect: { x: 0, y: 0, w: 384, h: 384 } });
 A.eq(StationBake.stitchWhole(before, holes), null, 'a chunk set with holes is refused');
 A.eq(StationBake.stitchWhole(grownGeo, firstSame), null, '…and so is one baked in another frame');
