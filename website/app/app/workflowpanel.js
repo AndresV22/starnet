@@ -2269,7 +2269,7 @@ const WorkflowPanel = (() => {
   function deniedLine(h) {
     const d = h && Array.isArray(h.denied) ? h.denied : [];
     if (!d.length) return '';
-    return '<div class="wf-warnline">⚠ ' + esc(nameOf(h.agentId)) + ' was not allowed to use ' + esc(d.join(', ')) + ' — a test run has no one to approve tools, so that part was not done and the reply below may be asking for permission instead of giving the work. Ask for the result in the reply (its brief), or give the agent FULL POWER in its dossier.</div>';
+    return '<div class="wf-warnline">⚠ ' + esc(nameOf(h.agentId)) + ' was not allowed to use ' + esc(d.join(', ')) + ' — a test run has no one to approve tools, so that part was not done and the reply below may be asking for permission instead of giving the work. Ask for the result in the reply (its brief), or give the agent FULL ACCESS in its dossier.</div>';
   }
   function hopDetailHTML(s, i) {
     const h = s.hops[i];

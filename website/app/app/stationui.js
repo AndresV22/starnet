@@ -1821,7 +1821,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       return;
     }
     ul.innerHTML = present.map((a, i) =>
-      '<li class="crew-row" role="button" tabindex="0" aria-label="' + (present.length > 1 ? 'Show sessions with ' + esc(a.name || a.id) + '; Shift+F10 for the dossier' : 'Open dossier for ' + esc(a.name || a.id)) + '" aria-keyshortcuts="Shift+F10" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      '<li class="crew-row" role="button" tabindex="0" aria-label="' + (present.length > 1 ? 'Show sessions with ' + esc(a.name || a.id) + '; Shift+F10 for the dossier" aria-keyshortcuts="Shift+F10' : 'Open dossier for ' + esc(a.name || a.id)) + '" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
       crewPortrait(a) +
       '<span class="dot on"></span>' +
       '<div class="crew-main">' +
@@ -1833,17 +1833,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // The shimmer (.bar-active) reads as live activity; it's an indeterminate sweep, not a % readout.
       '<div class="crew-prog bar-active" id="cp-' + esc(a.id) + '" aria-hidden="true"><div></div></div>' +
       '</div>' +
-      // ORG P20: the dossier door is the SAME key at every crew size — always shown, never hover-only (touch can't hover),
-      // so the door learned on day one doesn't move after the first recruit. With 2+ agents the row itself shows the
-      // sessions; with one, the row and this key both open the dossier. Right-click / Shift+F10 / the sprite stay.
-      '<button type="button" class="crew-dossier" tabindex="-1" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-tip="Open ' + esc(a.name || a.id) + '&#39;s dossier">DOSSIER</button>' +
+      // the dossier stays one step away: this key (or a right-click) opens it; the row itself shows the sessions
+      (present.length > 1 ? '<button type="button" class="crew-dossier" tabindex="-1" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-tip="Open ' + esc(a.name || a.id) + '&#39;s dossier">DOSSIER</button>' : '') +
       '</li>').join('');
     // (the head's roster count moved out — #crew-sum below the list already totals the same crew)
     ul.querySelectorAll('.crew-row').forEach(li => {
       if (typeof AgentPortraits !== 'undefined') AgentPortraits.paint(li.querySelector('.crew-portrait img'), present[+li.dataset.i]);
       // PER-AGENT THREADS: a row click narrows the SESSIONS rail to this agent's sessions (again = all of them).
       // A one-agent station has nothing to narrow — every session is already that agent's — so there the
-      // row keeps opening the dossier, as it always has (its DOSSIER key opens the same file).
+      // row keeps opening the dossier, as it always has.
       li.addEventListener('click', () => {
         sfx('click');
         // "needs your OK" (the gold card): one click lands where it is waiting — the approval or the question
@@ -2375,7 +2373,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const ready = view.toolsets.filter(x => x.available);
         const compactHtml = '<p class="ag-can-do"><b>' + ready.length + ' of ' + view.toolsets.length + ' toolsets ready</b>'
           + (ready.length ? ' · ' + ready.slice(0, 6).map(x => esc(x.label)).join(', ') + (ready.length > 6 ? ' +' + (ready.length - 6) : '') : '')
-          + ' · ' + esc(authority.approvalLabel) + '</p><button class="bb sm" data-access-full>SEE ALL ACCESS</button>';
+          + ' · ' + esc(authority.approvalLabel) + '</p><button class="bb sm" data-access-full>SEE FULL ACCESS</button>';
         targets.forEach(target => {
           if (typeof target.hasAttribute === 'function' && target.hasAttribute('data-access-compact')) {
             target.innerHTML = compactHtml;
@@ -2764,8 +2762,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     '</div>';
   }
 
-  // Per-agent APPROVAL posture (dossier CONFIG card, folded under MORE OPTIONS): the asking half of the create screen's
-  // answers — CHECK WITH ME and LET IT WORK both ask first, FULL POWER does not — as the exact ASKS FIRST / FULL POWER pair,
+  // Per-agent APPROVAL posture (dossier CONFIG card): the same ASK / FULL ACCESS choice as the create screen,
   // changeable any time — until now the ONLY post-create path was the /yolo slash command in COMMS, which most
   // Commanders never find (a creation-time picker with no live-app twin — the codex-sign-in escape class).
   // Applies via access.config.setApproval → pushRoster, so the sidecar's per-run consent gate flips with it.
@@ -2895,12 +2892,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<button type="button" class="ov-vchip' + (sel ? ' sel' : '') + '" data-approval="' + id + '" data-name="' + esc(label) + '" data-tip="' + esc(desc) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' + esc(label) + '</button>';
     return '<div class="cf-card" id="ag-approval-card">' +
       '<div class="cf-head"><span class="cf-file">✋ approval prompts</span></div>' +
-            // org pass P08-a: two names, one per chip, in the chips' own caps — no create-screen names repeated and no pointer
-      // to a control outside the card; /yolo is named as what it is (a COMMS toggle of this same FULL POWER).
-      '<div class="cf-desc">ASKS FIRST checks with you before risky steps and stays inside the reach you set. FULL POWER never asks and authorizes the whole local computer: every tool, file, command and app, plus your screen, mouse and keyboard. <code>/yolo</code> in COMMS toggles FULL POWER.</div>' +
+      '<div class="cf-desc">ASK respects the selected reach profile and pauses before risky calls. FULL POWER authorizes the whole local computer: all available tools, host paths, arbitrary commands, visible apps, and screen/input control. <code>/yolo</code> is the Full Power shortcut.</div>' +
       '<div class="ov-vchips" id="ag-approval-chips">' +
-        chip('ask', 'ASKS FIRST', 'stops to check with you before it writes, runs, or reaches out', !full) +
-        chip('full', 'FULL POWER', 'never asks first — covers the whole local computer, not just its reach profile', full) +
+        chip('ask', 'ASK FOR APPROVAL', 'stops to check with you before it writes, runs, or reaches out', !full) +
+        chip('full', 'FULL POWER', 'uses the whole local computer without approval prompts', full) +
       '</div>' +
       '<div id="ag-approval-msg" class="msg"></div>' +
     '</div>';
@@ -3138,7 +3133,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     }
 
     // APPROVAL chips — apply via access.config.setApproval, then rerender so the sel chip reflects recorded
-    // truth. FULL POWER is the dangerous pick, so it keeps the house two-press confirm (the personality
+    // truth. FULL ACCESS is the dangerous pick, so it keeps the house two-press confirm (the personality
     // UNHINGED pattern): press one names what it means (warn tint), press two applies; anything else disarms.
     const apWrap = body.querySelector('#ag-approval-chips');
     if (apWrap) {
@@ -3161,7 +3156,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (!(access.config && access.config.setApproval)) { setApMsg('approval change unavailable', false); sfx('bad'); return; }
         const ok = access.config.setApproval(a && a.id, id);
         if (ok === false) { setApMsg('could not change approval', false); sfx('bad'); return; }
-        notify(id === 'full' ? '⚡ ' + ((a && a.name) || 'agent') + ' has full power now — it stops asking and can act across the whole local computer' : '✋ ' + ((a && a.name) || 'agent') + ' will ask before risky moves again', id === 'full' ? 'warn' : 'good');
+        notify(id === 'full' ? '⚡ ' + ((a && a.name) || 'agent') + ' now has Full Power over the local computer' : '✋ ' + ((a && a.name) || 'agent') + ' will ask before risky moves again', id === 'full' ? 'warn' : 'good');
         sfx('click'); rerender('agents');
       }));
     }
@@ -9030,24 +9025,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         )).then(res => {
           const done = res.filter(r => r.ok).length;
           return Promise.resolve(PermissionsStore.setLevel(P.level))
-            // levelSet = the store's own re-derived level now IS this answer's — the notice may name the rung only then
-            .then(snap => ({ done: done, of: present.length, levelSet: !!(snap && snap.level === P.level) }))
+            .then(() => ({ done: done, of: present.length }))
             .catch(() => ({ done: done, of: present.length, levelFailed: true }));
         });
-        // the ON ITS OWN rung a posture's level lands on (level → autonomy preset → initiative), by the dial's own
-        // label — '' when the engines are not loaded; named only when the store confirms the level (r.levelSet), never assumed.
-        const postureRung = (P) => {
-          const plan = (typeof Permissions !== 'undefined' && Permissions.levelPlan) ? Permissions.levelPlan(P.level) : null;
-          const preset = plan && typeof Autonomy !== 'undefined' && Autonomy.presetById ? Autonomy.presetById(plan.preset) : null;
-          return preset ? initiativeLabel(preset.initiative) : '';
-        };
         const run = (btn, P) => {
           btn.disabled = true;
           apply(P).then(r => {
             refreshExecutionProfiles(); repaintPerm(); repaintDial();
             notify(!r.done
               ? (present.length ? 'nothing changed — the station kept its previous settings' : 'no crew to change — summon an agent first')
-              : r.done + ' of ' + r.of + ' crew set to ' + P.label + (r.levelFailed ? ' — the unattended level could not be saved' : (r.levelSet && postureRung(P) ? ' — also set ON ITS OWN to ' + postureRung(P) : '')),
+              : r.done + ' of ' + r.of + ' crew set to ' + P.label + (r.levelFailed ? ' — the unattended level could not be saved' : ''),
               (!r.done || r.levelFailed) ? 'bad' : (P.id === 'open' ? 'warn' : 'good'));
           });
         };
@@ -12089,7 +12076,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // GROWTH Tier 3: repaint the Settings AUTONOMY panel's EARNED badge if it is open (no-op otherwise — the paint fn
   // queries its own (possibly detached) host nodes, so a closed panel costs nothing). Called after a trust accept.
   const repaintAutonomy = () => { try { if (repaintAutonomyDial) repaintAutonomyDial(); } catch (_) {} };
-  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, focusProvider, showTerm, showAgent, notifsMarkRead, notifsClear, badges, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, accessPostures: () => STATION_POSTURES.map(P => Object.assign({}, P)), refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
+  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, focusProvider, showTerm, showAgent, notifsMarkRead, notifsClear, badges, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { visibleTerminalRect, clampTerminalSize };

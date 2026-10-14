@@ -184,12 +184,12 @@ const NeedsYou = (() => {
     return !!Chat.consentInspect(p) || (KIND.approval + ' ' + Chat.consentPhrase(p)).length > RAIL_CHARS;
   }
   /* (org P02; g3 D1, final round) a direct-chat ask the rail can approve is REVIEWED through the row itself: the row, its
-     "in <where>" door and its ask line land on the COMMS card (the whole request, and its Always / Full power keys, which the
+     "in <where>" door and its ask line land on the COMMS card (the whole request, and its Always / Full access keys, which the
      rail never grants). Three keys never fit the rail on one row at a readable size — they stacked into three full-width
      keys — so its keys are Approve once · Deny, side by side. A worker's ask (background ones too) reviews on its Delegated
      row's INSPECT instead. */
   const reviewRow = i => !!(i && i.kind === 'approval' && !hiddenDetail(i.p) && !(i.p && (i.p.workerStreamId || i.p.workerRunId || i.p.background === true)));
-  const REVIEW_TIP = 'Review it on its card: the whole request, and its Always and Full power keys';
+  const REVIEW_TIP = 'Review it on its card: the whole request, and its Always and Full access keys';
   function keysFor(i) {
     const k = (act, label, cls, off) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '"' + (off ? ' disabled' : '') + '>' + label + '</button>';
     const sending = !!(i.p && answering.has(String(i.p.promptId))) || answering.has(i.key);

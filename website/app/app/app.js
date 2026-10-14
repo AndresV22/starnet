@@ -21,11 +21,7 @@ const App = (() => {
   let pickedPersona = (typeof Personas !== 'undefined') ? Personas.DEFAULT_ID : 'professional';
   let pickedTraits = {};        // the VOICE & MANNER fine-tune dials (warmth/humor/formality/length + emoji/blunt) — only set keys contribute prompt text
   let pickedCustomVoice = '';   // the Commander's free-text "in their own words" voice note (optional)
-  // THE ACCESS ANSWER (org pass 10-14, ONE ACCESS): one of the three answers SETTINGS › PERMISSIONS and the dossier ask —
-  // 'careful' (CHECK WITH ME) | 'balanced' (LET IT WORK) | 'open' (FULL POWER) — or null = a RESUMED agent whose own
-  // mix matches none. It writes BOTH real fields (approvalMode drives the consent broker, executionProfile the reach).
-  let pickedPosture = 'balanced';
-  let pickedAccessMix = null;   // RESUME only: the saved agent's own { approvalMode, executionProfile } when it is a custom mix
+  let pickedApproval = 'ask';   // the APPROVAL mode — 'ask' (consent-gated) | 'full' (auto-approve). Drives the REAL consent broker (sidecar bypass), not a cosmetic toggle.
   let pickedProvider = 'openai';   // BEGINNER-FIRST funnel: the STARNET hero is the promoted start, but it only exists once the cloud seam is proven (revealStarnetGenesis auto-picks it on a fresh create). Until then OPENAI leads — its card carries BOTH paths (ChatGPT sign-in or an API key). initConnect() still honours a returning agent's saved provider.
   // POWER-USER LOOP PL-03 — entry is a four-surface truth transaction. World opens its EventSource
   // before Chat/StationUI finish mounting, and their independent timers used to expose an impossible
@@ -1797,24 +1793,14 @@ const App = (() => {
      it — picking a swatch recolours live AND writes through StationUI.setTheme so it survives enterGame
      and stays in lockstep with the in-game Settings panel. No new state, no fakery. */
   const PHOSPHOR = Object.freeze([['amber', '#ffaa33'], ['green', '#3dff70'], ['blue', '#46c8ff'], ['purple', '#b46bff'], ['red', '#ff4136'], ['white', '#e8f0e8']]);
-  // THE ACCESS ANSWER — the crucial pick for the everything-orchestrator: how much it can do. This is NOT cosmetic —
-  // its approval drives the REAL consent broker in the sidecar (full → bypass the gate; ask → prompt on any
-  // mutation/network call) and its profile the real reach, both threaded through pushRoster → /api/roster.
-  // ONE ACCESS (org pass 10-14): the create screen asks the SAME question, with the SAME three answers, as the dossier
-  // ACCESS card and SETTINGS › PERMISSIONS — read from StationUI's one table (labels, approval, reach profile and the
-  // per-agent agentBlurb), never a second copy that could drift. Only the icon and the nameplate words live here.
-  // The station-wide unattended level (ON ITS OWN) is NOT part of an agent's answer: create never writes it — the
-  // awakening's "while you're away" question is the one place that sets it.
-  const POSTURE_FACE = Object.freeze({
-    careful:  Object.freeze({ icon: '✋', np: 'checks with you' }),
-    balanced: Object.freeze({ icon: '▸', np: 'lets it work' }),
-    open:     Object.freeze({ icon: '⚡', np: 'full power' })
-  });
-  const accessPostures = () => (typeof StationUI !== 'undefined' && StationUI.accessPostures) ? StationUI.accessPostures() : [];
-  const postureById = id => accessPostures().find(P => P.id === id) || null;
-  // the answer a saved agent holds: same rule as the dossier (approval AND reach profile both match), else null = custom
-  const postureOfAgent = a => accessPostures().find(P =>
-    ((a && a.approvalMode === 'full') ? 'full' : 'ask') === P.approval && executionProfileOf(a) === P.profile) || null;
+  // THE APPROVAL MODE — the crucial pick for the everything-orchestrator: how much it can do on its own. This is
+  // NOT cosmetic — it drives the REAL consent broker in the sidecar (full → bypass the gate; ask → prompt on any
+  // mutation/network call), threaded through pushRoster → /api/roster. `np` is the nameplate readout.
+  const APPROVAL = Object.freeze([
+    Object.freeze({ id: 'ask',  label: 'ASK FOR APPROVAL', icon: '✋', desc: 'stops to check with you before it writes, runs, or reaches out', np: 'asks for approval' }),
+    Object.freeze({ id: 'full', label: 'FULL POWER', icon: '⚡', desc: 'uses the whole local computer without approval prompts',          np: 'full power' })
+  ]);
+  const approvalById = id => APPROVAL.find(a => a.id === id) || APPROVAL[0];
   function applyTheme(t) {
     document.body.classList.remove('theme-amber', 'theme-green', 'theme-blue', 'theme-purple', 'theme-red', 'theme-white', 'theme-custom');
     document.body.classList.add('theme-' + t);
@@ -1842,64 +1828,34 @@ const App = (() => {
     });
   }
 
-  // THE ACCESS PICKER — "How much can it do?": the three answers as wide cards. LET IT WORK is pre-selected because it
-  // IS today's real default (ask first + approved project folders), so it never blocks WAKE. FULL POWER keeps the
-  // house two-press arm (the PERMISSIONS card recipe: arm the NAME line only, 4 s, any other pick disarms). A resumed
-  // custom mix selects no card — the nameplate says so instead of claiming the nearest answer.
+  // THE APPROVAL PICKER — two wide cards (ask vs full access). The pick rides on agent.approvalMode and drives
+  // the real consent broker; 'ask' is pre-selected (the safe default), so it never blocks WAKE.
   function buildApproval() {
     const wrap = el('approval-picker'); if (!wrap) return;
     wrap.innerHTML = '';
-    let armed = null, armTimer = 0;
-    const disarm = () => {
-      if (armTimer) { clearTimeout(armTimer); armTimer = 0; }
-      if (!armed) return;
-      const n = armed.el.querySelector('.ov-card-nm'); if (n) n.textContent = armed.P.label;
-      armed.el.classList.remove('armed'); delete armed.el.dataset.armed; armed = null;
-    };
-    const pick = (c, P) => {
-      pickedPosture = P.id; pickedAccessMix = null;
-      [...wrap.children].forEach(x => { const on = x === c; x.classList.toggle('sel', on); x.setAttribute('aria-pressed', String(on)); });
-      SFX.click(); updateNameplate();
-    };
-    accessPostures().forEach(P => {
-      const face = POSTURE_FACE[P.id] || { icon: '◆', np: String(P.label).toLowerCase() };
+    APPROVAL.forEach(m => {
       const c = document.createElement('button'); c.type = 'button';
-      c.className = 'ov-card' + (pickedPosture === P.id ? ' sel' : '');
-      // NO SENTENCES UNDER TILES: a tile is its icon + name; the answer's description is the hover tip, and the one
-      // #approval-plain line under the picker reads the SELECTED answer (the dossier ACCESS card's own pattern)
-      c.dataset.a = P.id; c.dataset.tip = P.agentBlurb + ' ' + P.who; c.setAttribute('aria-pressed', String(pickedPosture === P.id));
+      c.className = 'ov-card' + (pickedApproval === m.id ? ' sel' : '');
+      c.dataset.a = m.id; c.title = m.desc; c.setAttribute('aria-pressed', String(pickedApproval === m.id));
       const pk = document.createElement('span'); pk.className = 'ov-card-pick'; pk.textContent = '◆';
-      const ic = document.createElement('div'); ic.className = 'ov-card-ic'; ic.textContent = face.icon;
-      const nm = document.createElement('div'); nm.className = 'ov-card-nm'; nm.textContent = P.label;
-      c.appendChild(pk); c.appendChild(ic); c.appendChild(nm);
+      const ic = document.createElement('div'); ic.className = 'ov-card-ic'; ic.textContent = m.icon;
+      const nm = document.createElement('div'); nm.className = 'ov-card-nm'; nm.textContent = m.label;
+      const ds = document.createElement('div'); ds.className = 'ov-card-ds'; ds.textContent = m.desc;
+      c.appendChild(pk); c.appendChild(ic); c.appendChild(nm); c.appendChild(ds);
       c.onclick = () => {
-        if (P.id !== 'open' || pickedPosture === 'open') { disarm(); pick(c, P); return; }
-        if (armed && armed.el === c) { disarm(); pick(c, P); return; }
-        disarm(); armed = { el: c, P: P }; c.classList.add('armed'); c.dataset.armed = '1';
-        nm.textContent = 'SURE? WHOLE COMPUTER';
-        SFX.click();
-        armTimer = setTimeout(disarm, 4000);
+        pickedApproval = m.id;
+        [...wrap.children].forEach(x => { const on = x === c; x.classList.toggle('sel', on); x.setAttribute('aria-pressed', String(on)); });
+        SFX.click(); updateNameplate();
       };
       wrap.appendChild(c);
     });
     updateNameplate();
   }
 
-  // what the access pick WRITES: the answer's approval + reach profile, or a resumed custom mix unchanged. A missing
-  // table (StationUI not loaded) falls back to LET IT WORK's exact fields — today's default, never a wider one.
-  function createAccess() {
-    if (!pickedPosture && pickedAccessMix) return { approvalMode: pickedAccessMix.approvalMode, executionProfile: pickedAccessMix.executionProfile };
-    const P = postureById(pickedPosture || 'balanced');
-    return P ? { approvalMode: P.approval === 'full' ? 'full' : 'ask', executionProfile: P.profile } : { approvalMode: 'ask', executionProfile: 'trusted-project' };
-  }
-  // the live nameplate under the agent: NAME (from the input) + the access-answer readout.
+  // the live nameplate under the agent: NAME (from the input) + the approval-posture readout.
   function updateNameplate() {
     const np = el('np-name'); if (np) np.textContent = ((el('in-name') && el('in-name').value.trim()) || 'OVERSEER').toUpperCase();
-    const nm = el('np-mode');
-    if (nm) nm.textContent = pickedPosture ? ((POSTURE_FACE[pickedPosture] || {}).np || pickedPosture) : 'custom — change it in the dossier';
-    // the selected answer's one plain line (its agentBlurb), under the picker — never a sentence under each tile
-    const pl = el('approval-plain'); const P = pickedPosture ? postureById(pickedPosture) : null;
-    if (pl) pl.textContent = P ? P.agentBlurb : (pickedPosture ? '' : 'A custom mix of reach and asking — it is kept as it is.');
+    const nm = el('np-mode'); if (nm) nm.textContent = approvalById(pickedApproval).np;
   }
 
   function buildModelPicks() {
@@ -2905,15 +2861,11 @@ const App = (() => {
       pickedTraits = Object.assign({}, savedAgent.voiceTraits || {});
       pickedCustomVoice = savedAgent.customVoice || '';
       pickedPersona = savedAgent.personaId || ((typeof Personas !== 'undefined') ? Personas.DEFAULT_ID : 'professional');
-      // seed from BOTH fields (the dossier's rule), never approvalMode alone: a custom mix selects no card and is
-      // carried as-is, so a resume can never relabel it as the nearest answer or rewrite it on WAKE
-      const heldPosture = postureOfAgent(savedAgent);
-      pickedPosture = heldPosture ? heldPosture.id : null;
-      pickedAccessMix = heldPosture ? null : { approvalMode: savedAgent.approvalMode === 'full' ? 'full' : 'ask', executionProfile: executionProfileOf(savedAgent) };
+      pickedApproval = (savedAgent.approvalMode === 'full') ? 'full' : 'ask';
       pickedSkin = savedAgent.skin || pickedSkin;
     } else {
       pickedTraits = {}; pickedCustomVoice = ''; pickedPersona = (typeof Personas !== 'undefined') ? Personas.DEFAULT_ID : 'professional';
-      pickedPosture = 'balanced'; pickedAccessMix = null;   // a fresh create screen preselects LET IT WORK — today's real default (color is fixed: the lead's gold)
+      pickedApproval = 'ask';   // a fresh create screen defaults to the safe posture (color is fixed: the lead's gold)
     }
     buildPhosphor();
     buildSkins();
@@ -3310,7 +3262,7 @@ const App = (() => {
               provider: (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : 'openrouter',   // #4: stamp the chosen provider+effort onto the hero so a later agent-switch can restore them
               reasoningEffort: (typeof Harness !== 'undefined' && Harness.getReasoningEffort) ? Harness.getReasoningEffort() : 'medium',
               personaId: pickedPersona, voiceTraits: Object.assign({}, pickedTraits), customVoice: pickedCustomVoice.trim(),
-              approvalMode: createAccess().approvalMode, executionProfile: createAccess().executionProfile, purpose: null, onboarded: false, createdAt: newCommanderEpoch };   // the access answer writes both real fields; the two axes stay independently changeable in the dossier
+              approvalMode: (pickedApproval === 'full' ? 'full' : 'ask'), executionProfile: (pickedApproval === 'full' ? 'this-computer' : 'trusted-project'), purpose: null, onboarded: false, createdAt: newCommanderEpoch };   // legacy approval choice seeds an honest host profile; the two axes are independently changeable in the dossier
     agentDocs(agent);                              // seed identity.md (overseer-aware) / purpose.md / operating-manual.md
     registerHero(agent);   // found the multi-agent registry with the hero BEFORE composing — rosterClause reads the registry, and a same-session re-wake must not see the prior crew
     agent.systemPrompt = composeSystemPrompt(agent);

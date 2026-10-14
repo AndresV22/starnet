@@ -66,14 +66,13 @@
 #screen-connect .ov-vchip:is(.arm,.armed) { color:var(--warn); border-color:var(--warn); }
 #screen-connect .ov-vpreview:empty { display:none; }
 #screen-connect .ov-vpreview:not(:empty) { padding:10px; font-size:14px; line-height:1.4; border-left:1px solid var(--gd-edge); }
-#screen-connect .ov-cards.ov-approve { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }   /* the three access answers side by side, never 2+1 */
-#screen-connect .ov-card { padding:12px 16px; border:1px solid var(--gd-edge); border-radius:9px; background:var(--ov-well); box-shadow:inset 0 1px 0 var(--gd-light); text-align:left; }
+#screen-connect .ov-cards.ov-approve { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+#screen-connect .ov-card { padding:16px; border:1px solid var(--gd-edge); border-radius:9px; background:var(--ov-well); box-shadow:inset 0 1px 0 var(--gd-light); text-align:left; }
 #screen-connect .ov-card-pick,#screen-connect .ov-card-ic { display:none; }
-#screen-connect .ov-card-nm { font-size:18px; letter-spacing:.1px; margin:0; text-transform:none; }   /* org pass P08-b: a tile is its name alone (no line under it), so no bottom margin leaves an empty well below the word */
+#screen-connect .ov-card-nm { font-size:18px; letter-spacing:.1px; margin:0 0 7px; text-transform:none; }
 #screen-connect .ov-card-ds { font-size:14px; line-height:1.4; margin:0; color:var(--text); opacity:.75; }
 #screen-connect .ov-card.sel { border-color:var(--ph-dim); box-shadow:inset 0 1px 0 var(--gd-light),inset 2px 0 0 var(--ph); }
 #screen-connect .ov-crewnote { font-size:13px; line-height:1.4; color:var(--ph-dim); margin-top:10px; }
-#screen-connect .ov-access-plain { font-size:14px; color:var(--ph); }   /* the SELECTED answer reads as the status line; the one dim footnote under it only says it can change later */
 #screen-connect .ov-brain { padding:0; border:0; background:none; box-shadow:none; }
 #screen-connect .ov-col-brain>.ov-step { display:none; }
 #screen-connect .provider-row { display:block; }
@@ -174,4 +173,3 @@
 #screen-connect #ov-identity .ov-help { font-size:13px; }
 
 @media(max-width:720px) { #screen-connect .prov-hero-title .ov-wordmark { width:180px; height:31px; } }
-@media(max-width:520px) { #screen-connect .ov-cards.ov-approve { grid-template-columns:minmax(0,1fr); } }   /* phone width: the three answers stack (app.css's own 520px rule loses to the #screen-connect selector) */
