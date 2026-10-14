@@ -26,6 +26,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
+const { userWords } = require('./helpers/host-notes.js');
 const { sseQuery } = require('./_httpToken.js');
 
 const HOST = '127.0.0.1';
@@ -51,7 +52,9 @@ function startMockProvider() {
         const messages = parsed.messages || [];
         const toolNames = (parsed.tools || []).map(t => t && t.function && t.function.name);
         const lastUser = messages.map(m => m.role).lastIndexOf('user');
-        const user = String((messages[lastUser] || {}).content || '');
+        // route on the Commander's own words: on this non-Claude wire the run-context note (task brief, commander evidence
+        // that quotes earlier requests) leads the newest user message (provider.js noteCarrier)
+        const user = String(userWords(messages[lastUser] || {}) || '');
         const used = messages.slice(lastUser + 1).filter(m => m.role === 'assistant').flatMap(m => m.tool_calls || []).map(t => t.function && t.function.name);
         const lastTool = String((messages.slice(lastUser + 1).filter(m => m.role === 'tool').pop() || {}).content || '');
         const isLead = toolNames.indexOf('team_dispatch') >= 0;
