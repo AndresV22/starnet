@@ -395,7 +395,8 @@ const WorkflowsWindow = (() => {
   function goalStarter() {
     let g = null;
     try { g = B() && B().goalLine ? B().goalLine() : null; } catch (e) { g = null; }   // no dossier read yet: no goal tile (never a guess)
-    return g && g.id && bpOf(g.id) && STARTERS.indexOf(g.id) < 0 ? g : null;
+    // a goal the shelf can NAME (the Commander's own words), or no goal shelf at all (org g7 D2)
+    return g && g.id && String(g.quote || '').trim() && bpOf(g.id) && STARTERS.indexOf(g.id) < 0 ? g : null;
   }
   const starterOf = id => { const bp = bpOf(id); return bp ? { id, name: plainName(id), purpose: (words().purpose || {})[id] || '', roles: bayRoles(bp) } : null; };
   const words = () => (B() && B().lineWords) ? B().lineWords() : { plain: {}, purpose: {} };
@@ -549,7 +550,9 @@ const WorkflowsWindow = (() => {
       // (org D2 polish) the stat names the line's shape, not only its count: a SPLITTER's two steps work side by side, so the goal
       // tile no longer reads '2 steps' like Research + write while its picture draws two parallel bays
       const shape = bp.props.some(p => p.t === 'loop') ? ' · reviewed' : bp.props.some(p => p.t === 'splitter') ? ' · side by side' : '';
-      return (isGoal ? '<div class="wfw-tgroup wfw-goalhd">FOR YOUR GOAL</div>' : '')
+      // (org g7 D2, final round) the shelf claims a goal only by NAMING it: the Commander's own words (their dossier goal) ride the
+      // heading, so FOR YOUR GOAL never reads as a match for the still-empty 'What should it make?' box above it
+      return (isGoal ? '<div class="wfw-tgroup wfw-goalhd" data-tip="Your own words: the goal you told the station. This ready-made workflow has its shape.">FOR YOUR GOAL <span class="wfw-goalq">“' + esc(goal.quote) + '”</span></div>' : '')
         + '<button type="button" class="wfw-tile' + (on ? ' on' : '') + (isGoal ? ' wfw-goal' : '') + '" data-starter="' + esc(id) + '" aria-pressed="' + !!on + '" data-tip="' + esc(tip) + '">'
         + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + roles.length + ' step' + (roles.length === 1 ? '' : 's') + shape + '</span></button>'
         // the four starters under the goal tile get the shelf's second heading, so FOR YOUR GOAL heads only its own tile

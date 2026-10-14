@@ -365,7 +365,11 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     const goalTile = (/<button type="button" class="wfw-tile wfw-goal"[^>]*>[\s\S]*?<\/button>/.exec(led) || [''])[0];
     A.ok(/data-tip="“ship my app every week” — a crew plans it and checks it/.test(goalTile) && /<span class="wfw-tstat">\d+ steps?( · reviewed| · side by side)?<\/span>/.test(goalTile), '…its tip quotes their words, its one small line is the step count like every tile and CONVEYORS › LINES (no sentence under the tile): ' + goalTile.slice(0, 200));
     A.ok(!/<span class="wfw-tstat">[^<]{40,}/.test(led), 'every tile keeps one short stat line');
-    A.ok(/<div class="wfw-tgroup wfw-goalhd">FOR YOUR GOAL<\/div><button type="button" class="wfw-tile wfw-goal"/.test(led) && /wfw-goal"[\s\S]*?<\/button><div class="wfw-tgroup">COMMON WORKFLOWS<\/div>/.test(led), 'the goal tile sits under the shelf\'s gold FOR YOUR GOAL heading, the four under COMMON WORKFLOWS (org D2 polish)');
+    A.ok(/<div class="wfw-tgroup wfw-goalhd"[^>]*>FOR YOUR GOAL <span class="wfw-goalq">“ship my app every week”<\/span><\/div><button type="button" class="wfw-tile wfw-goal"/.test(led) && /wfw-goal"[\s\S]*?<\/button><div class="wfw-tgroup">COMMON WORKFLOWS<\/div>/.test(led), 'the goal tile sits under the shelf\'s gold FOR YOUR GOAL heading, the four under COMMON WORKFLOWS (org D2 polish)');
+    // (org g7 D2, final round) the shelf claims a goal only by NAMING it — never a match for the empty 'What should it make?' box
+    A.ok(/FOR YOUR GOAL <span class="wfw-goalq">“ship my app every week”<\/span>/.test(led) && /<textarea id="wfw-describe"[^>]*><\/textarea>/.test(led), 'with the box still empty, the heading names the goal it matched: the Commander\'s own words');
+    ctx.Build.goalLine = () => ({ id: 'mission_control', why: 'w', quote: '  ' });
+    A.ok(!/FOR YOUR GOAL/.test(WW._newHTML(WW._floor())) && tilesOf(WW._newHTML(WW._floor())).length === 4, 'a goal with no words to name shows no goal shelf at all');
     A.ok(/' · side by side'/.test(src), 'a SPLITTER line says its steps work side by side');
     A.ok(/\.wfw-tile\.wfw-goal \{ grid-column: 1 \/ -1; \}/.test(rd('frontend/css/workflows-window.css')), 'the goal tile takes a row of its own, so the four starters under it stay a whole grid');
     ctx.Build.goalLine = () => ({ id: 'research_line', why: 'w', quote: 'q' });
