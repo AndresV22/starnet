@@ -3136,6 +3136,22 @@ function auxReasoningEffort(provider, model) {
   let allowed; try { allowed = provider.reasoningEfforts(model); } catch (_) { return null; }
   return (Array.isArray(allowed) && allowed.indexOf(want) >= 0) ? want : null;
 }
+/* auxPassEffort — the effort for the station's REASON-ONLY aux work: the post-run passes (reflection · failure
+   review · study · thread-mine · scout) and INTERNAL self-talk runs (a session title, session ideas, a goal plan, a
+   pitch). A configured aux tier (STARNET_AUX_EFFORT / STARNET_AUX_MODEL) gets exactly auxReasoningEffort. Unconfigured,
+   this used to be no override at all, so every aux call inherited the Commander's chat effort and paid hidden
+   thinking for a strict-format reply — measured live on haiku-4.5 (10-14): a title 483 reasoning tokens for 4 words,
+   a reflection 401 for the one PREFERENCE line it wrote in 24 at 'none', a goal plan ~6.8k over 63 s, and a
+   session-ideas pass that ran past its own 45 s deadline and was thrown away. Now the LOWEST effort the provider
+   verifiably offers for that model (AuxGovernor.pickAuxEffort; null = no override). Compaction stays on
+   auxReasoningEffort: a fold is the Commander's own task context, not self-talk (test/aux-effort.test.js). */
+function auxPassEffort(provider, model) {
+  if (String(ENV('AUX_EFFORT') || '').trim() || resolveAuxModel()) return auxReasoningEffort(provider, model);
+  if (!provider || typeof provider.reasoningEfforts !== 'function') return null;
+  let allowed;
+  try { allowed = provider.reasoningEfforts(model); } catch (e) { failNote('aux.effort', e); return null; }
+  return AuxGovernor.pickAuxEffort(allowed);
+}
 
 /* ---- HYBRID RECALL — the embedding lane (memory-compound lane) ----------------------------------------------
    BM25 alone can never surface "registry pushes rate-limit" for a task phrased "uploads keep getting throttled":
@@ -3713,7 +3729,7 @@ async function runBackgroundSkillReview(o) {
   finally {
     clearTimeout(timer);
     if (result && result.usd) {
-      try { ledger.record({ runId: reviewRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, unmetered }); } catch (_) {}
+      try { ledger.record({ runId: reviewRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, model: model || '', unmetered }); } catch (_) {}   // model: the spend row names what it spent on, like every other aux row
     }
   }
   // false asks verdictreview to retry: only a pass that failed before it changed the skillbase (a budget/turn-ceiling/
@@ -3772,7 +3788,7 @@ async function runSkillCurator(o) {
   finally {
     clearTimeout(timer);
     if (result && result.usd) {
-      try { ledger.record({ runId: curatorRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, unmetered }); } catch (_) {}
+      try { ledger.record({ runId: curatorRunId, agentId, turns: result.turns || 0, usd: result.usd || 0, tokens: result.tokens || 0, model: model || '', unmetered }); } catch (_) {}
     }
   }
 }
@@ -21331,6 +21347,11 @@ async function runOnceCore(o) {
   const fallbacks = rotationFallbacks
     .concat(fallbackModels.map(m => ({ provider, providerId, model: m })))
     .concat(providerFallbacks);
+  // INTERNAL self-talk (a title, session ideas, a goal plan) is reason-only aux work: it runs on the aux effort, not the
+  // effort the Commander picked for their own chat (auxPassEffort). Every adapter clamps a per-request effort to what
+  // the model it lands on offers, so a fallback hop stays valid. null = no override (every other run — an /v1
+  // outputOnly repair is an external caller's own request, so it is o.internal here, not `internal`).
+  const internalEffort = o.internal ? auxPassEffort(provider, model) : null;
 
   // ---- context auto-compaction: fold older turns into a summary once the live prompt passes 65% of the model's
   //      window, so a long run shrinks instead of overflowing. The summarizer is ONE model call over the older
@@ -22750,6 +22771,7 @@ async function runOnceCore(o) {
       result = await runAgentLoop({
       messages: msgs, provider, emit: loopEmit, cost, tools: o.outputOnly ? [] : toolDefs, dispatch, capCtx,
       isTask: internal ? undefined : isTask,
+      reasoningEffort: internalEffort || undefined,
       // no project folder = no build or test to run: a standalone web page saved in the agent's own workspace is not
       // "code to verify" (loop.js VERIFY-ON-STOP) — the nudge sent agents into file:// browsing and shell reads of
       // their own deliverable after they had said "Done." (live walkthrough 2026-10-13)
@@ -22977,7 +22999,7 @@ async function runOnceCore(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
+      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort: internalEffort || reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new
@@ -23073,12 +23095,12 @@ async function runOnceCore(o) {
   const _auxFail = !!(!o.recovery && result && Failreview.reviewableReason(result.reason) && isTask && !internal && !signal.aborted);
   const _auxNow = Date.now();       // one clock read for the scout cadence fold + curator-due check below
   const _auxModel = _auxDone ? (reflectModel || resolveEffectiveModel({ result, requestedModel: o.model, usingCodex, codexDefaultModel: CODEX_DEFAULT_MODEL, defaultModel: CRON_DEFAULT_MODEL })) : '';
-  // per-request effort for the single-shot aux streams — null unless the aux tier is engaged AND the provider
-  // verifiably offers the effort for _auxModel (auxReasoningEffort); null = no override, byte-identical requests.
-  const _auxEffort = _auxDone ? auxReasoningEffort(provider, _auxModel) : null;
+  // per-request effort for the single-shot aux streams: the configured aux tier, else the lowest effort the provider
+  // verifiably offers for _auxModel (auxPassEffort) — a strict-format extraction never pays for hidden thinking.
+  const _auxEffort = _auxDone ? auxPassEffort(provider, _auxModel) : null;
   // failure-review resolves its model/effort through the SAME single resolution (aux tier first, else the run's own).
   const _auxFailModel = _auxFail ? (reflectModel || resolveEffectiveModel({ result, requestedModel: o.model, usingCodex, codexDefaultModel: CODEX_DEFAULT_MODEL, defaultModel: CRON_DEFAULT_MODEL })) : '';
-  const _auxFailEffort = _auxFail ? auxReasoningEffort(provider, _auxFailModel) : null;
+  const _auxFailEffort = _auxFail ? auxPassEffort(provider, _auxFailModel) : null;
   // the skill review/curator forks are nested TOOL loops: they take the cheap aux model only when it is
   // VERIFIABLY tool-capable on this run's provider (supportsTools === true), else the run's own model as today.
   const _auxSkillModel = auxSkillModel(provider, model);
@@ -23247,7 +23269,7 @@ async function runOnceCore(o) {
   if (result) {
     if (!result.artifacts) { try { result.artifacts = execution.artifactList(); } catch (_) {} }
     result.model = result.model || model;
-    result.reasoningEffort = reasoningEffort;
+    result.reasoningEffort = internalEffort || reasoningEffort;   // the effort this run actually ran on (self-talk rides the aux effort)
     result.toolsOk = execution.toolsOk();
     result.toolTrace = execution.toolTraceList();
     result.startedAt = runStartedAt;

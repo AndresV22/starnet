@@ -1833,6 +1833,7 @@
           if (typeof o.isTask === 'boolean') req.isTask = o.isTask;
           if (o.runId) req.runId = o.runId;   // run attribution: only a profile that names a runIdHeader sends it (starnet)
           if (o.cacheSystemPrefix) req.cacheSystemPrefix = o.cacheSystemPrefix;
+          if (o.reasoningEffort) req.reasoningEffort = o.reasoningEffort;   // a per-run override (station self-talk: the aux effort); absent = the provider's own default
           if (outputCapTokens > 0) req.maxTokens = outputCapTokens;   // the ceiling a provider named (output_cap)
           if (retriesUsed > 0) req.preStreamRetries = 0;              // the ladder owns pacing: one request per rung
           for await (const ev of provider.stream(req)) {

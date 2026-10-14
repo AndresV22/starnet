@@ -96,5 +96,18 @@
     return { spend: ordered.filter(n => reservedSet.has(n) || spent.indexOf(n) >= 0), deferred: governed.slice(budget), reserved, budget: budget, unlimited: false };
   }
 
-  return { PRIORITY: PRIORITY.slice(), DEFAULT_BUDGET, parseBudget, rank, decide };
+  // pickAuxEffort(allowed) -> 'none' | 'minimal' | 'low' | null. The reasoning effort for REASON-ONLY aux work (the
+  // post-run passes and internal self-talk runs) when the operator configured no aux tier: the LOWEST effort the
+  // provider verifiably offers for that model. Aux work is a strict-format extraction (a title, a PREFERENCE line, a
+  // JSON plan); thinking is billed as output and the Commander never sees it — measured live on haiku-4.5, a title
+  // spent 483 reasoning tokens at the chat's 'medium' and 0 at 'none' for the same title. `allowed` is the provider's
+  // own reasoningEfforts(model) list; no list, or no low tier on it, -> null = no override (the provider default).
+  const AUX_EFFORT_LADDER = ['none', 'minimal', 'low'];
+  function pickAuxEffort(allowed) {
+    if (!Array.isArray(allowed)) return null;
+    for (let i = 0; i < AUX_EFFORT_LADDER.length; i++) if (allowed.indexOf(AUX_EFFORT_LADDER[i]) >= 0) return AUX_EFFORT_LADDER[i];
+    return null;
+  }
+
+  return { PRIORITY: PRIORITY.slice(), DEFAULT_BUDGET, parseBudget, rank, decide, pickAuxEffort, AUX_EFFORT_LADDER: AUX_EFFORT_LADDER.slice() };
 });

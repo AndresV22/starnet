@@ -1198,3 +1198,4 @@ test/comms-press-sound.test.js
 test/rc-final-seams.test.js
 test/run-context.compaction.test.js
 test/internal-run-not-working.test.js
+test/aux-effort.test.js

@@ -14,6 +14,11 @@
      ARM C — control: with NO aux env set, every provider request carries the run model and no request grows a
              `reasoning` field — the unconfigured install is byte-identical to before the tier existed.
 
+     ARM D — the aux EFFORT default (10-14): run/model declared reasoning-capable, still NO aux env. The main run keeps
+             the Commander's effort; every single-shot aux pass and an INTERNAL self-talk run carry reasoning effort
+             'none' (the lowest the model offers) — hidden thinking on a strict-format extraction was most of the
+             measured aux spend (test/aux-effort.test.js).
+
    ZERO network, zero real key (the fake key routes to the mock). */
 'use strict';
 
@@ -52,7 +57,7 @@ function startMock(opts) {
       if (req.url.indexOf('/models') >= 0) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ data: [
-          { id: RUN_MODEL, context_length: runContext, pricing: { prompt: '0', completion: '0' }, supported_parameters: ['tools'] },
+          { id: RUN_MODEL, context_length: runContext, pricing: { prompt: '0', completion: '0' }, supported_parameters: (opts && opts.runReasoning) ? ['tools', 'reasoning'] : ['tools'] },
           { id: AUX_MODEL, context_length: 8000, pricing: { prompt: '0', completion: '0' }, supported_parameters: ['reasoning'] }
         ] }));
         return;
@@ -72,6 +77,7 @@ function startMock(opts) {
             main: raw.indexOf('[RUNTIME]') >= 0,
             summary: messages.some(m => String((m && typeof m.content === 'string') ? m.content : '').indexOf('Summarize this earlier part of the conversation') >= 0),
             reasoning: body.reasoning || null,
+            selfTalk: raw.indexOf('INTERNAL — AUXMODEL TITLE CHECK') >= 0,
             tools: Array.isArray(body.tools) ? body.tools.length : 0
           };
           state.calls.push(rec);
@@ -213,6 +219,30 @@ const COMMON = { SKYNET_QUEST_REFRESH: '0', SKYNET_FULL_ACCESS: '1' };
       A.ok(calls.length >= 3, 'the control run fired the main call plus aux passes (' + calls.length + ' calls)');
       A.ok(calls.every(c => c.model === RUN_MODEL), 'with NO aux env, every call — main and aux — used the run model');
       A.ok(calls.every(c => !c.reasoning), 'with NO aux env, no request grew a reasoning field (requests byte-identical to before the tier)');
+    } finally { await fixture.dispose(); try { mock.server.close(); } catch (_) {} }
+  }
+
+  // ---- ARM D — the aux effort default: a reasoning-capable run model, no aux env ----------------------------
+  {
+    const mock = await startMock({ runReasoning: true });
+    const fixture = SidecarFixture.create({
+      prefix: 'sk-auxmodel-d-',
+      env: Object.assign({ SKYNET_OPENROUTER_BASE: mock.base, SKYNET_AUX_BUDGET: '0' }, COMMON)
+    });
+    await fixture.start();
+    try {
+      await driveRun(fixture, 'auxmodel-effort', 'Rebuild the staging deploy rollback path and write up what changed and why');
+      const r = await fixture.request('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'sk-or-v1-auxmodel-fake', model: RUN_MODEL, agentId: 'auxmodel-effort', internal: true, isTask: false, placed: [], reasoningEffort: 'high',
+          messages: [{ role: 'user', content: 'INTERNAL — AUXMODEL TITLE CHECK. Reply with a 3 word title.' }] }) });
+      A.eq(r.status, 200, 'the internal self-talk run opened'); await r.text();
+      await settle(mock.state);
+      const calls = mock.state.calls;
+      const main = calls.filter(c => c.main), aux = calls.filter(c => !c.main && !c.summary && !c.selfTalk), self = calls.filter(c => c.selfTalk);
+      A.ok(main.length >= 1 && main.every(c => c.reasoning && c.reasoning.effort === 'medium'), 'the main run keeps the Commander effort (medium default)');
+      A.ok(aux.length >= 3, 'the single-shot aux passes fired (' + aux.length + ' calls)');
+      A.ok(aux.every(c => c.reasoning && c.reasoning.effort === 'none'), 'every aux pass rides effort none — no hidden thinking (' + JSON.stringify(aux.map(c => c.reasoning)) + ')');
+      A.ok(self.length === 1 && self[0].reasoning && self[0].reasoning.effort === 'none', 'an INTERNAL self-talk run rides effort none even when the page asked for high');
     } finally { await fixture.dispose(); try { mock.server.close(); } catch (_) {} }
   }
 
