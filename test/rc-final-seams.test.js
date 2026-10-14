@@ -44,6 +44,7 @@ function load(src, headers, globals, extra) {
   const bare = card(false, null);
   A.ok(/· waiting in DELIVERABLES › TO REVIEW · not counted in SHIPPED/.test(strip(bare)) && !/text answer/.test(strip(bare)), 'no proven reason: the card says only "not counted in SHIPPED": ' + strip(bare).slice(0, 120));
   A.ok(/The station holds no SHIPPED receipt for this job/.test(bare) && !/answered in text/.test(bare), '…and its tip claims no reason the server did not send');
+  A.ok(/ · <span class="wf-job-where"><button[^>]*data-to-review[^>]*>waiting in DELIVERABLES › TO REVIEW<\/button> · <span class="wf-noship"[^>]*>[^<]*not counted in SHIPPED<\/span><\/span><\/div>/.test(talk), '(org D9 polish) where the job waits and the SHIPPED note wrap as one unit, never one stranded fragment');
   // (org P14) the folded job's place is a door into DELIVERABLES › TO REVIEW — never "in the OUTBOX" — and only while it still waits
   A.ok(/<button type="button" class="wf-link" data-to-review[^>]*>waiting in DELIVERABLES › TO REVIEW<\/button>/.test(talk) && !/in the OUTBOX/.test(strip(talk)), 'the folded job names where it waits, as a door: ' + strip(talk).slice(0, 120));
   {
