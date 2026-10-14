@@ -63,8 +63,8 @@ const AutonomyStore = (() => {
     if (s && s.actsUnattended) return RESUMED;
     const id = (posture && posture.initiative) || 'wait';
     const rung = (typeof StationUI !== 'undefined' && StationUI.initiativeLabel) ? StationUI.initiativeLabel(id) : String(id).toUpperCase();
-    // org P06: name the dial, so 'off' and the rung never read as two answers ('stays off at SUGGEST')
-    return 'AUTOMATION RESUMED: schedules run again; away work stays off while ON ITS OWN is ' + rung;
+    // org P06: name the dial, so 'off' and the rung never read as two answers; the headline names only what resumed (the STATE card beside it still reads OFF)
+    return 'SCHEDULES RESUMED: away work stays off while ON ITS OWN is ' + rung;
   }
   function announceResume(posture) {
     try { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(resumedText(posture), 'good'); } catch (e) { console.warn('[autonomy] resume notice failed:', (e && e.message) || e); }

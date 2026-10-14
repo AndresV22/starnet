@@ -16,6 +16,7 @@
 .settings-console .ms-h .dim { display: block; flex: 1 0 100%; order: 4; font-size: 14px; line-height: 1.5; letter-spacing: 0; margin-top: 4px; }
 .settings-console :is(.set-about,.mc-hint,.pc-plain,.perm-m-desc,.perm-m-floor,.ns-note) { font-size: 14px; line-height: 1.55; letter-spacing: 0; overflow-wrap: anywhere; }
 .settings-console .set-about { margin: 0 0 16px; }
+.settings-console .key-list + .set-about { margin-top: 16px; }   /* org P04: the note under API KEYS keeps its gap from the last key card (the dropped add box used to give it) */
 .settings-console .mc-hint { margin: 7px 0 18px; }
 .settings-console .set-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 22px 0 10px; border: 0; }
 .settings-console .set-sub-k { font-size: 14px; color: var(--ph-bright); }
@@ -57,6 +58,9 @@
 .settings-console .prov-stat-t { font-size: 12px; line-height: 1.4; }
 /* #62: the reason a saved key failed its check, under the verdict (sentence case, wraps, never truncated by the badge) */
 .settings-console .prov-stat-why { display: block; white-space: normal; margin-top: 3px; font-size: 12px; line-height: 1.4; letter-spacing: 0; color: var(--bad, var(--ph-dim)); overflow-wrap: anywhere; }
+/* org P03 polish: the reason reads at the verdict's own size, sentence case, with a little air above the key count under it */
+.settings-console .prov-stat-why { font-size: inherit; margin-bottom: 3px; }
+.settings-console .prov-stat-why::first-letter { text-transform: uppercase; }
 .settings-console .prov-stat-why.soft { color: inherit; }   /* org P03: a neutral reason wears its NOT VERIFIED line's amber, not the alarm red */
 .settings-console .prov-key-edit, .settings-console .prov-oauth-inline { grid-column: 1 / -1; }
 /* subscription stacking: the CLAUDE CODE card's connected sign-ins + ＋ ADD ACCOUNT, full width under the card head */
@@ -72,6 +76,9 @@
 .settings-console .prov-accounts-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; line-height: 1.4; }
 .settings-console .key-edit:not([hidden]) { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px; border-radius: 8px; background: rgba(0,0,0,.16); }
 .settings-console .key-edit input { flex: 1 1 200px; }
+/* org P04 polish: the spare-key SAVE / CLEAR pair keeps one width — side by side, or each full width once the pane is too narrow for both */
+.settings-console .key-edit-pair { display: flex; flex-wrap: wrap; gap: 10px; flex: 1 1 260px; }
+.settings-console .key-edit-pair > .bb { flex: 1 1 0; white-space: nowrap; }
 .settings-console .key-row { padding: 14px; gap: 12px; border-radius: 9px; border-color: rgba(var(--ph-rgb), .2); box-shadow: none; }
 .settings-console .key-prov { font-size: 16px; }
 .settings-console .key-meta { font-size: 13px; line-height: 1.5; }
@@ -84,6 +91,8 @@
   .settings-console .key-row { flex-wrap: wrap; }
   .settings-console .key-main { flex: 1 1 calc(100% - 21px); }
   .settings-console .key-acts { flex: 1 1 100%; flex-direction: row; padding-left: 21px; }
+  /* org P04 polish: each wrapped line of keys fills the row, so a third key (✕ REMOVE) is a full-width key under the pair, never a lone tile */
+  .settings-console .key-acts > .bb { flex: 1 1 auto; }
 }
 .settings-console .ns-grid { gap: 12px; }
 .settings-console .ns-cell { border-radius: 9px; padding: 14px; border-color: rgba(var(--ph-rgb), .16); background: rgba(0,0,0,.1); }

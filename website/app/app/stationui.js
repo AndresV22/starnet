@@ -3448,8 +3448,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (dossierWindow) dossierWindow.classList.add('agent-dossier');
     if (!present.length) {
       // shared empty-state vocabulary rather than a bare paragraph (no agents = nothing to dossier)
+      // org P10: the empty dossier carries the RECRUIT door itself (the same App.openSummonBay the CREW dock's RECRUIT opens)
+      const canRecruit = typeof App !== 'undefined' && !!App.openSummonBay;
       body.innerHTML = '<div class="empty-state" style="margin:32px auto;">' + NO_AGENTS_MARK +
-        '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div>';
+        '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span>' +
+        (canRecruit ? '<button type="button" class="bb sm" data-act="empty-recruit" style="margin-top:14px;">▸ OPEN RECRUIT</button>' : '') + '</div>';
+      const recruitKey = body.querySelector('[data-act="empty-recruit"]');
+      if (recruitKey) recruitKey.addEventListener('click', () => { sfx('click'); try { App.openSummonBay(); } catch (e) { console.warn('[dossier] recruit door failed:', (e && e.message) || e); } });
       return;
     }
     if (sel >= present.length) sel = 0;
@@ -5728,7 +5733,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             '<span class="prov-ep">' + esc(p.endpoint) + ' · ' + esc(p.blurb) + '</span>' +
           '</span>' +
         '</button>' +
-          '<span class="prov-stat"><span class="prov-stat-t">' + stat + (credentialSaved && !isOAuthProvider(p.id) ? '<i>' + n + (n === 1 ? ' key' : ' keys') + '</i>' : '') + statWhy + '</span></span>' +
+          '<span class="prov-stat"><span class="prov-stat-t">' + stat + statWhy + (credentialSaved && !isOAuthProvider(p.id) ? '<i>' + n + (n === 1 ? ' key' : ' keys') + '</i>' : '') + '</span></span>' +   // org P03: the reason sits right under the verdict it explains, above the key count
         (wantsInline ? '<button class="bb sm prov-addkey" data-act="prov-add-toggle" data-provider="' + esc(p.id) + '" aria-label="Add a ' + esc(p.name) + ' key" title="paste a ' + esc(p.name) + ' key without leaving this card">＋ ADD KEY</button>' : '') +
         (wantsClaudeSignin && !claudeFlowing && !(typeof ClaudeCliSignIn !== 'undefined' && ClaudeCliSignIn.active()) ? '<button class="bb sm prov-addkey" data-act="prov-claude-signin" aria-label="Sign in with Claude" title="opens Claude in your browser — Claude Code keeps the sign-in, StarNet never sees it">' + (claudeCard.failed ? '⏼ TRY AGAIN' : '⏼ SIGN IN') + '</button>' : '') +
         (wantsClaudeInstall ? '<button class="bb sm prov-addkey" data-act="prov-claude-install" aria-label="Get Claude Code" title="Claude Code needs a Pro, Max, Team or Enterprise plan">↗ GET CLAUDE CODE</button>' : '') +
@@ -5934,13 +5939,19 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '</div>' +
         '<div class="key-edit" id="pool-edit-' + i + '" hidden>' +
         '<input type="password" class="key-input" id="pool-in-' + i + '" placeholder="paste spare keys, separated by commas…" autocomplete="off" spellcheck="false">' +
+        // org P04: the save/clear pair is one unit — side by side at equal widths, or stacked full width when the pane is narrow
+        '<div class="key-edit-pair">' +
         '<button class="bb sm" data-act="pool-save" data-i="' + i + '">SAVE SPARE KEYS</button>' +
         '<button class="bb sm danger" data-act="pool-clear" data-i="' + i + '">CLEAR SPARE KEYS</button>' +
+        '</div>' +
         '<span class="dim">up to 8 · scoped only to ' + esc(provName(k.provider)) + ' · a failed save keeps your previous spare keys or reports an incomplete rollback</span>' +
         '</div>' +
         baseBlock;
     });
     if (providerAcceptsKey(addProvider) && !hasAddProvider && !cardOffersAdd(addProvider)) rows.push(addKeyHtml(addProvider, false));
+    // org P04: the selected provider's card holds its ＋ ADD KEY, but API KEYS still says the selected provider has no key yet
+    // (only when addProvider IS the selection: under CHATGPT it is the openrouter stand-in, which is not selected)
+    else if (addProvider === active && providerAcceptsKey(addProvider) && !hasAddProvider) rows.push('<div class="key-empty"><p>The selected provider, ' + esc(provName(addProvider)) + ', has no key yet. Add it on its card above.</p></div>');
     return rows.join('');
   }
   // edit-in-place / guarded remove for a stored key. Mirrors the CLEAR arm/confirm pattern
@@ -7669,7 +7680,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<p class="set-about">Credentials are saved locally and used to authenticate with the selected service. Saved keys stay masked. Desktop storage uses the OS keychain when available.</p>' +
       // org P05: model keys live here; keys for services live in CONNECT › ABILITIES — one door, the places.js api-connections target
       // (the key sits OUTSIDE the .set-about prose: that paragraph's 0.55 reading-dim greyed it into a disabled-looking key)
-      '<p class="set-about">Keys for Gmail, Notion and other services live in CONNECT › ABILITIES.</p>' +
+      '<p class="set-about">Keys for Gmail, Notion and other services live in CONNECT › ABILITIES › SAVED API CONNECTIONS.</p>' +
       '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-keys">↗ SAVED API CONNECTIONS</button></div>' +
       // STORE / MANAGED CREDITS — rendered ONLY when the sidecar reports a configured credits backend (/api/credits).
       // When credits aren't wired this stays an empty node (no dead card, no fake balance — the honesty law). wireCredits
