@@ -52,10 +52,10 @@ async function quickRun(answers, stopAt, wake = false, mind = null, receipts = [
   assert(result.stages.some(([,detail]) => detail.startsWith('1 of 2')));
   assert(result.stages.some(([,detail]) => detail.startsWith('2 of 2')));
   assert(result.storage.has('starnet.interview.deferred.v1'), 'deeper profile stays available later');
-  // org P31: the pace labels count what each path really asks — no station pick on offer here, so two questions,
-  // and the follow-up hint rides IN each label (loose = 1, deep = FOLLOWUP_BUDGET 3)
+  // org P31: the quick label counts what it really asks — no station pick on offer here, so two questions — and only it
+  // carries a count: the talks step up (short, then in depth) instead of a second "three" that read no longer than quick
   assert.deepEqual(Array.from(result.prompts[0].options, o => o.label),
-    ['Quick setup — two questions', 'A short conversation — at most one follow-up', 'Let’s talk it through — at most three follow-ups']);
+    ['Quick setup — two questions', 'A short conversation — your work and goals', 'Let’s talk it through — your work and goals, in depth']);
   assert(/start with two setup questions/.test(result.prompts[0].lines[0].text), 'the greeting counts the same two');
   // a fresh starter room offers the lead's station pick, so the quick path is THREE questions, numbered 1-3 of 3
   const stations = { fresh: () => true, recommend: () => 'studio', apply: () => ({ ok: true }),
@@ -66,6 +66,8 @@ async function quickRun(answers, stopAt, wake = false, mind = null, receipts = [
   assert.equal(three.prompts.length, 4, 'pace choice + three setup questions');
   assert.deepEqual(three.stages.map(([, d]) => d).filter(d => / of \d/.test(d)),
     ['1 of 3 · Your direction', '2 of 3 · While you are away', '3 of 3 · Where the work happens']);
+  assert.deepEqual([...new Set(three.stages.filter(([, d]) => / of \d/.test(d)).map(([t]) => t))], ['GET ACQUAINTED'],
+    'all three counted questions sit under one stage name, the station pick included');
   assert(/^last question: which station/.test(three.prompts[3].lines[0].text), 'the station ask is the last question, not "one more"');
   assert.equal(three.taught, 1);
   const retried = await quickRun([{value:'quick'}, {value:'Help me build software.'}, {value:'wait'}, {value:'wait'}], null, false, null, [{ok:false,error:'Save refused'}, {ok:true}]);
