@@ -9286,6 +9286,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      SIZE flip dispatches a synthetic resize, so that path is covered too).
      Fail open, never closed: a screen that isn't the station — or a frame mid-boot — leaves the
      CSS fallbacks alone rather than seating the rack against a degenerate rect. */
+  /* WHERE A DOCK MENU'S TOP WILL REST (review of rc walk #29): its pop-in (panelchrome pc-menu-in) starts 5px low and a hair
+     small, so the first rect overstates the top and a raised toast overlapped the opening menu by ~2px until animationend.
+     The menu's LAYOUT box ignores transforms: offsetTop against its positioned dock group, scaled by that group's own
+     visual/local ratio (so the text-size zoom is never guessed). Falls back to the painted rect when the layout can't be read. */
+  function menuRestTop(menu, mr) {
+    const g = menu && menu.offsetParent;
+    const gr = g && g.getBoundingClientRect ? g.getBoundingClientRect() : null;
+    if (!gr || !(gr.height > 0) || !(g.offsetHeight > 0) || typeof menu.offsetTop !== 'number') return mr.top;
+    return Math.min(mr.top, gr.top + menu.offsetTop * (gr.height / g.offsetHeight));
+  }
   function seatToastRack(stack) {
     if (!stack || typeof document === 'undefined') return;
     const game = document.getElementById('screen-game');
@@ -9315,7 +9325,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const rackW = Math.min(356, cap > 0 ? cap : 356) * z;   // the rack's own column, visual px (its CSS width cap, #toast-stack)
     document.querySelectorAll('#bottombar .bb-group.open .bb-menu').forEach(menu => {
       const mr = menu.getBoundingClientRect ? menu.getBoundingClientRect() : null;
-      if (mr && mr.height > 0 && mr.left < bar.left + rackW && mr.right > bar.left) floor = Math.max(floor, window.innerHeight - mr.top + 6);
+      if (mr && mr.height > 0 && mr.left < bar.left + rackW && mr.right > bar.left) floor = Math.max(floor, window.innerHeight - menuRestTop(menu, mr) + 6);
     });
     stack.style.setProperty('--toast-x', (bar.left / z) + 'px');
     stack.style.setProperty('--toast-b', (floor / z) + 'px');
@@ -9323,7 +9333,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
   // a card that is already up must follow the cabinet too — its seat is measured, not declarative,
   // so the resize path re-runs it (a TEXT SIZE flip dispatches a synthetic resize, so that is covered).
-  function reseatToasts() { try { seatToastRack(document.getElementById('toast-stack')); } catch (_) {} }
+  // an empty rack is invisible and is seated again when its next card is emitted: no layout read for a menu click with no card up
+  function reseatToasts() { try { const st = document.getElementById('toast-stack'); if (st && st.childElementCount) seatToastRack(st); } catch (_) {} }
   // transient on-screen toast — a station readout card that seats in, holds for its dwell, then leaves.
   // The persistent record still lives in the NOTIFICATIONS panel (buildNotifs); this is the
   // ephemeral heads-up so a result isn't silent when that panel is closed.
