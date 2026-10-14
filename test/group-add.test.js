@@ -27,14 +27,15 @@ const { makeStationControlTools, cardFor, ACTIONS } = require('../sidecar/tools/
   const nameOf = r => roster[String(r).toLowerCase()] || Object.values(roster).find(n => n.toLowerCase() === String(r).toLowerCase()) || '';
   const ids = { action: 'group.add', args: { agents: ['copywriter', 'strategist'] } };
   const direct = cardFor(ids, { nameOf, chat: 'direct' });
-  A.eq(direct, 'bring COPY and STRATEGY into this chat: it becomes a group chat when my reply ends, and they see its history and files', 'a one-on-one chat: names, not ids, and the one clause true there: ' + direct);
-  A.ok(!/General|copywriter|strategist|"/.test(direct) && direct.length <= 120, 'no ids, no General clause, two short lines at most (' + direct.length + ' chars)');
-  A.eq(cardFor(ids, { nameOf, chat: 'group' }), 'add COPY and STRATEGY to this group chat (they see its history and files)', 'a group chat: they are added to it');
-  A.eq(cardFor(ids, { nameOf, chat: 'general' }), 'start a group chat with COPY and STRATEGY beside General, carrying only this request', 'General: a new group opens beside it with only the request');
-  A.eq(cardFor({ action: 'group.add', args: { agents: 'NOVA and SAM ALTMAN' } }, { nameOf }), 'bring NOVA and SAM ALTMAN into this chat (they see its history and files)', '"NOVA and SAM ALTMAN" reads as two names; an unknown chat kind gets the plain line');
-  A.eq(cardFor({ action: 'group.add', args: { agents: ['copywriter', 'ghost'] } }, { nameOf, chat: 'direct' }).split(':')[0], 'bring COPY and "ghost" into this chat', 'someone not on the roster shows exactly as the model sent it, quoted');
-  A.eq(cardFor({ action: 'group.add', args: { agents: ['nova'], session: 'Launch plan' } }, { nameOf, chat: 'direct' }), 'bring NOVA into the session "Launch plan" (they see its history and files)', 'another session is named, never "this chat"');
-  A.eq(cardFor({ action: 'group.add', args: { agents: ['copywriter'] } }), 'bring "copywriter" into this chat (they see its history and files)', 'with no host help the card still reads (the ids quoted)');
+  A.eq(direct, 'bring COPY and STRATEGY into this chat; it becomes a group chat when my reply ends', 'a one-on-one chat: names, not ids, and the one clause true there: ' + direct);
+  // the card reads "NOVA wants to <this>"; at the COMMS card's ~47 characters a line, two lines is ~95 (measured live 10-14)
+  A.ok(!/General|copywriter|strategist|"/.test(direct) && ('NOVA wants to ' + direct).length <= 96, 'no ids, no General clause, two short lines at most (' + direct.length + ' chars)');
+  A.eq(cardFor(ids, { nameOf, chat: 'group' }), 'add COPY and STRATEGY to this group chat', 'a group chat: they are added to it');
+  A.eq(cardFor(ids, { nameOf, chat: 'general' }), 'start a group chat with COPY and STRATEGY beside General, with only this request', 'General: a new group opens beside it with only the request');
+  A.eq(cardFor({ action: 'group.add', args: { agents: 'NOVA and SAM ALTMAN' } }, { nameOf }), 'bring NOVA and SAM ALTMAN into this chat', '"NOVA and SAM ALTMAN" reads as two names; an unknown chat kind gets the plain line');
+  A.eq(cardFor({ action: 'group.add', args: { agents: ['copywriter', 'ghost'] } }, { nameOf, chat: 'direct' }).split(';')[0], 'bring COPY and "ghost" into this chat', 'someone not on the roster shows exactly as the model sent it, quoted');
+  A.eq(cardFor({ action: 'group.add', args: { agents: ['nova'], session: 'Launch plan' } }, { nameOf, chat: 'direct' }), 'bring NOVA into the session "Launch plan"', 'another session is named, never "this chat"');
+  A.eq(cardFor({ action: 'group.add', args: { agents: ['copywriter'] } }), 'bring "copywriter" into this chat', 'with no host help the card still reads (the ids quoted)');
   // the host hands the card its roster and the chat's kind from the page's own save (index.js consentSummary)
   const host = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
   A.ok(/return stationControlCard\(redact\(a\), \{ nameOf: crewNameOf, chat: \(where && where\.chat\) \|\| chatKindOf\(where && where\.streamId\) \}\);/.test(host), 'consentSummary passes the roster names and the chat kind');

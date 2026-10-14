@@ -269,7 +269,8 @@
   /* THE CARD (rc walk 10-14: it was a 7-line paragraph naming raw agent ids, with a "from General" clause on a one-on-one
      chat). One short line: WHO joins, by the names the Commander knows (opts.nameOf, the host's roster), and WHICH chat —
      its kind (opts.chat, read from the page's own save: 'direct' | 'group' | 'general') picks the one clause that is true
-     there. Unknown kind (a channel, a test): the plain line. What they see stays on the card: it is what is approved. */
+     there. Unknown kind (a channel, a test): the plain line. Two lines at most on the COMMS card (measured live: the
+     version that also said "they see its history and files" wrapped to three). */
   const crewNames = (a, o) => {
     const n = crewList(a).map(r => (o && typeof o.nameOf === 'function' && o.nameOf(r)) || q(r));
     return n.length > 1 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : (n[0] || 'nobody named');
@@ -279,10 +280,10 @@
     needs: a => a.agents.length ? '' : 'group.add named no crew member (e.g. {"agents": ["NOVA", "ROOK"]})',
     card: (a, o) => {
       const who = crewNames(a, o), chat = o && o.chat;
-      if (!(a.session == null || THIS_SESSION.test(String(a.session)))) return 'bring ' + who + ' into ' + sess(a) + ' (they see its history and files).';
-      return chat === 'group' ? 'add ' + who + ' to this group chat (they see its history and files).'
-        : chat === 'general' ? 'start a group chat with ' + who + ' beside General, carrying only this request.'
-        : 'bring ' + who + ' into this chat' + (chat === 'direct' ? ': it becomes a group chat when my reply ends, and they see its history and files.' : ' (they see its history and files).');
+      if (!(a.session == null || THIS_SESSION.test(String(a.session)))) return 'bring ' + who + ' into ' + sess(a) + '.';
+      return chat === 'group' ? 'add ' + who + ' to this group chat.'
+        : chat === 'general' ? 'start a group chat with ' + who + ' beside General, with only this request.'
+        : 'bring ' + who + ' into this chat' + (chat === 'direct' ? '; it becomes a group chat when my reply ends.' : '.');
     } });
   def('group.configure', { takes: '{group (its id or title), members? [the group\'s WHOLE member list, crew ids], leadId?, title?, instructions?, maxTurns? 1-100}',
     // members REPLACES the roster: the card says so, so "add NOVA" sent as {members:["nova"]} cannot quietly remove everyone else
