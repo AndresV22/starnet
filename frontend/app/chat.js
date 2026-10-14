@@ -8516,26 +8516,34 @@ const Chat = (() => {
     const cur = goalOf(activeWs);
     if (!raw || low === 'status') return localLine(GoalLoop.statusLine(cur));
     if (low === 'pause') {
-      if (!cur || cur.status === 'cleared') return localLine('No goal loop to pause.');
+      if (!cur || cur.status === 'cleared') return localLine('No session goal to pause.');
       GoalLoop.pause(cur, 'you paused it'); persistGoal();
-      return localLine('⏸ goal loop paused. /goal resume to continue.');
+      return localLine('⏸ session goal paused. /goal resume to continue.');
     }
     if (low === 'resume') {
-      if (!cur || cur.status !== 'paused') return localLine('No paused goal loop to resume.');
+      if (!cur || cur.status !== 'paused') return localLine('No paused session goal to resume.');
       GoalLoop.resume(cur); persistGoal();
-      localLine('▶ goal loop resumed (' + cur.turnsUsed + '/' + cur.maxTurns + '). Kicking off the next step…');
+      localLine('▶ session goal resumed (' + cur.turnsUsed + '/' + cur.maxTurns + '). Kicking off the next step…');
       return kickGoal(activeWs);   // resume immediately fires the next continuation if the stream is free
     }
     if (low === 'clear') {
-      if (!cur || cur.status === 'cleared') return localLine('No goal loop to clear.');
+      if (!cur || cur.status === 'cleared') return localLine('No session goal to clear.');
       GoalLoop.clear(cur); activeWs.goalLoop = undefined; persistGoal();
-      return localLine('Cleared the goal loop.');
+      return localLine('Cleared the session goal.');
     }
     // /goal <text> — set (or replace) the standing goal and start working toward it
     const s = GoalLoop.create(raw, { now: Date.now() });
     if (!s) return localLine('Usage: /goal <what you want done>');
     activeWs.goalLoop = s; persistGoal();
-    localLine('⊙ goal loop set: ' + s.goal + '  (budget ' + s.maxTurns + ' turns). Working toward it…');
+    /* ONE MEANING FOR 'GOAL LOOP' (org pass 10-14, P29): /goal is a loop on THIS session only — not an AUTOMATE › GOAL LOOPS
+       entry. Say so, and hand over a real door key (never a menu path) to where lasting goal loops live. */
+    const set = localLine('⊙ goal set for this session only: ' + s.goal + '  (budget ' + s.maxTurns + ' turns). Working toward it… · lasting goal loops:');
+    if (set && typeof StationUI !== 'undefined' && StationUI.openTerm) {
+      const door = document.createElement('button'); door.type = 'button'; door.className = 'consent-btn goal-loops-door'; door.textContent = '▸ AUTOMATE › GOAL LOOPS';
+      door.onclick = () => StationUI.openTerm('automation', 'loops');
+      const host = set.querySelector ? (set.querySelector('.body') || set) : set;
+      host.appendChild(document.createTextNode(' ')); host.appendChild(door);
+    }
     kickGoal(activeWs);
   }
   // /subgoal <text>          — append a criterion the loop must ALSO satisfy before it's done
@@ -8617,7 +8625,7 @@ const Chat = (() => {
          /goal resume (the existing control) picks it up once the cause is handled. */
       const why = String(stall || 'the last step ended without a reply').trim();
       GoalLoop.pause(s, why); persistGoal();
-      if (isActiveWs(ws)) localLine('⏸ goal loop paused: ' + why + ' — /goal resume to continue.');
+      if (isActiveWs(ws)) localLine('⏸ session goal paused: ' + why + ' — /goal resume to continue.');
       return;
     }
     goalJudging.add(ws.id);

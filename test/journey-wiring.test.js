@@ -22,6 +22,8 @@ A.ok(!/gx-title">AGENT GROWTH</.test(ui) && !/data-open-growth/.test(ui), 'QUEST
 A.ok(/<span class="ttl">STATION XP<\/span>/.test(ui) && /' THUMBS-UP &middot;/.test(ui) && !/' APPROVALS &middot;/.test(ui), 'STATION XP counts thumbs-up by that name');
 A.ok(/<summary><span>MILESTONES<\/span><span class="q-section-count">[\s\S]{0,120}data-open-trophies>OPEN THE TROPHY CASE ▸<\/button><\/summary>/.test(ui), 'the TROPHY CASE door sits on the folded MILESTONES summary row');
 A.ok(/if \(b\.closest\('summary'\)\) ev\.preventDefault\(\);/.test(ui), 'clicking that door does not also fold the milestones');
+// org pass 10-14 (P29): the QUESTS tab strip reads in caps like every family strip
+A.ok(/\['available', 'NOW', /.test(ui) && /\['goals', 'GOALS', /.test(ui) && /\['progress', 'PROGRESS', /.test(ui) && /\['completed', 'HISTORY', /.test(ui), 'QUESTS tabs read NOW · GOALS · PROGRESS · HISTORY');
 A.ok(ui.indexOf('STOP USING THIS') >= 0 && ui.indexOf('RESUME ADAPTATION') >= 0, 'adaptation receipts have Commander correction controls');
 A.ok(world.indexOf('PropSprites.setJourneyStage') >= 0 && props.indexOf('journeyStage') >= 0, 'distinct reached goals physically transform the trophy case crown');
 A.ok(xp.indexOf('SIZE_MULT') < 0 && ratings.indexOf('const verdictDelta = 3') >= 0, 'tool/spend size can no longer weight new XP verdicts upstream or downstream');

@@ -10876,10 +10876,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         + (open.length ? 'Choose another category to find your next action.' : 'Set a direction or refresh your quests when you are ready for what comes next.') + '</p></div>')
       + '</section></div>';
     const questViews = [
-      ['available', 'Now', 'Your next move, open work, and station quests.'],
-      ['goals', 'Goals', 'Define what you want to achieve long term, then choose a goal to focus on. Its plan breaks the goal into smaller steps.'],
-      ['progress', 'Progress', 'Your recorded progress across all goals: planned steps, tracked metrics, and earned achievements.'],
-      ['completed', 'History', 'Your goals, results, reflections, and changes of direction.']
+      ['available', 'NOW', 'Your next move, open work, and station quests.'],
+      ['goals', 'GOALS', 'Define what you want to achieve long term, then choose a goal to focus on. Its plan breaks the goal into smaller steps.'],
+      ['progress', 'PROGRESS', 'Your recorded progress across all goals: planned steps, tracked metrics, and earned achievements.'],
+      ['completed', 'HISTORY', 'Your goals, results, reflections, and changes of direction.']
     ];
     body.classList.add('quests-content');
     body.innerHTML = '<div class="gx gx-quests">'
