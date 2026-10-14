@@ -1011,6 +1011,12 @@
     const CG_MAX = (_cg === false) ? 0 : (_cg && _cg.max != null ? _cg.max : 2);
     let cgUsed = 0;
     let memorySaveNudges = 0, memoryWrites = 0, configurationWrites = 0, peerHandoffs = 0;
+    /* A QUEUED SEAT ENDS THE REPLY (review 10-14). station.control group.add on the lead's own running chat lands only when
+       this reply ends, and the lead's next turn is already scheduled — the kickoff in the group, with the Commander's
+       request. A plan in this reply is that turn's work, not an unkept promise: nudging it gave the Commander a second
+       message answering an invisible nudge (real Haiku run), and an exhausted guard failed the reply, which DROPS the join
+       they approved (group-chat.js drainAfterRun). Only the host's own receipt counts ('group.add (queued)'). */
+    let seatQueued = false;
     let toolTurnsRun = 0;   // tool turns this run actually dispatched (a bare "Saved!" after one means a file, not memory)
     // Companion nudge budgets (same disable knob as the continuation guard — they are one family):
     //  · markup nudge — the turn's TEXT carried tool-call markup (scrubbed above; NEVER executed). Tell the
@@ -2296,7 +2302,7 @@
         // is a premature stop, not a delivery — nudge the model back to work instead of ending 'done' mid-task.
         // Never fires on a grace turn (that turn is CONTRACTED to be tool-free) and never past CG_MAX, so a
         // model that narrates forever still terminates through the normal end below.
-        if (!empty && CG_MAX > 0 && tools.length > 0 && announcesIntent(text, peerHandoffs > 0)) {
+        if (!empty && CG_MAX > 0 && tools.length > 0 && !seatQueued && announcesIntent(text, peerHandoffs > 0)) {
           if (graceUsed || cgUsed >= CG_MAX) {
             const explanation = 'Work is incomplete: the model kept announcing another action without making the tool call. The automatic continuation attempts have ended; no background work was started by these promises.';
             assistant.content = text + '\n\n' + explanation;
@@ -2456,6 +2462,7 @@
         const receipt = results.find(r => r.callId === call.id);
         if (wireKey(call.name) === 'notebook_write' && receipt && !receipt.isError && /^(?:Saved|Updated) note "/.test(String(receipt.content))) memoryWrites++;
         if (/^(?:group_handoff|team_dispatch|team_spawn)$/.test(wireKey(call.name)) && receipt && !receipt.isError) peerHandoffs++;   // work really handed on
+        if (wireKey(call.name) === 'station_control' && receipt && !receipt.isError && receipt.summary === 'group.add (queued)') seatQueued = true;
         if (wireKey(call.name) === 'team_configure' && receipt && !receipt.isError) {
           try {
             const saved = JSON.parse(receipt.content);

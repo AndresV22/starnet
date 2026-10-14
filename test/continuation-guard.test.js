@@ -364,5 +364,35 @@ const run = (provider, extra) => runAgentLoop(Object.assign({
     const none = await run(scripted([textTurn(wait)]), { tools });
     A.ok(none.reason !== 'done', 'the same words with no hand-off at all are still caught (' + none.reason + ')');
   }
+  // ---- I. A QUEUED SEAT ENDS THE REPLY (review 10-14). station.control group.add on the lead's own running chat lands only
+  //         when this reply ends, and the lead's next turn is already scheduled: the kickoff in the group, with the request.
+  //         The guard nudged the real Haiku reply below (one of two real seats) — the Commander got a second message
+  //         answering an invisible nudge ("You're right… Per the tool response…"), and an exhausted guard fails the reply,
+  //         which DROPS the join they approved. A seat that was refused or failed still earns nothing. ----
+  {
+    const seatTurn = [
+      { type: 'tool_start', index: 0, id: 's1', name: 'station_control' },
+      { type: 'tool_args', index: 0, chunk: '{"action":"group.add","args":{"agents":["copywriter","strategist"]}}' },
+      { type: 'usage', usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
+      { type: 'done', finishReason: 'tool_calls' }
+    ];
+    const tools = [{ name: 'station_control', schema: { type: 'object' } }, { name: 'thing', schema: { type: 'object' } }];
+    const queued = async () => ({ ok: true, isError: false, content: 'QUEUED, NOT DONE YET: COPY and STRATEGY join this chat the moment this reply ends.', summary: 'group.add (queued)' });
+    // the real reply (lane log model.jsonl id 15, Haiku 4.5): its "I'll make sure it all hangs together" is the lead's NEXT turn
+    const real = 'Excellent. **Copy** and **Strategy** are queued to join this chat as a group. The moment this reply ends, you\'ll see a new group chat open alongside General with both of them ready to work. I\'ll be there to brief them and orchestrate—Copy will draft the prose, Strategy will shape the positioning and flow, and I\'ll make sure it all hangs together into something launch-ready.\n\nOnce they arrive, we\'ll kick off with a clear handoff on what we\'re building and who it\'s for.';
+    for (const phrase of [real, "COPY and STRATEGY join when this reply ends. I'll hand them their parts once they arrive.", "They join when this reply ends; then I'll start them on the draft."]) {
+      const provider = scripted([seatTurn, textTurn(phrase)]);
+      const res = await run(provider, { tools, dispatch: queued });
+      A.eq(res.reason, 'done', 'a queued seat ends the reply done (the join lands, the kickoff turn carries the work): ' + phrase.slice(0, 60));
+      A.eq(provider.callCount(), 2, 'no extra model call after a queued seat: ' + phrase.slice(0, 60));
+      A.eq(res.messages.filter(m => m.role === 'system' && /<continuation>/.test(m.content)).length, 0, 'and no nudge: ' + phrase.slice(0, 60));
+    }
+    // a seat that did not queue (refused, or an applied one with no wait) earns nothing: the same promise is still caught
+    for (const d of [async () => ({ ok: false, isError: true, content: 'REFUSED: no agent called "ghost"', summary: 'error' }),
+      async () => ({ ok: true, isError: false, content: '{"done":"group.add"}', summary: 'group.add' })]) {
+      const res = await run(scripted([seatTurn, textTurn(real)]), { tools, dispatch: d });
+      A.ok(res.reason !== 'done' || res.messages.some(m => m.role === 'system' && /<continuation>/.test(m.content)), 'no queued seat, no stand-down (' + res.reason + ')');
+    }
+  }
   A.report('continuation-guard.test');
 })().catch(e => { console.error(e); process.exit(1); });
