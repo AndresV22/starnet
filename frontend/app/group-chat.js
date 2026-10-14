@@ -298,6 +298,7 @@ const GroupChat = (() => {
       body #chat-panel #gc-log .gc-message.agent .who.gc-who:is(:hover,:focus-visible){color:var(--ph-bright);text-shadow:0 0 5px var(--ph-glow)}
       .gc-message.draft .body{opacity:.85}.gc-message.draft .body::after{content:'▌';color:var(--ph);animation:1s steps(1) infinite comms-blink}
       .gc-message .gc-partial{display:block;margin-top:4px;font-size:12px;letter-spacing:.5px;color:var(--gold)}
+      #gc-log>.gc-retired{flex:0 0 auto}#gc-log>.gc-retired .consent-result{display:block;margin-top:4px}
       #gc-recipients:not(:empty){padding:4px 12px;font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:var(--ph-dim);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
       #gc-recipients .gc-to{color:var(--ph)}#gc-recipients .bb{font-size:11px!important;min-height:20px!important;padding:0 6px!important}
       #gc-mentions{flex:0 0 auto;display:flex;flex-direction:column;max-height:min(40vh,264px);overflow:auto;margin:0 0 6px;padding:0;border:1px solid rgba(var(--ph-rgb),.35);border-radius:4px;background:color-mix(in srgb,var(--panel2) 94%,var(--ph));scrollbar-color:var(--ph-dim) transparent}
@@ -489,6 +490,15 @@ const GroupChat = (() => {
       return cp;
     };
     let prevAt = 0, prevAuthor = null, prevClock = '';
+    /* A STOP WHILE AN APPROVAL WAITED retires that card here, in the one-on-one card's words (live walk 2026-10-14: the card
+       just vanished): right under the reply it interrupted, or — when the turn had said nothing — where the turn ended. */
+    const retiredAt = new Map();   // message id -> turns whose unanswered approval follows it
+    const shown = group.messages.filter(m => String(m.content || '').trim());
+    for (const t of group.turns) if (t.unansweredApproval) {
+      const at = shown.find(m => m.turnId === t.id) || shown.filter(m => !t.endedAt || (Number(m.at) || 0) <= t.endedAt).at(-1) || shown.find(m => m.id === t.origin);
+      if (at) retiredAt.set(at.id, (retiredAt.get(at.id) || []).concat(t));
+    }
+    const turnOf = id => (id ? group.turns.find(t => t.id === id) : null);
     for (const m of group.messages) {
       // brief.ask's fallback marker belongs to the durable question card, not a chat bubble.
       const content = (group.questions || []).some(q => q.turnId === m.turnId)
@@ -506,7 +516,10 @@ const GroupChat = (() => {
         prevAt = at.getTime();
       }
       const askedQ = m.questionId ? (group.questions || []).find(q => q.id === m.questionId) : null;
-      const rowKey = JSON.stringify([m, content, attachments, group.members, name(m.author), colorOf(m.author), clock, askedQ && askedQ.question]);
+      // a reply the Commander STOPPED says so; any other unfinished one stays "partial" (failed, cut off)
+      const endedTurn = m.partial ? turnOf(m.turnId) : null;
+      const unfinished = endedTurn && endedTurn.state === 'stopped' && /^stopped by you$/i.test(String(endedTurn.reason || '')) ? 'stopped by you · work did not complete' : 'partial · work did not complete';
+      const rowKey = JSON.stringify([m, content, attachments, group.members, name(m.author), colorOf(m.author), clock, askedQ && askedQ.question, m.partial && unfinished]);
       const row = keep('m:' + m.id, rowKey, () => {
         const row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
         const body = h('div', { class: 'body' });
@@ -519,7 +532,7 @@ const GroupChat = (() => {
           const head = h('span', { class: 'cmsg-head' }); head.append(who, h('span', { class: 'cmsg-ts' }, clock));
           row.dataset.ts = String(at.getTime()); row.append(head); if (asked) row.append(asked); row.append(body);
         } else { row.append(who); if (asked) row.append(asked); row.append(body); }
-        if (m.partial) row.append(h('small', { class: 'gc-partial' }, 'partial · work did not complete'));
+        if (m.partial) row.append(h('small', { class: 'gc-partial' }, unfinished));
         if (attachments.length) renderMessageAttachments(row, group.id, attachments);
         row.append(copyKey(content));
         return row;
@@ -530,6 +543,18 @@ const GroupChat = (() => {
       // above may be someone else, so only a true same-speaker follow-up continues it
       row.classList.toggle('gc-cont', prevAuthor === m.author);
       prevAuthor = m.author; prevClock = clock;
+      for (const t of retiredAt.get(m.id) || []) {
+        const ask = t.unansweredApproval;
+        const phrase = typeof Chat !== 'undefined' && Chat.consentPhrase ? String(Chat.consentPhrase(ask) || '').trim() : '';
+        const said = '▣ ' + name(t.agentId) + ' wants to ' + (phrase || String(ask.tool || 'take an action')) + ' ';
+        keep('ra:' + t.id, said, () => {
+          const card = h('div', { class: 'cmsg agent tool consent gc-retired', role: 'note' }), body = h('div', { class: 'body' });
+          body.append(said, h('span', { class: 'consent-result err' }, '■ the run ended before an answer — nothing was approved'));
+          card.append(body);
+          return card;
+        });
+        prevAuthor = null;
+      }
       // replies a PAUSE stopped before they ran (E-STOP, a restart, PAUSE — then a new message carried on): said under
       // the message they were for, with the one key that runs them now
       const unrun = m.author === 'user' ? group.turns.filter(t => t.origin === m.id && t.state === 'stopped' && t.reason === 'Paused before it ran' && !group.turns.some(x => x.retryOf === t.id)) : [];
