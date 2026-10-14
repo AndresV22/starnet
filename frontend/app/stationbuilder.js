@@ -30,6 +30,10 @@
   const clone = o => JSON.parse(JSON.stringify(o));
   const refuse = (error, extra) => Object.assign({ ok: false, error }, extra || {});
   const titleCase = s => String(s || '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  /* a ROOM's name: 24 characters at most, cut at a word (rc walk 10-14: a line named "Launch Post Draft & Review" got the room
+     "LAUNCH POST DRAFT & REVI" on the card and the floor); a single long word keeps its first 24 */
+  const roomCut = v => { const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim().toUpperCase(); if (t.length <= 24) return t;
+    const head = t.slice(0, 25), sp = head.lastIndexOf(' '); return (sp >= 10 ? head.slice(0, sp) : t.slice(0, 24)).replace(/[\s&+,.:;\/\-–—·]+$/, ''); };
   // Match WorldModel.setPropLabel's INBOX name key: the word the floor SHOWS (WM.lineNameKey — 'Line: X' and 'X' are both LINE X),
   // judged per LINE exactly as the floor's rename judges it (station.lineNameTaken: a line's shown name, an unnamed line's LINE
   // <letter>, never a hidden second INBOX's letter - repair). Allocate on the planning copy, before the approval summary is written,
@@ -547,7 +551,7 @@
         if (!pl.ok && !grid.length) { none = none || pl; continue; }
         for (const cand of grid.concat(pl.ok ? pl.list : [])) {
           const rect = cand.rect, rw = rect.x2 - rect.x1 + 1, rh = rect.y2 - rect.y1 + 1;
-          const s = Object.assign({}, base, { hall: cand.hall, placed: { side: cand.side, target: cand.target, len: cand.len }, room: { kind: 'hab', name: label.toUpperCase().slice(0, 24), rect },
+          const s = Object.assign({}, base, { hall: cand.hall, placed: { side: cand.side, target: cand.target, len: cand.len }, room: { kind: 'hab', name: roomCut(label), rect },
             ox: rect.x1 + ((rw - bp.w) >> 1), oy: rect.y1 + ((rh - bp.h) >> 1) }, gridHallTrim(WM, env, live, cand, 'hab'));
           const t = tryPlacement(doc, bp, s, env, before);
           if (t.ok) { placed = t; spec = s; break; }
@@ -836,7 +840,7 @@
       if (!pr) return refuse('There is no preset called "' + String(req.preset).slice(0, 40) + '". Presets: ' + presetNames + '.');
       list = env.StationTemplates.presetKits(pr.id).map(id => kitsOf(env).find(k => k.id === id)).filter(Boolean);
     }
-    const name = typeof req.name === 'string' ? req.name.replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 24) : '';
+    const name = typeof req.name === 'string' ? roomCut(req.name) : '';
     if (name && list.length > 1) return refuse('name names one room; a preset adds several rooms under their own names. Leave name out.');
     const live = WM.create(clone(doc));
     const rooms = live.rooms().filter(r => r.kind !== 'corridor');
@@ -924,7 +928,7 @@
     const m = rooms.filter(r => norm(r.name) === norm(req.room));
     if (m.length !== 1) return refuse((req.room ? (m.length ? 'More than one room is called "' + String(req.room).slice(0, 40) + '".' : 'There is no room called "' + String(req.room).slice(0, 40) + '".') : 'Say which room.') + ' Rooms: ' + rooms.map(r => r.name).join(', ') + '.');
     const room = m[0], style = styleOf(WM, req); if (!style.ok) return style;
-    const name = typeof req.name === 'string' ? req.name.replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 24) : '';
+    const name = typeof req.name === 'string' ? roomCut(req.name) : '';
     if (name && rooms.some(r => r.id !== room.id && norm(r.name) === norm(name))) return refuse('Another room is already called ' + name + '.');
     const changes = [];
     if (style.floorStyle && style.floorStyle !== room.floorStyle) changes.push('floor ' + (room.floorStyle || 'default') + ' → ' + style.floorStyle);
@@ -1498,7 +1502,7 @@
         const kind = o.kind == null ? 'hab' : String(o.kind).toLowerCase(), K = WM.ROOM_KINDS || {};
         const kid = K[kind] ? kind : Object.keys(K).find(k => K[k].label && K[k].label.toLowerCase() === kind);
         if (!kid || kid === 'corridor') return refuse('kind is one of ' + Object.keys(K).filter(k => k !== 'corridor').join(', ') + ' (use hall for a hallway)');
-        const name = typeof o.name === 'string' && o.name.trim() ? o.name.replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 24) : null;
+        const name = typeof o.name === 'string' && o.name.trim() ? roomCut(o.name) : null;
         if (name && st.rooms().some(r => r.kind !== 'corridor' && norm(r.name) === norm(name))) return refuse('a room is already called ' + name);
         const r = st.addRoom(Object.assign({ kind: kid, rects }, name ? { name } : {})); if (!r || !r.ok) return refuse(wmMsg(r));
         if (o.as) names[o.as] = r.id;
@@ -1506,7 +1510,7 @@
         return { ok: true, text: 'a new ' + (B.x2 - B.x1 + 1) + ' × ' + (B.y2 - B.y1 + 1) + ' ' + ((K[kid] || {}).label || kid) + ' room ' + rm.name + (rects.length > 1 ? ' (' + rects.length + ' sections)' : '') + ' at ' + at(B.x1, B.y1) };
       }
       case 'resize': { const t = roomRef(o.room); if (!t.ok) return t; const R = tileRect(o); if (!R) return refuse('resize is { room, x, y, w, h }: its whole new footprint'); return did(st.resizeRoom ? st.resizeRoom(t.room.id, R) : refuse('this page cannot resize rooms; reload it'), t.room.name + ' resized to ' + (R.x2 - R.x1 + 1) + ' × ' + (R.y2 - R.y1 + 1) + ' at ' + at(R.x1, R.y1)); }
-      case 'rename': { const t = roomRef(o.room); if (!t.ok) return t; const n2 = String(o.name || '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 24); if (!n2) return refuse('rename needs a name'); if (st.rooms().some(r => r.id !== t.room.id && r.kind !== 'corridor' && norm(r.name) === norm(n2))) return refuse('a room is already called ' + n2); const was = t.room.name; return did(st.renameRoom(t.room.id, n2), was + ' renamed ' + n2); }
+      case 'rename': { const t = roomRef(o.room); if (!t.ok) return t; const n2 = roomCut(o.name || ''); if (!n2) return refuse('rename needs a name'); if (st.rooms().some(r => r.id !== t.room.id && r.kind !== 'corridor' && norm(r.name) === norm(n2))) return refuse('a room is already called ' + n2); const was = t.room.name; return did(st.renameRoom(t.room.id, n2), was + ' renamed ' + n2); }
       case 'type': { const t = roomRef(o.room); if (!t.ok) return t; const K = WM.ROOM_KINDS || {}, k = String(o.kind || '').toLowerCase(), kid = K[k] ? k : Object.keys(K).find(q => K[q].label && K[q].label.toLowerCase() === k); if (!kid) return refuse('kind is one of ' + Object.keys(K).filter(q => q !== 'corridor').join(', ')); return did(st.setRoomKind ? st.setRoomKind(t.room.id, kid) : refuse('this page cannot change a room type; reload it'), t.room.name + ' becomes a ' + ((K[kid] || {}).label || kid) + ' room'); }
       case 'floor': case 'walls': case 'hull': { const t = roomRef(o.room); if (!t.ok) return t; const v = {}; if (o.style != null) v.style = o.style; if (o.mat != null) v.mat = o.mat; if (!Object.keys(v).length) return refuse(op + ' needs a style and/or a mat'); const fn = op === 'floor' ? 'setDeck' : op === 'walls' ? 'setWalls' : 'setHull'; return did(st[fn](t.room.id, v), t.room.name + '\'s ' + (op === 'floor' ? 'floor' : op) + ' ' + [v.style, v.mat].filter(Boolean).join(' ')); }
       case 'paint': { const t = roomRef(o.room); if (!t.ok) return t; const tiles = (Array.isArray(o.tiles) ? o.tiles : []).map(tileOf).filter(Boolean).map(q => [q.x, q.y]); if (!tiles.length) return refuse('paint needs tiles: [[x, y], …]'); return did(st.paintTiles(t.room.id, tiles, o.style), tiles.length + ' tiles of ' + t.room.name + ' painted ' + o.style); }
@@ -1913,7 +1917,7 @@
         const sid = q.style != null && RS.resolveRoom ? RS.resolveRoom(q.style) : null;
         if (!sid) return refuse((q.style == null ? 'refurnish needs a style.' : 'There is no room style called "' + String(q.style).slice(0, 30) + '".') + ' Styles: ' + RS.ROOM_ORDER.join(', ') + '.');
         const rec = RS.ROOMS[sid];
-        let name = typeof q.name === 'string' ? q.name.replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 24) : '';
+        let name = typeof q.name === 'string' ? roomCut(q.name) : '';
         const taken = nm => live.rooms().some(r => r.id !== room.id && r.kind !== 'corridor' && norm(r.name) === norm(nm));
         if (name && taken(name)) return refuse('Another room is already called ' + name + '.');
         // a room still named for what it was (LOUNGE, ROOM 3) takes the name of what it becomes
@@ -2760,7 +2764,7 @@
       }
       const rec = rstyle ? RS.ROOMS[rstyle] : null;
       const need = contentNeed(zones, lines);
-      const given = typeof q.name === 'string' ? q.name.replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 24) : '';
+      const given = typeof q.name === 'string' ? roomCut(q.name) : '';
 
       // an EXISTING room, furnished or filled where it stands
       if (q.into != null) {
@@ -2803,7 +2807,7 @@
       // no name given: a whole-room style names it (LOUNGE, CONVEYOR HALL), else what fills it first (COZY, the line's own name), else ROOM n
       const z0 = zones[0] || lines[0], auto = rstyle && AUTO_NAME[rstyle] ? AUTO_NAME[rstyle] : !z0 ? 'ROOM ' + (live.rooms().filter(r => r.kind !== 'corridor').length + rooms.filter(r => !r.existing).length + 1) : z0.kind === 'style' ? z0.style.toUpperCase() : String(z0.label || z0.plain || 'WORKROOM').toUpperCase();
       const taken = nm => probe.rooms().some(r => r.kind !== 'corridor' && norm(r.name) === norm(nm)) || usedNames[norm(nm)];
-      let name = (given || auto).slice(0, 24);
+      let name = roomCut(given || auto);
       if (given && taken(name)) return refuse('A room is already called ' + name + '. Give this one another name.');
       for (let k = 2; !given && taken(name) && k < 50; k++) name = (auto.slice(0, 21) + ' ' + k);
       usedNames[norm(name)] = 1;
@@ -3425,7 +3429,7 @@
       let w = sz.size ? sz.size[0] : Math.max(def[0], need.w), h = sz.size ? sz.size[1] : Math.max(def[1], need.h);
       if (sz.size && (need.hardW || need.w) > w) return refuse('Room ' + (i + 1) + ' at ' + w + ' × ' + h + ' is too small for what goes in it. Leave size out, or ask for a bigger one.');
       if (w > DESIGN_MAX[0] || h > DESIGN_MAX[1]) return refuse('What goes in room ' + (i + 1) + ' needs more than the ' + DESIGN_MAX[0] + ' × ' + DESIGN_MAX[1] + ' StarNet builds at once.');
-      const given = typeof q.name === 'string' ? q.name.replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 24) : '';
+      const given = typeof q.name === 'string' ? roomCut(q.name) : '';
       const taken = nm => live.rooms().some(r => r.kind !== 'corridor' && norm(r.name) === norm(nm)) || usedNames[norm(nm)];
       let name = given || (style ? AUTO_NAME[style] : 'ROOM ' + (i + 1));
       if (given && taken(name)) return refuse('A room is already called ' + name + '. Give this one another name.');

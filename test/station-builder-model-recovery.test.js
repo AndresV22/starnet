@@ -101,6 +101,11 @@ const STRAT_REVIEW = 'Review the draft post. Approve if it is ready to ship, or 
   const noLine = plan({ line: 'review_loop', shape: ['WRITER', 'REVIEWER'], steps: [{ step: 1, agent: 'COPY', instructions: DRAFT }, { step: 2, agent: 'STRATEGY', instructions: REVIEW }] });
   A.ok(noLine.ok && noLine.plan.notes.some(n => /there is no line called "review_loop", so the shape was laid/.test(n)), 'a line name that is no line beside a shape: the shape is laid, and the notes say so: ' + (noLine.error || JSON.stringify(noLine.plan.notes)));
   if (noLine.ok) A.ok(/Writer \(COPY\) → Reviewer \(STRATEGY\) → Outbox/.test(noLine.plan.summary), 'COPY writes, STRATEGY reviews: ' + noLine.plan.summary);
+  // the live re-run's room was "LAUNCH POST DRAFT & REVI": a name too long for a room is cut at a word, never mid-word
+  const long = plan({ shape: ['WRITER', 'REVIEWER'], name: 'Launch Post Draft & Review' });
+  A.ok(long.ok && /^LAUNCH POST DRAFT, a new \d+ × \d+ room/.test(long.plan.summary) && /\("Launch Post Draft & Review"\)/.test(long.plan.summary), 'the room is LAUNCH POST DRAFT, the line keeps its whole name: ' + (long.error || long.plan.summary.slice(0, 160)));
+  const longLine = plan({ line: 'revision_loop', name: 'Weekly Newsletter Draft and Review' });
+  A.ok(longLine.ok && /in a new room/.test(longLine.plan.summary) && longLine.plan.spec.room && longLine.plan.spec.room.name === 'WEEKLY NEWSLETTER DRAFT', 'a shelf line\'s new room is cut at a word too: ' + (longLine.error || (longLine.plan.spec.room || {}).name));
   const roleObj = plan({ shape: [{ role: 'WRITER' }, { role: 'REVIEWER' }] });
   A.ok(roleObj.ok, 'a stage { "role": "WRITER" } is the role: ' + (roleObj.error || ''));
   const both = plan({ line: 'revision_loop', shape: ['WRITER'] });
