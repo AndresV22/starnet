@@ -193,10 +193,10 @@ const CONCEPTS =
   '- ACCESS (one setting, three answers): CHECK WITH ME (asks first, only placed gear), LET IT WORK (asks first, works in approved ' +
   'project folders), FULL POWER (never asks, the whole computer). Set station-wide or per agent in SETTINGS › PERMISSIONS ' +
   '[settings-permissions]; per agent also in dossier CONFIG [agent-config]. In the ask modes a paused agent shows an approval card ' +
-  'in COMMS where it paused: Approve once / Always (a standing approval) / Never ask (that agent stops asking for approval) / Deny. ' +
+  'in COMMS where it paused: Approve once / Always (a standing approval) / Never ask (that agent never asks and can use the whole local computer) / Deny. ' +
   'NEEDS YOU at the top of SESSIONS [needs-you] lists every card waiting (also NOTIFICATIONS › NEEDS YOU). You: station.control to narrow access, station.power to widen it. Trap: you ' +
   'can never answer an approval card yourself.\n' +
-  '- AUTONOMY [settings-autonomy]: how much agents do ON THEIR OWN (WAIT / SUGGEST / BUILD / FREE) while the Commander is away; ' +
+  '- AUTONOMY [settings-autonomy]: how much agents do ON THEIR OWN (WAIT / SUGGEST / SMALL JOBS / FREE) while the Commander is away; ' +
   '"While you were away" is a session summarizing what they did. You: station.power autonomy.set. Trap: it does not change ' +
   'schedules and never lifts an E-STOP.\n' +
   '- E-STOP: halts every run, routine, goal loop and night-shift beat at once (the desktop tray\'s Pause Automation, and every ' +

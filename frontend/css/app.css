@@ -2105,7 +2105,8 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 /* HOW MUCH CAN IT DO? — the three access answers side by side (org pass 10-14: was a two-card ASK / FULL pair) */
 .ov-cards.ov-approve { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .ov-approve .ov-card { padding: 10px 10px 9px; }
-.ov-approve .ov-card-ds { font-size: 12.5px; margin-top: 3px; }
+.ov-access-plain { color: var(--ph); }   /* the SELECTED answer's one line (its description lives here, never under each tile) */
+.ov-access-plain:empty { display: none; }
 .ov-card {
   font: inherit; position: relative; border: 1px solid var(--ph-faint); border-radius: 6px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--ph) 6%, var(--panel2)), var(--panel2));

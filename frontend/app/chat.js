@@ -4003,7 +4003,7 @@ const Chat = (() => {
       const b = document.createElement('button');
       b.className = 'consent-btn' + (cls ? ' ' + cls : '');
       b.textContent = text;
-      if (title) b.title = title;
+      if (title) b.dataset.tip = title;   // the station tip (tooltip.js), never the OS title bubble
       b.onclick = () => decide(decision, doneLabel, isDeny);
       btns.appendChild(b); return b;
     };
@@ -4024,7 +4024,7 @@ const Chat = (() => {
       const agentName = (p && p.workerAgentId) ? askerName(p, ws) : name;
       mk('Approve once', 'once', 'primary', '✓ approved once', false, 'Allow just this one');
       mk('Always', 'always', '', '✓ always allowed', false, 'Allow this kind of action from now on, without asking');
-      mk('Never ask', 'full', 'danger', '✓ never asks', false, agentName + ' stops asking before most actions, until you change it back');
+      mk('Never ask', 'full', 'danger', '✓ never asks', false, agentName + ' stops asking before most actions and can use the whole local computer, until you change it back');
       mk('Deny', 'deny', 'deny', '✕ denied', true);
       // one hint line, inside the keys' row so it leaves with them once the card is answered
       const hint = document.createElement('span'); hint.className = 'consent-hint'; hint.textContent = consentHintFor(p, ws);
@@ -8420,7 +8420,7 @@ const Chat = (() => {
     Object.freeze({ name: 'subgoal', desc: 'add a criterion the goal loop must also satisfy', argsHint: '[text|remove N|clear]', action: 'subgoal' }),
     Object.freeze({ name: 'model', desc: 'show or set the active model', argsHint: '[model-id]', action: 'model' }),
     Object.freeze({ name: 'personality', desc: 'show or set the active personality', argsHint: '[personality]', action: 'personality' }),
-    Object.freeze({ name: 'yolo', desc: 'toggle never-ask', argsHint: '[on|off]', action: 'yolo' }),
+    Object.freeze({ name: 'yolo', desc: 'toggle never-ask (whole local computer)', argsHint: '[on|off]', action: 'yolo' }),
     Object.freeze({ name: 'reasoning', desc: 'show or set how hard the model thinks before answering', argsHint: '[none|minimal|low|medium|high|xhigh]', action: 'reasoning' }),
     Object.freeze({ name: 'fast', desc: 'drop reasoning effort to minimal for quicker, cheaper replies', action: 'fast' }),
     Object.freeze({ name: 'voice', desc: 'show or toggle spoken replies', argsHint: '[on|off|handsfree|status]', action: 'voice' }),
@@ -9033,7 +9033,7 @@ const Chat = (() => {
       localLine(was === now
         ? ('Approval mode unchanged: ' + now + '.')
         : ('Approval mode: ' + was + ' → ' + now + '. ' + (want
-          ? 'The agent will NOT pause for approval prompts — /yolo off to restore them.'
+          ? 'The agent will NOT pause for approval prompts and can use the whole local computer — /yolo off to restore them.'
           : 'The agent will pause before gated actions.')));
     } else localLine('Could not change approval mode.');
   }

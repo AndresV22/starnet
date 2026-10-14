@@ -345,16 +345,21 @@ for (const decision of ['always', 'full']) test('a plugin.submit card offers onl
   assert.ok(!/always allowed|never asks|full access/.test(tag), 'the receipt claims no standing grant: ' + tag);
 });
 
-/* ONE ACCESS (org pass 10-14, P08): the strongest key only sets approvalMode — the agent's reach is unchanged, so
-   SETTINGS › PERMISSIONS then reads CUSTOM. It is labelled for what it does, "Never ask", and settles "✓ never asks";
-   FULL POWER stays reserved for the answer that also sets reach. */
+/* ONE ACCESS (org pass 10-14, P08): the strongest key only sets approvalMode — the agent's stored reach profile is
+   unchanged, so SETTINGS › PERMISSIONS then reads CUSTOM. It is labelled "Never ask" and settles "✓ never asks"; FULL
+   POWER stays the name of the answer that also sets reach. But approvalMode 'full' IS unrestricted host authority in the
+   sidecar (unrestrictedHostNow, forceLocalForAgent — DECISIONS "FULL POWER MEANS THE WHOLE LOCAL COMPUTER"), so the
+   key's tip must say the whole local computer, never read as a prompt preference only. */
 test('a general approval card offers Never ask (not Full access) and settles in those words', () => {
   const f = permissionFixture('fs.read');
   const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
   assert.deepEqual(buttons.children.filter(b => b.className !== 'consent-hint').map(b => b.textContent), ['Approve once', 'Always', 'Never ask', 'Deny'], 'the standing key reads Never ask');
   // org P02: one hint line under the keys says what happens if nobody answers (no number: the page is never told the deadline)
   assert.deepEqual(buttons.children.filter(b => b.className === 'consent-hint').map(b => b.textContent), ['auto-denies if left unanswered'], 'one hint line, numberless');
-  assert.ok(!buttons.children.some(b => /full access|full power/i.test(String(b.textContent) + ' ' + String(b.title || ''))), 'no key or tip borrows the FULL POWER / full access name');
+  assert.ok(!buttons.children.some(b => /full access|full power/i.test(String(b.textContent) + ' ' + String((b.dataset && b.dataset.tip) || b.title || ''))), 'no key or tip borrows the FULL POWER / full access name');
+  const never = buttons.children.find(b => b.textContent === 'Never ask');
+  assert.ok(/whole local computer/.test(String(never.dataset.tip || '')), 'the Never ask tip states its real scope, the whole local computer: ' + never.dataset.tip);
+  assert.ok(!buttons.children.some(b => b.title), 'the keys carry station data-tips, never a native title');
   f.listeners.get('permission.response')({ promptId: f.p.promptId, decision: 'full' });
   assert.equal(f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✓ never asks from your phone', 'the receipt names what was applied');
 });

@@ -864,7 +864,7 @@
       mk('Once', 'go', 'once'); if (session) mk('This task', '', 'session'); mk('Deny', 'no', 'deny');
       box.appendChild(row);
       const wait = Date.now() - arrived;
-      box.appendChild(el('div', 'note', 'Asked ' + (wait < 60000 ? 'just now' : ago(wait) + ' ago') + '.' + (session ? ' "This task" lets it do this again until the task ends.' : '') + ' "Always" and full access are set at the desk.'));
+      box.appendChild(el('div', 'note', 'Asked ' + (wait < 60000 ? 'just now' : ago(wait) + ' ago') + '.' + (session ? ' "This task" lets it do this again until the task ends.' : '') + ' "Always" and Never ask are set at the desk.'));
     }
     if (S.linkState !== 'open') { for (const b of box.querySelectorAll('button')) b.disabled = true; box.appendChild(el('div', 'note', 'Reconnect to answer. If the station stays unreachable, it denies this on its own after a short wait.')); }
     // it is on a screen a person is looking at: earn the one bounded extension, once

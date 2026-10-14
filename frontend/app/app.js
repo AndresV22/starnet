@@ -1855,12 +1855,13 @@ const App = (() => {
       const face = POSTURE_FACE[P.id] || { icon: '◆', np: String(P.label).toLowerCase() };
       const c = document.createElement('button'); c.type = 'button';
       c.className = 'ov-card' + (pickedPosture === P.id ? ' sel' : '');
-      c.dataset.a = P.id; c.dataset.tip = P.who; c.setAttribute('aria-pressed', String(pickedPosture === P.id));
+      // NO SENTENCES UNDER TILES: a tile is its icon + name; the answer's description is the hover tip, and the one
+      // #approval-plain line under the picker reads the SELECTED answer (the dossier ACCESS card's own pattern)
+      c.dataset.a = P.id; c.dataset.tip = P.agentBlurb + ' ' + P.who; c.setAttribute('aria-pressed', String(pickedPosture === P.id));
       const pk = document.createElement('span'); pk.className = 'ov-card-pick'; pk.textContent = '◆';
       const ic = document.createElement('div'); ic.className = 'ov-card-ic'; ic.textContent = face.icon;
       const nm = document.createElement('div'); nm.className = 'ov-card-nm'; nm.textContent = P.label;
-      const ds = document.createElement('div'); ds.className = 'ov-card-ds'; ds.textContent = P.agentBlurb;
-      c.appendChild(pk); c.appendChild(ic); c.appendChild(nm); c.appendChild(ds);
+      c.appendChild(pk); c.appendChild(ic); c.appendChild(nm);
       c.onclick = () => {
         if (P.id !== 'open' || pickedPosture === 'open') { disarm(); pick(c, P); return; }
         if (armed && armed.el === c) { disarm(); pick(c, P); return; }
@@ -1886,6 +1887,9 @@ const App = (() => {
     const np = el('np-name'); if (np) np.textContent = ((el('in-name') && el('in-name').value.trim()) || 'OVERSEER').toUpperCase();
     const nm = el('np-mode');
     if (nm) nm.textContent = pickedPosture ? ((POSTURE_FACE[pickedPosture] || {}).np || pickedPosture) : 'custom — change it in the dossier';
+    // the selected answer's one plain line (its agentBlurb), under the picker — never a sentence under each tile
+    const pl = el('approval-plain'); const P = pickedPosture ? postureById(pickedPosture) : null;
+    if (pl) pl.textContent = P ? P.agentBlurb : (pickedPosture ? '' : 'A custom mix of reach and asking — it is kept as it is.');
   }
 
   function buildModelPicks() {

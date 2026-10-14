@@ -52,8 +52,15 @@ A.eq(Object.keys(h.POSTURE_FACE), POSTURES.map(P => P.id), 'every answer has its
 A.ok(/let pickedPosture = 'balanced';/.test(app) && /pickedPosture = 'balanced'; pickedAccessMix = null;/.test(app), 'LET IT WORK is preselected on a fresh create screen');
 A.ok(/const heldPosture = postureOfAgent\(savedAgent\);/.test(app) && !/pickedApproval/.test(app), 'resume seeds from agentPosture rules, never approvalMode alone');
 A.ok(/'custom — change it in the dossier'/.test(app), 'a custom mix reads custom on the nameplate');
-A.ok(/ds\.textContent = P\.agentBlurb;/.test(app) && /c\.dataset\.tip = P\.who;/.test(app) && !/c\.title = /.test(slice(app, '  function buildApproval() {', '  // what the access pick WRITES')),
-  'cards show the per-agent agentBlurb (not the station blurb that promises away drafts) and tip via data-tip');
+{
+  // NO SENTENCES UNDER TILES: a tile is icon + name; the per-agent agentBlurb (not the station blurb that promises away
+  // drafts) is its data-tip, and the SELECTED answer's agentBlurb is the one #approval-plain line under the picker.
+  const picker = slice(app, '  function buildApproval() {', '  // what the access pick WRITES');
+  A.ok(!picker.includes('ov-card-ds') && picker.includes("c.dataset.tip = P.agentBlurb + ' ' + P.who;") && !picker.includes('c.title = '),
+    'access tiles carry no sentence under the name; the description is the station data-tip');
+  A.ok(app.includes("const pl = el('approval-plain');") && app.includes('pl.textContent = P ? P.agentBlurb') && html.includes('id="approval-plain"'),
+    'one line under the picker reads the selected answer\'s agentBlurb');
+}
 A.ok(/nm\.textContent = 'SURE\? WHOLE COMPUTER';/.test(app) && /armTimer = setTimeout\(disarm, 4000\);/.test(app), 'FULL POWER keeps the two-press arm on the create screen');
 const pick = slice(app, '  function buildApproval() {', '  // what the access pick WRITES');
 A.ok(!/AutonomyStore|PermissionsStore|setLevel|applyPreset/.test(pick + createSrc), 'the access pick never writes ON ITS OWN (the awakening question does)');
