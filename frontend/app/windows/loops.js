@@ -69,7 +69,7 @@
     // the querySelector wiring below resolves exactly as it always did.
     const sections = [
       { id: 'loops', label: 'ACTIVE LOOPS', glyph: '∞', desc: 'Work that repeats toward a goal. Check its progress, review each result, or pause it here.', build: frag(secActive) },
-      { id: 'loops-start', label: 'START A LOOP', glyph: '✦', desc: 'Choose a kind of loop and describe your goal. Review the stopping condition and daily budget before starting.', build: frag(secStart) }
+      { id: 'loops-start', label: 'START A LOOP', glyph: '✦', desc: 'Choose a kind of loop and your goal, then review its stopping condition and daily budget.', build: frag(secStart) }
     ];
     function wire() {
     const listEl = body.querySelector('#lp-list'), gateEl = body.querySelector('#lp-gate');
