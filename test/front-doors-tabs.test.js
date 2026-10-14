@@ -3,7 +3,7 @@
    · a tab in the SAME window (AUTOMATE's SCHEDULES / GOAL LOOPS / AWAY WORK) meets the unsaved guard (a half-typed
      schedule vanished);
    · the second click on an armed guard switches tabs (it used to close the whole menu);
-   · BRIEF's SEE ALL ACCESS opens CONFIG at the ACCESS group (it landed on six folded groups). */
+   · BRIEF's SEE FULL ACCESS opens CONFIG at the ACCESS group (it landed on six folded groups). */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('fs');
@@ -33,7 +33,7 @@ A.ok(/if \(w\._closeArmed \|\| !windowDirty\(w\)\) \{ closeTerm\(key\); return; 
   A.eq(ctx.windowDirty(win(null)), false, 'a window without a draft input is clean');
   A.ok(/<input id="kb-in" data-draft /.test(ui), 'the TASKS composer is marked as a draft input');
 }
-A.ok(/\[data-access-full\]'\)\.onclick = \(\) => \{ cfOpen\.set\(a\.id \+ ':cf-grp-behaves', true\); consoleSection\['agents'\] = 'config';/.test(ui), 'SEE ALL ACCESS opens the ACCESS group');
+A.ok(/\[data-access-full\]'\)\.onclick = \(\) => \{ cfOpen\.set\(a\.id \+ ':cf-grp-behaves', true\); consoleSection\['agents'\] = 'config';/.test(ui), 'SEE FULL ACCESS opens the ACCESS group');
 A.ok(/\{ id: 'cf-grp-behaves', label: 'ACCESS' \}/.test(ui) && /const key = a\.id \+ ':' \+ g\.id;[\s\S]{0,200}cfOpen\.get\(key\) \? ' open'/.test(ui), 'the ACCESS group reads its open state from cfOpen by agent + group id');
 
 // a remembered SETTINGS section that was renamed (LIVE VOICE -> LOOK & SOUND, models -> providers) reopens on its new page

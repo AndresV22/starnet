@@ -3559,8 +3559,8 @@ const Chat = (() => {
   }
 
   // a live consent prompt: the agent wants to do something that needs approval (a file write today). The run is
-  // PAUSED on the sidecar until the Commander answers — once / always (this kind) / full power (that agent stops asking
-  // and can use the whole local computer) / deny. Answering resumes the stream automatically.
+  // PAUSED on the sidecar until the Commander answers — once / always (this kind) / full access (everything this
+  // session) / deny. Answering resumes the stream automatically.
   /* THE GLANCE LINE (user report 10-08). argsSummary is the WHOLE request now (consentSummary stopped clipping it at
      77 chars, which hid a long command's tail), so it never goes into a phrase, a toast or a notification raw: those
      get one short line, and the card carries the whole thing in INSPECT COMPLETE REQUEST (permissionRow). */
@@ -3663,7 +3663,7 @@ const Chat = (() => {
     }
     // NS-5 conversational path trust: a file was referenced OUTSIDE the agent's workspace — "Always" blesses
     // the whole project folder for future reads (revocable in Permissions); argsSummary is the proposed root.
-    if (t === 'path.trust') return 'work with files in ' + (ev.argsSummary || 'a project folder') + ' (reads; "Always" or "Full power" trusts it for later)';
+    if (t === 'path.trust') return 'work with files in ' + (ev.argsSummary || 'a project folder') + ' (reads; "Always" or "Full access" trusts it for later)';
     // ATTENDED BROWSER LOGIN: two-phase takeover. Phase 1 asks to open a visible Chrome window the COMMANDER
     // drives; phase 2 holds the run until they click Done. Password honesty is part of the card copy.
     if (t === 'browser.login') return 'open a browser window so YOU can log in to ' + (ev.argsSummary || 'a website') + ' (you type your password in that window — the agent never sees it)';
@@ -4041,7 +4041,7 @@ const Chat = (() => {
   // the login window) grants this one call whatever grade another surface sent, so it settles in its own yes/no words
   function settledLabel(resp, own) {
     if (resp.decision === 'deny') return ((own && own.deny) || '✕ denied') + settledWhere(resp);
-    const words = { always: '✓ always allowed', session: '✓ approved for this session', full: '✓ full power' };
+    const words = { always: '✓ always allowed', session: '✓ approved for this session', full: '✓ full access' };
     const grade = own ? own[resp.decision] || (resp.decision === 'session' && own.always ? words.session : own.once) : words[resp.decision];
     return (grade || '✓ approved once') + settledWhere(resp);
   }
@@ -4062,7 +4062,7 @@ const Chat = (() => {
     // surface the decision on the bus (schema: permission.response) so listeners — e.g. the first-run tutorial —
     // can tell an approve from a deny and narrate the consent loop honestly. Additive; the run resumes via Harness.consent.
     try { if (typeof U !== 'undefined' && U.bus) U.bus.emit('permission.response', { promptId: p.promptId, decision: appliedDecision, via: via || 'desk' }); } catch (_) {}
-    // NS conversational anchor: "Always" — and now "Full power" — on a path.trust card IS the project bless
+    // NS conversational anchor: "Always" — and now "Full access" — on a path.trust card IS the project bless
     // (a standing path grant + known-projects row land on the sidecar). Stamp the origin session's projectRoot
     // with the SAME proposed root so the PROJECTS rail lists this session under its project — the identical
     // anchor "Work here" stamps. Both standing grades, never "once" (it grants nothing standing, so there is
@@ -4087,7 +4087,7 @@ const Chat = (() => {
     return (typeof App !== 'undefined' && App.agentName && App.agentName(id)) || id;
   }
   /* A STOPPED RUN TAKES ITS OPEN CARDS WITH IT (live walkthrough 2026-10-13): after STOP the run's approval card kept
-     live Approve once / Always / Full power / Deny keys while NEEDS YOU and the toast had already cleared — a key that
+     live Approve once / Always / Full access / Deny keys while NEEDS YOU and the toast had already cleared — a key that
      answers nothing. promptId -> { wsId, runId, worker, background, retire(text) }; retireOpenConsents runs at the run's
      end. A BACKGROUND worker's ask (background:true — the station keeps it open past the lead's turn, and its runId IS the
      lead's) is never retired by a run's end: it settles through its own permission.response, or retireConsentCard when the
@@ -4176,7 +4176,7 @@ const Chat = (() => {
       }
       submitting = false; decided = true;
       if (received && applyElsewhere) applyElsewhere(received);
-      if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full power was not saved'; isDeny = true; }
+      if (decision === 'full' && !res.fullSaved) { doneLabel = '✕ full access was not saved'; isDeny = true; }
       else if (decision !== 'full' && res.appliedDecision === 'deny' && decision !== 'deny') { doneLabel = '✕ approval was not applied'; isDeny = true; }
       btns.remove(); keepFocus(r.d); releaseCard(r.d);
       const tag = document.createElement('span');
@@ -4191,11 +4191,11 @@ const Chat = (() => {
       const b = document.createElement('button');
       b.className = 'consent-btn' + (cls ? ' ' + cls : '');
       b.textContent = text;
-      if (title) b.dataset.tip = title;   // the station tip (tooltip.js), never the OS title bubble
+      if (title) b.title = title;
       b.onclick = () => decide(decision, doneLabel, isDeny);
       btns.appendChild(b); return b;
     };
-    // ATTENDED BROWSER LOGIN cards get purpose-built buttons: "Always"/"Full power" make no sense for a
+    // ATTENDED BROWSER LOGIN cards get purpose-built buttons: "Always"/"Full access" make no sense for a
     // one-shot window open, and the done-wait card is a completion signal, not a permission grade.
     if (p.tool === 'browser.login') {
       mk('Open login window', 'once', 'primary', '✓ window opened', false);
@@ -4205,14 +4205,14 @@ const Chat = (() => {
       mk('Cancel', 'deny', 'deny', '✕ cancelled', true);
     } else if (p.tool === 'station.power' || p.tool === 'plugin.submit') {
       // widening the station's leash and installing a plugin are answered fresh every time (freshConsent tools,
-      // permissions.js tier 1.5): the station grants any yes once, so no Always and no Full power
+      // permissions.js tier 1.5): the station grants any yes once, so no Always and no Full access
       mk('Approve once', 'once', 'primary', '✓ approved once', false);
       mk('Deny', 'deny', 'deny', '✕ denied', true);
     } else {
       const agentName = (p && p.workerAgentId) ? askerName(p, ws) : name;
       mk('Approve once', 'once', 'primary', '✓ approved once', false, 'Allow just this one');
       mk('Always', 'always', '', '✓ always allowed', false, 'Allow this kind of action from now on, without asking');
-      mk('Full power', 'full', 'danger', '✓ full power', false, agentName + ' stops asking and can use the whole local computer, until you change it back');
+      mk('Full access', 'full', 'danger', '✓ full access', false, 'Give ' + agentName + ' full access: it stops asking before most actions, until you change it back');
       mk('Deny', 'deny', 'deny', '✕ denied', true);
       // one hint line, inside the keys' row so it leaves with them once the card is answered
       const hint = document.createElement('span'); hint.className = 'consent-hint'; hint.textContent = consentHintFor(p, ws);
@@ -8688,7 +8688,7 @@ const Chat = (() => {
     Object.freeze({ name: 'subgoal', desc: 'add a criterion the session goal must also satisfy', argsHint: '[text|remove N|clear]', action: 'subgoal' }),
     Object.freeze({ name: 'model', desc: 'show or set the active model', argsHint: '[model-id]', action: 'model' }),
     Object.freeze({ name: 'personality', desc: 'show or set the active personality', argsHint: '[personality]', action: 'personality' }),
-    Object.freeze({ name: 'yolo', desc: 'toggle full power (never asks, whole local computer)', argsHint: '[on|off]', action: 'yolo' }),
+    Object.freeze({ name: 'yolo', desc: 'toggle full-access approval mode', argsHint: '[on|off]', action: 'yolo' }),
     Object.freeze({ name: 'reasoning', desc: 'show or set how hard the model thinks before answering', argsHint: '[none|minimal|low|medium|high|xhigh]', action: 'reasoning' }),
     Object.freeze({ name: 'fast', desc: 'drop reasoning effort to minimal for quicker, cheaper replies', action: 'fast' }),
     Object.freeze({ name: 'voice', desc: 'show or toggle spoken replies', argsHint: '[on|off|handsfree|status]', action: 'voice' }),
@@ -9318,7 +9318,7 @@ const Chat = (() => {
       localLine(was === now
         ? ('Approval mode unchanged: ' + now + '.')
         : ('Approval mode: ' + was + ' → ' + now + '. ' + (want
-          ? 'The agent will NOT pause for approval prompts and can use the whole local computer — /yolo off to restore them.'
+          ? 'The agent will NOT pause for approval prompts — /yolo off to restore them.'
           : 'The agent will pause before gated actions.')));
     } else localLine('Could not change approval mode.');
   }

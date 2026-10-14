@@ -70,19 +70,17 @@ ok(/function accessAnswerCard\(a\)/.test(src) && /agSkills\(a\.id\) \+ accessAns
 ok(/<details class="cf-access-more"[\s\S]{0,200}executionProfileCard\(a\) \+ approvalCard\(a\)/.test(src), 'the exact reach ladder + asking pair fold under MORE OPTIONS in the dossier');
 ok(/accWrap\.querySelectorAll\('\[data-access-posture\]'\)/.test(src) && /if \(P\.id === 'open'\) ArmConfirm\.wire\(chip/.test(src), 'dossier answers apply through the same paths with a two-press FULL POWER');
 
-// ONE ACCESS (org pass 10-14, P08 review fix): the folded asking pair sets approvalMode, and approvalMode 'full' IS the
-// FULL POWER grant in the sidecar (agentFullAccessNow → unrestrictedHostNow: the whole local computer), so the same power
-// carries the same word: ASKS FIRST / FULL POWER (two-press, whole-computer tip); /yolo is named as the full-power
-// shortcut; the retired NEVER ASKS name is gone; and a posture notice names the ON ITS OWN rung it also set.
+// P08 STRUCK (Andrew 10-14): the dossier's folded approval pair is the 0.13.5 candidate's again — ASK FOR APPROVAL /
+// FULL POWER, its copy and its two-press confirm — and the create screen's three-answer table export and the PERMISSIONS
+// posture notice's ON ITS OWN rung are gone with it. Kept from other lines: the chips' tips are station data-tips (P09),
+// and a FULL POWER custom mix never names a reach limit it does not have (approvalMode 'full' = unrestrictedHostNow).
 {
   const ap = /function approvalCard\(a\) \{[\s\S]*?\n  \}\n/.exec(src);
   ok(!!ap, 'the dossier asking pair is still its own card');
-  ok(ap && /chip\('ask', 'ASKS FIRST'/.test(ap[0]) && /chip\('full', 'FULL POWER', '[^']*whole local computer/.test(ap[0]), 'the fold reads ASKS FIRST / FULL POWER, and FULL POWER warns it covers the whole computer');
-  ok(ap && !/ASK FOR APPROVAL|NEVER ASKS|never-ask/.test(ap[0]), 'the fold carries no retired name (ASK FOR APPROVAL, NEVER ASKS, never-ask)');
-  ok(ap && /FULL POWER never asks and authorizes the whole local computer/.test(ap[0]), 'the fold says FULL POWER authorizes the whole local computer');
-  ok(ap && !/answer above|full-power shortcut|CHECK WITH ME|LET IT WORK/.test(ap[0]), 'the fold names only its own two chips, in their caps (org pass P08-a)');
+  ok(ap && /chip\('ask', 'ASK FOR APPROVAL', 'stops to check with you before it writes, runs, or reaches out'/.test(ap[0]) && /chip\('full', 'FULL POWER', 'uses the whole local computer without approval prompts'/.test(ap[0]), 'the fold reads ASK FOR APPROVAL / FULL POWER, as the candidate had it');
+  ok(ap && /ASK respects the selected reach profile and pauses before risky calls\. FULL POWER authorizes the whole local computer/.test(ap[0]) && /<code>\/yolo<\/code> is the Full Power shortcut/.test(ap[0]), 'the fold keeps the candidate\'s copy');
+  ok(ap && !/ASKS FIRST|NEVER ASKS|never-ask|CHECK WITH ME|LET IT WORK/.test(ap[0]), 'the fold carries no struck P08 name');
   ok(ap && /data-tip="' \+ esc\(desc\)/.test(ap[0]) && !/title="/.test(ap[0]), 'the whole-computer warning is a station data-tip, never a native title');
-  ok(ap && /<code>\/yolo<\/code> in COMMS toggles FULL POWER/.test(ap[0]), 'the fold names /yolo as the COMMS toggle of FULL POWER');
   ok(/chip\.textContent = 'FULL POWER — SURE\?'/.test(src) && !/NEVER ASKS — SURE/.test(src), 'FULL POWER keeps its two-press confirm');
   // a custom mix on approvalMode full: the saved reach limits nothing (unrestrictedHostNow), so the row never says
   // "it reaches <reach> and never asks" — reach wording is kept for the asks-first case only
@@ -90,9 +88,7 @@ ok(/accWrap\.querySelectorAll\('\[data-access-posture\]'\)/.test(src) && /if \(P
     && /\? 'it has <b>full power<\/b> over the whole local computer; the saved reach below does not limit it'\s*: 'it reaches <b>' \+ esc\(p\.plainLabel\.toLowerCase\(\)\) \+ '<\/b> and asks before risky steps'/.test(src)
     && !/'never asks · '|\(full \? 'never asks' :/.test(src),
     'a FULL POWER custom mix says full power over the whole local computer; only an asks-first mix names its reach');
-  ok(/r\.levelSet && postureRung\(P\) \? ' — also set ON ITS OWN to ' \+ postureRung\(P\)/.test(src) && /levelSet: !!\(snap && snap\.level === P\.level\)/.test(src) &&/Permissions\.levelPlan\(P\.level\)/.test(src) && /initiativeLabel\(preset\.initiative\)/.test(src),
-    'a PERMISSIONS posture notice names the ON ITS OWN rung it set (level → preset → the dial label)');
-  ok(/accessPostures: \(\) => STATION_POSTURES\.map/.test(src), 'StationUI exports the ONE access table the create screen reads');
+  ok(!/postureRung|levelSet/.test(src) && !/accessPostures:/.test(src), 'no struck P08 posture-notice rung and no create-screen table export');
 }
 
 // ── the plain-language pass (2026-08-07) ──

@@ -123,13 +123,13 @@ const NY = require('../frontend/app/needsyou.js');
   A.ok(/>Review</.test(k(longPath)) && !/data-ny-act="once"/.test(k(longPath)), 'a path longer than the rail shows is reviewed on its card');
   A.ok(/data-ny-act="once"[^>]*>Approve once</.test(k(ask({ promptId: 'p29', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a short request is still one-tap Approve');
   // org P02 (g3 D1, final round): a direct-chat ask is reviewed through its own row — the row, its "in <where>" door and its
-  // ask line open the COMMS card (the whole request, its Always / Full power keys) — so its keys are Approve once · Deny on ONE
+  // ask line open the COMMS card (the whole request, its Always / Full access keys) — so its keys are Approve once · Deny on ONE
   // row (three keys stacked into three full-width keys on the rail); a worker's ask reviews on its Delegated row's INSPECT
   const direct = k(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }));
   A.eq((direct.match(/data-ny-act="[a-z]+"[^>]*>[^<]+</g) || []).map(x => x.replace(/^data-ny-act="([a-z]+)"[^>]*>([^<]+)<$/, '$1:$2')).join(' | '), 'once:Approve once | deny:Deny', 'a direct-chat row\'s keys: Approve once · Deny');
   const rowHtml = NY._internals.html([Object.assign(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }), { who: 'NOVA', where: 'General', what: 'fs read: notes.md', since: Date.now() })], Date.now());
   A.ok(/<li class="ny-item approval ny-review" data-ny-key="ask:p30">/.test(rowHtml), 'its row is the Review door (the row click opens its card)');
-  A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p30" data-tip="Review it on its card: the whole request, and its Always and Full power keys">in General<\/button>/.test(rowHtml), '…and its "in <where>" door says so: ' + rowHtml.slice(0, 400));
+  A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p30" data-tip="Review it on its card: the whole request, and its Always and Full access keys">in General<\/button>/.test(rowHtml), '…and its "in <where>" door says so: ' + rowHtml.slice(0, 400));
   for (const w of [{ workerStreamId: 'thread_vex' }, { workerRunId: 'wr9' }, { background: true }]) {
     const wa = ask(Object.assign({ promptId: 'p31', tool: 'fs.read', argsSummary: 'notes.md' }, w)), wk = k(wa);
     A.ok(/>Approve once</.test(wk) && />Deny</.test(wk) && !/>Review</.test(wk), 'a worker ask keeps Approve once · Deny (its review is the Delegated INSPECT): ' + Object.keys(w)[0]);

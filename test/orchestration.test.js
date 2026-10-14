@@ -712,7 +712,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 
   await mk('full').dispatchTool.run({ workers: [{ agentId: 'engineer', prompt: 'p' }] }, { agentId: 'lead', emit: () => {} });
   const fullSys = ro.calls[1].system;
-  A.ok(/FULL POWER\. Run your tools directly/.test(fullSys), "a full-power lead's worker is told to act without asking, in the lead's own FULL POWER word");
+  A.ok(/FULL ACCESS\. Run your tools directly/.test(fullSys), "a full-access lead's worker is told to act without asking");
   A.ok(!/ASK FIRST/.test(fullSys), 'no contradictory ask-first instruction on the full-access path');
 
   // a host that wires NO posture stays byte-identical to the pre-fix prompt (back-compat for bare unit callers)

@@ -21647,7 +21647,7 @@ async function runOnceCore(o) {
     }
     if (hostPowerWithheld && standingWorkEscalates(c.name, c.args)) {
       return { ok: false, isError: true, summary: 'withheld',
-        content: 'WITHHELD: this run was started from a paired phone or by someone other than the station owner, so it cannot set up or restart work that runs on its own later (a routine, a loop, a line trigger or a line test) — that work would run with the station standing Full Power. Pausing, stopping or removing it is fine. Tell the Commander exactly what to set up so they can do it at the desk; do NOT retry.' };
+        content: 'WITHHELD: this run was started from a paired phone or by someone other than the station owner, so it cannot set up or restart work that runs on its own later (a routine, a loop, a line trigger or a line test) — that work would run with the station standing Full Access. Pausing, stopping or removing it is fine. Tell the Commander exactly what to set up so they can do it at the desk; do NOT retry.' };
     }
     if (directDomainTask && directDomainWithheld(c.name)) {
       return { ok: false, isError: true, summary: 'direct-domain-local', content: 'This is a bounded check of the exact host ' + directDomainTask.host + '. Do not delegate or run web searches/archives; read that host directly with web_fetch or the browser.' };

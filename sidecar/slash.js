@@ -183,7 +183,7 @@ const BUILTIN_COMMANDS = Object.freeze([
   Object.freeze({
     name: 'yolo',
     category: 'Configuration',
-    desc: 'toggle full power (never asks, whole local computer)',
+    desc: 'toggle full-access approval mode',
     argsHint: '[on|off]',
     action: 'yolo'
   }),

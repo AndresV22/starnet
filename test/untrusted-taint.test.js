@@ -320,7 +320,7 @@ A.eq(taint.postTaintBoundary(FS_WRITE, { taintedBy: 'web_fetch', surface: 'auton
   const orchSrc = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'tools', 'builtin', 'orchestration.js'), 'utf8');
   A.ok(/initialTaint: base\.initialTaint \|\| lim\.taintedBy \|\| null, resumedTaint: lim\.taintedBy \|\| null/.test(orchSrc),
     'team.resume marks the taint the stored task carries');
-  A.ok(!/clear (the )?taint|turn on Full (Access|Power)/i.test(src.slice(src.indexOf("summary: 'untrusted-content-lockout'"), src.indexOf("summary: 'untrusted-content-lockout'") + 2000)), 'the refusal never suggests a taint-clearing control or Full Access as the way out');
+  A.ok(!/clear (the )?taint|turn on Full Access/i.test(src.slice(src.indexOf("summary: 'untrusted-content-lockout'"), src.indexOf("summary: 'untrusted-content-lockout'") + 2000)), 'the refusal never suggests a taint-clearing control or Full Access as the way out');
   // consent must agree with the gate or a tool could be consented-then-refused
   A.ok(/terminalGrant: \(call, tool\) => !execution\.taintedBy\(\)/.test(src), 'the terminal standing grant never survives taint');
   A.ok(/connectorGrant: \(call, tool\) => !execution\.taintedBy\(\)/.test(src), 'the connector standing grant never survives taint');

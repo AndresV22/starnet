@@ -240,6 +240,6 @@ const byClass = (root, c) => all(root).filter(e => e._cls && e._cls.has(c));
   const beat = read('frontend/css/beat-cards.css');
   A.ok(/\[data-clarify-prompt\] \.cq-text \{[^}]*font-size: var\(--sn-type-prose\)[^}]*-webkit-line-clamp: 3/.test(beat), 'one-on-one card: the question at reading size, three lines');
   A.ok(/body #chat-panel \{ font-variant-ligatures: none; \}/.test(beat), 'no broken fi ligature ("frst") in COMMS');
-  A.ok(!/\.consent-btn\.danger \{[^}]*border-color/.test(beat), 'Full power never wears the suggested key\'s gold edge');
+  A.ok(!/\.consent-btn\.danger \{[^}]*border-color/.test(beat), 'Full access never wears the suggested key\'s gold edge');
   A.report('ask-cards-readable.test');
 })().catch(e => { console.error(e); process.exitCode = 1; });

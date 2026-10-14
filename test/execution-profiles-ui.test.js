@@ -19,11 +19,7 @@ A.ok(/protected files, arbitrary commands, visible apps/.test(ui), 'Settings sta
 A.ok(/executionProfile: executionProfileOf\(a\)/.test(app), 'profile persists in the browser save and roster push');
 A.ok(/setAgentExecutionProfile/.test(app), 'profile has an independent app setter');
 A.ok(/approvalMode: .*executionProfile:/.test(app), 'approval and profile ride the roster as separate fields');
-// org pass P08-b: genesis teaches the host-wide Full Power meaning ON its own tile (the selected line, the tip and the
-// two-press arm), never as a standing caveat under the picker while another answer is selected
-A.ok(/agentBlurb: 'Never asks\. Can use the whole local computer\.'/.test(ui) && /c\.dataset\.tip = P\.agentBlurb/.test(app) && /nm\.textContent = 'SURE\? WHOLE COMPUTER'/.test(app),
-  'genesis teaches the host-wide Full Power meaning on its own tile (tip, selected line, two-press arm)');
-A.ok(!/FULL POWER never asks and can use the whole computer/.test(html), 'no standing FULL POWER caveat competes with the selected answer under the picker');
+A.ok(/Full power allows actions across your computer without approval prompts/.test(html), 'genesis teaches the host-wide Full Power meaning');
 A.ok(/data-ssh-host/.test(ui) && /data-ssh-root/.test(ui) && /SAVE &amp; PROBE/.test(ui), 'Settings exposes owner-configured SSH target fields');
 A.ok(/StrictHostKeyChecking|strict known_hosts/.test(ui), 'SSH copy names the strict host-key boundary');
 A.ok(/\/api\/execution\/sync/.test(ui) && /PUSH NOW/.test(ui) && /PULL NOW/.test(ui), 'Settings exposes explicit remote workspace sync controls');

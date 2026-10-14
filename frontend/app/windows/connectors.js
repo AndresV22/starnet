@@ -225,7 +225,7 @@
         // TRUTHFUL TELEMETRY: the key alone is not enough. The shell it is handed to only exists when a WORKBENCH
         // prop is placed (capability/office.js grants it nowhere by default), and workspace-process tools are not
         // projected onto unattended surfaces at all (inputpolicy.js), so a saved key is inert until both hold.
-        '<div class="mc-hint">These API keys are used through the terminal. Check the selected agent in BUILT-IN ABILITIES: access may come from a workbench, an execution profile or Full Power. ' +
+        '<div class="mc-hint">These API keys are used through the terminal. Check the selected agent in BUILT-IN ABILITIES: access may come from a workbench, an execution profile or Full Access. ' +
           'Scheduled work also follows its saved unattended access settings. Saving a key does not verify that the service accepts it.</div>' +
         '<div class="mc-acts"><button class="bb sm" id="ky-add">+ SAVE KEY</button></div>' +
       '</div>' +
@@ -503,7 +503,7 @@
       const host = typeof PluginHost !== 'undefined' ? PluginHost : null;
       const term = host && host.terminalOf ? host.terminalOf(p.id) : null;
       return '<div class="mc-hint">Tools: ' + tools.map(t => '<code>' + esc(t) + '</code>').join(' ') + '<br>' +
-        (term ? 'Its terminal stands in the station: agents in that room can use these. Each call asks you first unless you choose Always or Full power.'
+        (term ? 'Its terminal stands in the station: agents in that room can use these. Each call asks you first unless you choose Always or Full access.'
           : 'No terminal in the station yet, so no agent can use these. <button class="bb xs" data-ext="plugin-place" data-id="' + esc(p.id) + '">PLACE TERMINAL</button>') +
         '</div>';
     }
@@ -793,7 +793,7 @@
             (t.object ? '<button class="bb xs ts-place" type="button" data-ts-place="' + esc(t.object) + '">⚒ PLACE ONE</button>' : '') +
           '</span>'
         : '';
-      const consent = '<span class="ts-tag">' + (t.available ? esc(t.grantSource === 'Full Power' ? 'FULL POWER' : (t.grantSource || 'granted')) : 'not granted') + '</span>' + (t.consentGated ? '<span class="ts-tag">risky actions may ask</span>' : '');
+      const consent = '<span class="ts-tag">' + (t.available ? esc(t.grantSource || 'granted') : 'not granted') + '</span>' + (t.consentGated ? '<span class="ts-tag">risky actions may ask</span>' : '');
       const status = '<span class="ts-availability' + (t.available ? ' available' : '') + '">' + availability + '</span>';
       const isJuke = t.id === 'jukebox';
       const all = (t.tools && t.tools.length) ? t.tools : [];

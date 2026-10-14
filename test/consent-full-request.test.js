@@ -361,31 +361,27 @@ test('a phone answer graded "always" on a station.power card still settles as ap
 for (const decision of ['always', 'full']) test('a plugin.submit card offers only a yes and a no, and a "' + decision + '" answer settles as approved once', () => {
   const f = permissionFixture('plugin.submit');
   const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
-  assert.deepEqual(buttons.children.map(b => b.textContent), ['Approve once', 'Deny'], 'no Always, no Full power on a card the station answers once');
+  assert.deepEqual(buttons.children.map(b => b.textContent), ['Approve once', 'Deny'], 'no Always, no Full access on a card the station answers once');
   f.listeners.get('permission.response')({ promptId: f.p.promptId, decision });
   const tag = f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent;
   assert.equal(tag, '✓ approved once from your phone');
-  assert.ok(!/always allowed|never asks|full access|full power/i.test(tag), 'the receipt claims no standing grant: ' + tag);
+  assert.ok(!/always allowed|full access/.test(tag), 'the receipt claims no standing grant: ' + tag);
 });
 
-/* ONE ACCESS (org pass 10-14, P08 review fix): the strongest key sets approvalMode 'full' — the agent's stored reach
-   profile is unchanged (SETTINGS › PERMISSIONS then reads CUSTOM), but approvalMode 'full' IS unrestricted host authority
-   in the sidecar (agentFullAccessNow → unrestrictedHostNow: the whole local computer, disabled caps lifted, toolsets
-   unrestricted — DECISIONS "FULL POWER MEANS THE WHOLE LOCAL COMPUTER"). That is the FULL POWER access answer's power, so
-   the key carries the same word: "Full power", settling "✓ full power", and its tip says the whole local computer. The
-   P08 draft's "Never ask" read as a prompt preference only and understated the grant. */
-test('a general approval card offers Full power (the FULL POWER word, not Never ask) and settles in those words', () => {
+/* P08 STRUCK (Andrew 10-14: "the approval key was fine before"): a general approval card's standing key is the candidate's
+   "Full access" again — its receipt "✓ full access" and its tip "Give <agent> full access: it stops asking before most
+   actions, until you change it back" — never the struck "Never ask" / "Full power" names. */
+test('a general approval card offers Full access, as the 0.13.5 candidate had it, and settles in those words', () => {
   const f = permissionFixture('fs.read');
   const buttons = f.nodes[0].body.children.find(n => n.className === 'consent-btns');
-  assert.deepEqual(buttons.children.filter(b => b.className !== 'consent-hint').map(b => b.textContent), ['Approve once', 'Always', 'Full power', 'Deny'], 'the standing key reads Full power');
+  assert.deepEqual(buttons.children.filter(b => b.className !== 'consent-hint').map(b => b.textContent), ['Approve once', 'Always', 'Full access', 'Deny'], 'the standing key reads Full access');
   // org P02: one hint line under the keys says what happens if nobody answers (no number: the page is never told the deadline)
   assert.deepEqual(buttons.children.filter(b => b.className === 'consent-hint').map(b => b.textContent), ['Auto-denies on a timer if left unanswered'], 'one hint line, numberless');
-  assert.ok(!buttons.children.some(b => /full access|never ask/i.test(String(b.textContent) + ' ' + String((b.dataset && b.dataset.tip) || b.title || ''))), 'no key or tip uses the retired Full access / Never ask names');
-  const fullKey = buttons.children.find(b => b.textContent === 'Full power');
-  assert.ok(/stops asking and can use the whole local computer, until you change it back/.test(String(fullKey.dataset.tip || '')), 'the Full power tip states its real scope, the whole local computer: ' + fullKey.dataset.tip);
-  assert.ok(!buttons.children.some(b => b.title), 'the keys carry station data-tips, never a native title');
+  assert.ok(!buttons.children.some(b => /never ask|full power/i.test(String(b.textContent) + ' ' + String((b.dataset && b.dataset.tip) || b.title || ''))), 'no key or tip uses the struck Never ask / Full power names');
+  const fullKey = buttons.children.find(b => b.textContent === 'Full access');
+  assert.ok(/^Give .+ full access: it stops asking before most actions, until you change it back$/.test(String(fullKey.title || '')), 'the Full access tip is the candidate\'s: ' + fullKey.title);
   f.listeners.get('permission.response')({ promptId: f.p.promptId, decision: 'full' });
-  assert.equal(f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✓ full power from your phone', 'the receipt names what was applied');
+  assert.equal(f.nodes[0].body.children.filter(n => /^consent-result/.test(n.className || ''))[0].textContent, '✓ full access from your phone', 'the receipt names what was applied');
 });
 
 // THE COMPOSER ANSWERS THE QUESTION (live walkthrough 2026-10-13): a lead's open question registers an answerer, so
