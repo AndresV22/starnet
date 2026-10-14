@@ -142,6 +142,10 @@ A.ok(/#chat-panel h3 #comms-title \{ flex: 1 1 auto; min-width: 0; white-space: 
   'P26: the title clamps to one line and a fault in #chat-status keeps its width first');
 const HTML = read('frontend/index.html');
 A.ok(!/class="comms-agent-wrap" title=/.test(HTML) && /class="comms-agent-wrap" data-tip="[^"]*switches to its latest session/.test(HTML), 'P26: the ON THE LINE tip is a data-tip, never a native title');
+// P26 fix (review): selectAgent never rebinds General (cur.id !== Workstreams.generalId()) — the tip must not promise it does
+A.ok(/class="comms-agent-wrap" data-tip="[^"]*\(an empty session other than General takes that agent instead\)"/.test(HTML) &&
+  /if \(cur && cur\.id !== Workstreams\.generalId\(\) && !isGroupWs\(cur\)/.test(read('frontend/app/app.js')),
+  'P26 fix: the tip says General keeps its agent, matching selectAgent');
 
 /* ---------- P25: fewer empty sessions ---------- */
 const APP = read('frontend/app/app.js');
