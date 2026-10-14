@@ -2433,7 +2433,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // sidecar (station-wide, not per-agent — the reflect loop is a station engine). Plus a plain scope note.
       '<div class="gx-sec"><span class="gx-ref">◈</span><span class="gx-title">Reflection</span></div>' +
       '<div class="mc-note" id="mc-scope">How the station learns from finished work.</div>' +
-      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION (all agents) <span class="dim">— propose memories after a completed task</span></label>' +
+      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION <b id="mc-reflect-state">…</b> (all agents) <span class="dim">— propose memories after a completed task</span></label>' +
       '<div class="set-row"><label for="mc-cooldown">TIME BETWEEN SUGGESTIONS (MINUTES)</label><input id="mc-cooldown" class="key-input" type="number" min="0" max="60" step="1" style="max-width:90px" title="minimum gap between turn-in beats per agent"></div>' +
       '<div class="mc-acts"><button class="bb sm" id="mc-reflect-save">SAVE</button><span class="msg" id="mc-reflect-msg"></span></div></div>' +
       // AWAITING A VERDICT — the durable high-stakes deck. Runs that finish while nobody is watching (a routine, a
@@ -2535,10 +2535,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const onBox = $('#mc-reflect-on'), cd = $('#mc-cooldown'), scope = $('#mc-scope'), msg = $('#mc-reflect-msg'), saveBtn = $('#mc-reflect-save');
     if (!onBox || !cd) return;
     const setMsg = (t, ok) => { if (msg) { msg.textContent = t || ''; msg.className = 'msg' + (ok ? ' ok' : ''); } };
+    // the label says the switch's position in words (ON / OFF), not only the knob
+    const paintState = () => { const o = $('#mc-reflect-on'), st = $('#mc-reflect-state'); if (o && st) st.textContent = o.checked ? 'ON' : 'OFF'; };
+    if (!onBox._stateWired) { onBox._stateWired = true; onBox.addEventListener('change', paintState); }
     Harness.api.get('/api/memory/config').then(cfg => {
       const o = $('#mc-reflect-on'), c = $('#mc-cooldown'), s = $('#mc-scope');
       if (!o || !c) return;   // retabbed mid-fetch
       o.checked = cfg.reflectEnabled !== false;
+      paintState();
       c.value = String(Math.round((cfg.reflectCooldownMs != null ? cfg.reflectCooldownMs : 180000) / 60000));
       if (s && cfg.scopeNote) s.textContent = cfg.scopeNote;
     }).catch(() => { setMsg('could not load reflection settings'); });   // never paint an error body as config
