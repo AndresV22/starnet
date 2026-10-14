@@ -1809,11 +1809,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function crewPortrait(a) {
     return '<span class="crew-portrait" aria-hidden="true"><img alt="" draggable="false" hidden></span>';
   }
+  // the empty-crew mark: the dock's own AGENTS line icon (glass-demo.js menuPaths.agents), drawn as SVG — the '▯' glyph
+  // came from a fallback font and read as a missing-font box above NO AGENTS ON STATION
+  const NO_AGENTS_MARK = '<span class="es-glyph" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="M5 2h6v5H5zM3 14v-4h10v4"/></svg></span>';
   function crewRender() {
     wireCrewLive();   // ensure the per-agent run-state listener is live
     const ul = $('#crew'); if (!ul) return;
     if (!present.length) {
-      ul.innerHTML = '<li class="crew-empty"><div class="empty-state"><span class="es-glyph">▯</span><b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div></li>';
+      ul.innerHTML = '<li class="crew-empty"><div class="empty-state">' + NO_AGENTS_MARK + '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div></li>';
       $('#crew-sum').innerHTML = '';
       return;
     }
@@ -3422,7 +3425,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (dossierWindow) dossierWindow.classList.add('agent-dossier');
     if (!present.length) {
       // shared empty-state vocabulary rather than a bare paragraph (no agents = nothing to dossier)
-      body.innerHTML = '<div class="empty-state" style="margin:32px auto;"><span class="es-glyph">▯</span>' +
+      body.innerHTML = '<div class="empty-state" style="margin:32px auto;">' + NO_AGENTS_MARK +
         '<b>NO AGENTS ON STATION</b><span>RECRUIT one from the CREW dock.</span></div>';
       return;
     }
