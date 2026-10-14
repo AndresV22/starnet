@@ -1207,7 +1207,7 @@ const App = (() => {
       // with no way to act. Now the agent says it plainly — "desk", never "OWN PC" — and a chip opens BUILD MODE with
       // desk placement teed up. FINALE (Lane D): the toast is ONE line now — the desk requirement + its door move
       // into the diegetic line + chip below (the standing record no longer duplicates the whole instruction).
-      _notify(a.name + ' summoned — type to task it now.', 'good');
+      _notify(a.name + ' recruited — type to task it now.', 'good');
       // WHERE THAT LINE COMES FROM (2026-08-03): the Chat.load(ws) above opened the new agent's session, and the
       // desk prompt is now a property of THAT SESSION (chat.js maybeDeskPrompt → App.needsWorkstation), not a
       // one-shot printed here. It used to be printed once, DOM-only: the first stream switch (or any reload) wiped
@@ -1225,7 +1225,7 @@ const App = (() => {
       // "took the free desk" vs "desk placed": ensureWorkstation may ADOPT an unbound workstation instead of
       // building one, and saying "placed" for a desk that was already there is a small lie about the floor.
       const deskLine = (desk && desk.ok) ? ((desk.adopted ? 'took the free desk' : 'desk placed') + (deskRoom ? ' in ' + deskRoom : '') + '. ') : '';
-      _notify(a.name + ' summoned — ' + deskLine + 'pick it ON THE LINE in COMMS to talk to it, or let the overseer delegate.', 'good');
+      _notify(a.name + ' recruited — ' + deskLine + 'pick it ON THE LINE in COMMS to talk to it, or let the overseer delegate.', 'good');
     }
     // ONE loadout beat: state plainly what the class summon actually applied — the skills enabled, the effort
     // applied, and the STATION GEAR the class draws on (honest present/missing under the overseer, NOT per-agent

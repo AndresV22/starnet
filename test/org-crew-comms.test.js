@@ -160,7 +160,7 @@ A.ok(/summonAgent\(spec, \{ activate: false, desk: true \}\)/.test(APP) && /App\
   'P25: team.summon and the workflow RECRUIT are the background hires');
 A.ok(/if \(!ws\) ws = Workstreams\.create\(a\.name, \{ agentId: id, activate: false \}\);/.test(APP), 'P25: ON THE LINE still mints a fresh session for an agent that has none (selectAgent)');
 A.ok(/start\.onclick = \(\) => newWorkstream\(\)/.test(APP) && /'sessions with ' \+ name \+ ' yet\.'/.test(APP), 'P25: the narrowed rail offers START ONE for an agent with no session yet');
-A.ok(!/switch to its stream to task it/.test(APP) && /pick it ON THE LINE in COMMS to talk to it/.test(APP), 'P25: the background-hire toast no longer promises a stream that does not exist');
+A.ok(!/switch to its stream to task it/.test(APP) && /pick it ON THE LINE in COMMS to talk to it/.test(APP) && APP.includes("' recruited — ' + deskLine") && !/' summoned — /.test(APP), 'P25: the background-hire toast no longer promises a stream that does not exist');
 A.ok(/ws = blank \? cur : Workstreams\.create\(st\.label/.test(CHAT), 'P25: a starter on a blank open session fills it (behaviour in test/starters.test.js)');
 A.ok(/String\(busyName\)\.toUpperCase\(\) \+ ' IS BUSY IN ' \+ streamLabel\(peer\)\.toUpperCase\(\)/.test(CHAT) && !/'ALSO RUNNING IN '/.test(CHAT), 'P25: the busy row reads <NAME> IS BUSY IN <SESSION> · VIEW ACTIVE RUN');
 A.ok(/function\s+maybeEmptyState[\s\S]{0,300}busyPeerFor\(activeWs\)/.test(CHAT), 'P25: the busy row stays visible in an empty session (it explains why a first message queues)');
