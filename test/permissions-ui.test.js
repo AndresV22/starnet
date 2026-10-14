@@ -83,6 +83,12 @@ ok(/accWrap\.querySelectorAll\('\[data-access-posture\]'\)/.test(src) && /if \(P
   ok(ap && /data-tip="' \+ esc\(desc\)/.test(ap[0]) && !/title="/.test(ap[0]), 'the whole-computer warning is a station data-tip, never a native title');
   ok(ap && /<code>\/yolo<\/code> is the full-power shortcut/.test(ap[0]), 'the fold names /yolo as the full-power shortcut');
   ok(/chip\.textContent = 'FULL POWER — SURE\?'/.test(src) && !/NEVER ASKS — SURE/.test(src), 'FULL POWER keeps its two-press confirm');
+  // a custom mix on approvalMode full: the saved reach limits nothing (unrestrictedHostNow), so the row never says
+  // "it reaches <reach> and never asks" — reach wording is kept for the asks-first case only
+  ok(/AP \? AP\.agentBlurb : full \? 'full power · the whole local computer' : 'asks first · ' \+ p\.short/.test(src)
+    && /\? 'it has <b>full power<\/b> over the whole local computer; the saved reach below does not limit it'\s*: 'it reaches <b>' \+ esc\(p\.plainLabel\.toLowerCase\(\)\) \+ '<\/b> and asks before risky steps'/.test(src)
+    && !/'never asks · '|\(full \? 'never asks' :/.test(src),
+    'a FULL POWER custom mix says full power over the whole local computer; only an asks-first mix names its reach');
   ok(/r\.levelSet && postureRung\(P\) \? ' — also set ON ITS OWN to ' \+ postureRung\(P\)/.test(src) && /levelSet: !!\(snap && snap\.level === P\.level\)/.test(src) &&/Permissions\.levelPlan\(P\.level\)/.test(src) && /initiativeLabel\(preset\.initiative\)/.test(src),
     'a PERMISSIONS posture notice names the ON ITS OWN rung it set (level → preset → the dial label)');
   ok(/accessPostures: \(\) => STATION_POSTURES\.map/.test(src), 'StationUI exports the ONE access table the create screen reads');

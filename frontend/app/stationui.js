@@ -2341,7 +2341,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const ready = view.toolsets.filter(x => x.available);
         const compactHtml = '<p class="ag-can-do"><b>' + ready.length + ' of ' + view.toolsets.length + ' toolsets ready</b>'
           + (ready.length ? ' · ' + ready.slice(0, 6).map(x => esc(x.label)).join(', ') + (ready.length > 6 ? ' +' + (ready.length - 6) : '') : '')
-          + ' · ' + esc(authority.approvalLabel) + '</p><button class="bb sm" data-access-full>SEE FULL ACCESS</button>';
+          + ' · ' + esc(authority.approvalLabel) + '</p><button class="bb sm" data-access-full>SEE ALL ACCESS</button>';
         targets.forEach(target => {
           if (typeof target.hasAttribute === 'function' && target.hasAttribute('data-access-compact')) {
             target.innerHTML = compactHtml;
@@ -8988,7 +8988,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           const badge = effFull ? 'FULL POWER' : (AP ? AP.label : 'CUSTOM');
           const stateLine = overridden
             ? 'whole-station override is ON · ' + (AP ? 'returns to ' + AP.label : 'returns to its custom mix') + ' when it is off'
-            : (AP ? AP.agentBlurb : (full ? 'never asks · ' : 'asks first · ') + p.short);
+            : (AP ? AP.agentBlurb : full ? 'full power · the whole local computer' : 'asks first · ' + p.short);
           const postureChips = STATION_POSTURES.map(P =>
             '<button class="ov-vchip pc-posture' + (AP && AP.id === P.id ? ' sel' : '') + (P.id === 'open' ? ' danger' : '') + '" data-agent-posture="' + P.id + '" data-agent="' + esc(String(a.id)) + '"' +
               ' title="' + esc(P.agentBlurb) + '" aria-pressed="' + (AP && AP.id === P.id ? 'true' : 'false') + '"' + (can && canAsk ? '' : ' disabled') + '>' + esc(P.label) + '</button>').join('');
@@ -9001,7 +9001,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
               '<span class="pc-caret" aria-hidden="true">▸</span>' +
             '</summary>' +
             '<div class="ov-vchips pc-chips pc-posture-chips">' + postureChips + '</div>' +
-            (AP ? '' : '<p class="pc-plain">A custom mix — it reaches <b>' + esc(p.plainLabel.toLowerCase()) + '</b> and ' + (full ? 'never asks' : 'asks before risky steps') + '. Pick an answer above to reset it, or fine-tune below.</p>') +
+            (AP ? '' : '<p class="pc-plain">A custom mix — ' + (full
+              // approvalMode 'full' is the whole local computer (unrestrictedHostNow): the saved reach limits nothing, so it is never named as a limit
+              ? 'it has <b>full power</b> over the whole local computer; the saved reach below does not limit it'
+              : 'it reaches <b>' + esc(p.plainLabel.toLowerCase()) + '</b> and asks before risky steps') + '. Pick an answer above to reset it, or fine-tune below.</p>') +
             '<details class="mc-adv pc-exact"' + (permExactOpen.has(String(a.id)) || id === 'remote-ssh' ? ' open' : '') + ' data-exact-agent="' + esc(String(a.id)) + '"><summary>More options — exact reach, asking, sandbox</summary>' +
             '<div class="pc-axis">' +
               '<span class="pc-q">CAN REACH</span>' +

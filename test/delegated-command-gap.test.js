@@ -57,7 +57,7 @@ const { withheldCommandTools, commandGap } = require('../sidecar/capability/with
   A.ok(!withheld['shell.bg.read'], 'non-command classes keep their existing handling (only workspace-process is explained here)');
   const gap = withheld['shell.exec'];
   A.ok(/delegated by supervisor/.test(gap.why) && /ASK mode/.test(gap.why) && /WORKBENCH/.test(gap.why), 'why: names the lead, ASK mode and that the WORKBENCH does not change it: ' + gap.why);
-  A.ok(/result for supervisor/.test(gap.enable) && /watched conversation/.test(gap.enable) && /Full Access/.test(gap.enable), 'enable: hand the exact command back to the lead; Full Access is the only other grant: ' + gap.enable);
+  A.ok(/result for supervisor/.test(gap.enable) && /watched conversation/.test(gap.enable) && /FULL POWER/.test(gap.enable) && !/Full Access/i.test(gap.enable), 'enable: hand the exact command back to the lead; Full Access is the only other grant: ' + gap.enable);
   A.ok(/routine/i.test(commandGap({ routine: true }).enable) && !/routine/i.test(gap.enable), 'a routine gets its own remedy; a worker is never told about routine grants');
 
   // ---- 3. tool_search for the shell: names the withheld tool and the route, never reveals it ----

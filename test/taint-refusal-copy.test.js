@@ -123,6 +123,6 @@ for (const reason of ['resumed run (taint unverifiable: run journal unreadable E
 }
 
 // ---- 6. the owner-facing remedies never point at a taint-clearing control or Full Access ----
-A.ok(!/clear (the )?taint|turn on Full Access/i.test(block), 'the refusal never suggests clearing taint or Full Access as the way out');
+A.ok(!/clear (the )?taint|turn on Full (Access|Power)/i.test(block), 'the refusal never suggests clearing taint or Full Power as the way out');
 
 A.report('taint-refusal-copy.test');

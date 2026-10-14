@@ -219,7 +219,7 @@ const hardline = (call) => (call && call.args && /(^|\/)(\.env|permissions\.allo
     const fs = require('fs'); const path = require('path');
     const tutorial = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'tutorial.js'), 'utf8');
     A.ok(/local file reads and private notebook saves do not prompt/i.test(tutorial), 'Field Manual names both no-prompt local exceptions');
-    A.ok(/already approved or FULL ACCESS is on/i.test(tutorial), 'Field Manual names standing-grant and Full Access exceptions');
+    A.ok(/already approved or FULL POWER is on/.test(tutorial) && !/FULL ACCESS is on/i.test(tutorial), 'Field Manual names standing-grant and FULL POWER exceptions');
     A.ok(/ASK and narrower reach modes retain their restrictions/i.test(tutorial), 'Field Manual scopes restrictions to the selected reach and posture');
     A.ok(/FULL POWER is host-wide/i.test(tutorial), 'Field Manual describes current host-wide Full Power authority');
     A.ok(!/protected actions stay blocked/i.test(tutorial), 'Field Manual does not apply the retired universal floor to Full Power');

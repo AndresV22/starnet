@@ -26,7 +26,7 @@ function delegatedCommandGap(lead) {
       + 'conversation, and a delegated run is not one',
     enable: 'put the exact command(s), and the folder to run them in, in your result for ' + who + ' so they can be run in '
       + 'the Commander\'s watched conversation, where each command is approved under ASK. Placing more objects cannot change '
-      + 'this; only Full Access for this agent (whole-computer authority) would'
+      + 'this; only FULL POWER for this agent (whole-computer authority) would'
   };
 }
 
