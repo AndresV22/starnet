@@ -48,17 +48,20 @@
     const openFrom = openAskFrom(id);
     return { start: oldest ? oldest.startedAt : 0, elapsed: oldest ? runElapsed(oldest, openFrom, now) : 0, tool, asking: !!openFrom };
   }
-  /* PAINT ON THE SECOND (review of rc walk #21): a free-running 1 s interval painted at whatever phase the page loaded in, so CREW
+  /* PAINT ON THE TURN (review of rc walk #21): a free-running 1 s interval painted at whatever phase the page loaded in, so CREW
      read up to a second behind the world's desk tag, which reads this same clock every frame ("RUN 0:41" over a card saying
-     "0:40"). The next paint is due when the soonest live clock turns its second — a clock held on a wait on you never turns. */
-  function msToNextSecond(now) {
+     "0:40"). nextTurnAt: the moment the soonest live clock turns its second (a clock held on a wait on you never turns; with
+     nothing live, a second from now). msToNextSecond: the wait until just past that turn, for a readout on a timer. */
+  function nextTurnAt(now) {
     let wait = 1000;
     for (const r of runs.values()) {
       if (openAskFrom(r.agentId)) continue;
       wait = Math.min(wait, 1000 - (runElapsed(r, 0, now) % 1000));
     }
-    return Math.max(16, Math.min(1000, Math.ceil(wait) + 4));   // +4 ms: land just past the turn, never just before it
+    return now + Math.ceil(wait);
   }
+  const msToNextSecond = (now) => Math.max(2, Math.min(1001, nextTurnAt(now) - now + 1));
+  const turnListeners = [];   // CrewClock.atNextTurn: one-shot, called right after CREW paints a turn (same frame)
   // a wait on you closed (answered, denied, or its run ended): its span stops counting toward every run it paused
   function closeAsk(promptId, now) {
     const a = asks.get(promptId);
@@ -85,8 +88,8 @@
     }
   }
 
-  function paint() {
-    const now = Date.now();
+  function paint(at) {
+    const now = typeof at === 'number' ? at : Date.now();
     document.querySelectorAll('#crew .crew-row[data-agent-id]').forEach((row) => {
       dress(row);
       const live = row.classList.contains('working'), id = row.dataset.agentId;
@@ -111,10 +114,45 @@
     if (sum && sum.parentElement !== h3) h3.appendChild(sum);
   }
 
+  /* THE TICK: paint, then come back ~40 ms before the soonest clock turns and ride the animation frames across the turn, so CREW
+     (and every atNextTurn readout — the DELEGATED row) repaints in the very frame the world's desk tag turns. A page that draws
+     no frames (hidden, minimized: rAF is paused) is painted by the backstop timer instead; with no rAF at all, a timer just past
+     the turn. A run starting or ending and a wait opening or closing move the turn, so they tick (re-aim) too. */
+  /* ONE INSTANT PER FRAME: every rAF callback of a frame is handed the same timestamp. The first reader of a frame stamps the wall
+     clock and every other reader that frame (the world's desk tag, CREW's turn) gets that same instant — a slow world draw can no
+     longer read 0:05 while CREW, a few ms later in the same frame, reads 0:06. tickAt: the instant the running tick painted, so
+     an atNextTurn readout (CrewClock.now) reads exactly what CREW just painted. */
+  let frameTs = NaN, frameAt = 0, tickAt = 0;
+  function frameNow(ts) {
+    if (typeof ts !== 'number' || !isFinite(ts)) return Date.now();
+    if (ts !== frameTs) { frameTs = ts; frameAt = Date.now(); }
+    return frameAt;
+  }
+  let tickTimer = 0, backstop = 0;
+  function tick(at) {
+    clearTimeout(tickTimer); clearTimeout(backstop); tickTimer = 0; backstop = 0;
+    const now = typeof at === 'number' ? at : Date.now();
+    tickAt = now;
+    try {
+      paint(now);
+      for (const fn of turnListeners.splice(0)) { try { fn(); } catch (e) { console.warn('[crew clock] turn listener:', (e && e.message) || e); } }
+    } finally { tickAt = 0; }
+    const turnAt = nextTurnAt(now);
+    const frames = typeof requestAnimationFrame === 'function' && !(typeof document !== 'undefined' && document.hidden);
+    const wait = turnAt - Date.now();
+    tickTimer = frames ? setTimeout(() => rideTurn(turnAt), Math.max(0, wait - 40)) : setTimeout(() => tick(), Math.max(0, wait) + 1);
+  }
+  function rideTurn(turnAt) {
+    tickTimer = 0;
+    backstop = setTimeout(() => tick(), Math.max(0, turnAt - Date.now()) + 60);
+    const step = (ts) => { if (!backstop) return; const wall = frameNow(ts); if (wall >= turnAt) tick(wall); else requestAnimationFrame(step); };   // (!backstop: a tick already ran)
+    requestAnimationFrame(step);
+  }
+
   function wire() {
     seatSummary();
     if (typeof U !== 'undefined' && U.bus) {
-      U.bus.on('agent.run.start', (p) => { if (p && p.runId && p.agentId) { idleSince.delete(String(p.agentId)); runs.set(String(p.runId), { agentId: String(p.agentId), startedAt: Date.now(), tool: '', pausedMs: 0 }); } paint(); });
+      U.bus.on('agent.run.start', (p) => { if (p && p.runId && p.agentId) { idleSince.delete(String(p.agentId)); runs.set(String(p.runId), { agentId: String(p.agentId), startedAt: Date.now(), tool: '', pausedMs: 0 }); } tick(); });
       U.bus.on('agent.tool_call', (p) => { const r = p && runs.get(String(p.runId)); if (r && p.name) { r.tool = String(p.name); paint(); } });
       U.bus.on('agent.tool_result', (p) => { const r = p && runs.get(String(p.runId)); if (r) { r.tool = ''; paint(); } });
       const end = (p) => {
@@ -123,30 +161,33 @@
         runs.delete(String(p.runId));
         // a run that ends with a prompt still open (stopped, failed) can no longer be waiting on you
         if (![...runs.values()].some((x) => x.agentId === r.agentId)) for (const [k, a] of asks) if (a.agentId === r.agentId) asks.delete(k);
-        paint();
+        tick();
       };
       U.bus.on('agent.run.end', end);
       U.bus.on('agent.run.error', end);
       // a delegated worker's ask names the worker (workerAgentId): its card says "needs your OK", not the lead's
-      U.bus.on('permission.prompt', (p) => { const who = p && (p.workerAgentId || p.agentId); if (p && p.promptId && who && !asks.has(String(p.promptId))) { asks.set(String(p.promptId), { agentId: String(who), at: Date.now() }); paint(); } });
-      U.bus.on('permission.response', (p) => { if (p && p.promptId && closeAsk(String(p.promptId), Date.now())) paint(); });
+      U.bus.on('permission.prompt', (p) => { const who = p && (p.workerAgentId || p.agentId); if (p && p.promptId && who && !asks.has(String(p.promptId))) { asks.set(String(p.promptId), { agentId: String(who), at: Date.now() }); tick(); } });
+      U.bus.on('permission.response', (p) => { if (p && p.promptId && closeAsk(String(p.promptId), Date.now())) tick(); });
     }
     const crew = document.getElementById('crew');
     if (crew) new MutationObserver(paint).observe(crew, { childList: true });
-    let tickTimer = 0;
-    const tick = () => { paint(); clearTimeout(tickTimer); tickTimer = setTimeout(tick, msToNextSecond(Date.now())); };
     tick();
   }
   /* ONE CLOCK PER WORKER (live walkthrough 2026-10-13): CREW read RESEARCH "3:04" while its DELEGATED row read "4:04" —
      the row's thread clock never saw the worker's approval waits (they are filed on the lead's conversation). The row
      reads this one: the same run, with every wait on the Commander excluded. null = no live run for that agent here. */
   /* elapsedOfRun: ONE run's clock, by its runId (a DELEGATED row names its worker's run — two workers of one agent each keep
-     their own); null = this page never saw that run start. msToNextSecond: when the next live clock turns, so a readout that
-     repaints once a second turns in the same frame as CREW and the world tag. */
+     their own); null = this page never saw that run start. atNextTurn(fn): fn runs once, right after CREW's next tick paints —
+     a readout that repaints from it turns in the same frame as CREW and the world tag. msToNextSecond: the timer fallback.
+     frameNow(rafTimestamp): this frame's one instant (the world's desk tag reads its clock at it). now(): the instant CREW is painting
+     (inside atNextTurn), else the wall clock. */
   if (typeof window !== 'undefined') window.CrewClock = {
     elapsedOf: (agentId, now) => { const f = forAgent(String(agentId || ''), now || Date.now()); return f.start ? f.elapsed : null; },
     elapsedOfRun: (runId, now) => { const r = runs.get(String(runId || '')); return r ? runElapsed(r, openAskFrom(r.agentId), now || Date.now()) : null; },
-    msToNextSecond: (now) => msToNextSecond(now || Date.now())
+    msToNextSecond: (now) => msToNextSecond(now || Date.now()),
+    atNextTurn: (fn) => { if (typeof fn === 'function') turnListeners.push(fn); return true; },
+    frameNow: (ts) => frameNow(ts),
+    now: () => tickAt || Date.now()
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
 })();

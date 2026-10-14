@@ -173,12 +173,12 @@ function load(src, headers, globals, extra) {
 {
   const world = rd('frontend/app/world.js');
   const clocks = A.fnBody(world, 'function drawRunClocks(now)');
-  A.ok(/CrewClock\.elapsedOf\(aid, Date\.now\(\)\)/.test(clocks), 'the desk tag asks CrewClock for this agent\'s run, in wall-clock ms (the frame clock is performance.now)');
+  A.ok(/CrewClock\.elapsedOf\(aid, wallNow\)/.test(clocks) && /CrewClock\.frameNow\(now\) : Date\.now\(\)/.test(clocks), 'the desk tag asks CrewClock for this agent\'s run at the frame\'s one wall instant (CrewClock.frameNow of the rAF timestamp — the instant CREW paints its turn from)');
   A.ok(/typeof crewMs === 'number' && isFinite\(crewMs\) \? crewMs : \(now - t0\)/.test(clocks), '…and falls back to the run\'s own start only when CREW has no live run for it');
   const crew = rd('frontend/app/crewcards.js');
   A.ok(/window\.CrewClock = \{\s*elapsedOf:/.test(crew) && /elapsedOfRun: \(runId, now\)/.test(crew) && /msToNextSecond: \(now\)/.test(crew), 'CrewClock is the one clock CREW, the DELEGATED row and the world read (per agent, per run, and when it next turns)');
   // (review of #21) CREW paints when its clock turns, never on a free-running interval at the page's own phase
-  A.ok(!/setInterval\(paint, 1000\)/.test(crew) && /tickTimer = setTimeout\(tick, msToNextSecond\(Date\.now\(\)\)\)/.test(crew), 'CREW repaints on the second its clock turns');
+  A.ok(!/setInterval\(paint, 1000\)/.test(crew) && /requestAnimationFrame\(step\)/.test(A.fnBody(crew, 'function rideTurn(turnAt)')), 'CREW repaints in the frame its clock turns (crew-cards.test steps it frame by frame)');
   // the DELEGATED row: a worker on the station's ledger reads its own run's CREW clock (waits excluded), and ticks on the same turn
   {
     const D = require('../frontend/app/delegated.js');
@@ -192,7 +192,7 @@ function load(src, headers, globals, extra) {
     A.eq(D.stateOf(row, 'home', 'lead').t, '1:40', 'a run this page never saw start falls back to the ledger\'s start');
     Object.assign(global, saved);
     const dsrc = rd('frontend/app/delegated.js');
-    A.ok(!/setInterval\(repaint, 1000\)/.test(dsrc) && /CrewClock\.msToNextSecond\(Date\.now\(\)\)/.test(dsrc), 'the DELEGATED clock tick lands on CREW\'s turn too');
+    A.ok(!/setInterval\(repaint, 1000\)/.test(dsrc) && /CrewClock\.atNextTurn\(fire\)/.test(dsrc), 'the DELEGATED clock tick rides CREW\'s turn (the same frame)');
   }
 }
 

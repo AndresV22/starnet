@@ -18,11 +18,13 @@
    A foreground worker that ended without delivering anything says exactly that — never "done". */
 const Delegated = (() => {
   const steps = new Map();   // worker runId -> { name, args } of its latest agent.tool_call
-  let ticker = 0, wired = false;
+  let ticker = 0, tickGen = 0, wired = false;
   const $log = () => document.getElementById('chat-log');
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const clock = ms => { const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const snap = () => (typeof Overseer !== 'undefined' && Overseer.snapshot && Overseer.snapshot()) || {};
+  // the instant CREW is painting when this repaint rides its turn (CrewClock.now), so the row reads exactly what CREW shows
+  const crewNow = () => (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.now === 'function') ? CrewClock.now() : Date.now();
   const has = (o, k) => typeof o !== 'undefined' && o && typeof o[k] === 'function';
 
   function agentOf(id) {
@@ -132,13 +134,13 @@ const Delegated = (() => {
       // the worker's OWN run as CREW clocks it (every wait on the Commander excluded — rc walk #21: this branch still read the
       // ledger's wall clock, so a worker that waited on an approval read a minute ahead of CREW and the world tag); the
       // ledger's start only when this page never saw that run begin
-      const runMs = (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.elapsedOfRun === 'function' && w.runId) ? CrewClock.elapsedOfRun(w.runId, Date.now()) : null;
+      const runMs = (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.elapsedOfRun === 'function' && w.runId) ? CrewClock.elapsedOfRun(w.runId, crewNow()) : null;
       return { cls: 'working', live: doing(steps.get(String(w.runId))), t: clock(typeof runMs === 'number' && isFinite(runMs) ? runMs : Date.now() - (+w.startedAt || Date.now())), stop: !!w.canInterrupt, worker: w };
     }
     // elapsedOf needs NOW: without it the clock read NaN and painted "0:00" for the whole run (live walkthrough 2026-10-13)
     if (C && C.isBusy && C.isBusy(k.id)) {
       // the worker's own clock as CREW shows it (approval waits excluded), else the thread's
-      const crewMs = (typeof CrewClock !== 'undefined' && CrewClock.elapsedOf && k.agentId) ? CrewClock.elapsedOf(k.agentId, Date.now()) : null;
+      const crewMs = (typeof CrewClock !== 'undefined' && CrewClock.elapsedOf && k.agentId) ? CrewClock.elapsedOf(k.agentId, crewNow()) : null;
       return { cls: 'working', live: 'working', t: crewMs != null ? clock(crewMs) : (C.elapsedOf ? clock(C.elapsedOf(k.id, Date.now())) : '') };
     }
     const reason = String((w && w.reason) || k.lastRunReason || '');
@@ -414,11 +416,15 @@ const Delegated = (() => {
       }
     }
     const anyLive = list.some(b => b.rows.some(r => (r.worker && r.worker.status === 'running') || (typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(r.ws.id))));
-    // the clock tick lands when CREW's clocks turn their second (CrewClock.msToNextSecond), so this row, CREW and the world tag
-    // change in the same frame; repaint re-arms it while anything is live
-    const nextMs = (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.msToNextSecond === 'function') ? CrewClock.msToNextSecond(Date.now()) : 1000;
-    if (anyLive && !ticker) ticker = setTimeout(() => { ticker = 0; repaint(); }, nextMs);
-    if (!anyLive && ticker) { clearTimeout(ticker); ticker = 0; }
+    // the clock tick rides CREW's own turn (CrewClock.atNextTurn: right after CREW paints, in the frame CREW and the world tag
+    // turn in), a 1 s timer only where that clock is absent; repaint re-arms it while anything is live (ticker -1 = armed on CREW)
+    if (anyLive && !ticker) {
+      const gen = ++tickGen;
+      const fire = () => { if (gen !== tickGen) return; ticker = 0; repaint(); };
+      if (typeof CrewClock !== 'undefined' && CrewClock && typeof CrewClock.atNextTurn === 'function') { ticker = -1; CrewClock.atNextTurn(fire); }
+      else ticker = setTimeout(fire, 1000);
+    }
+    if (!anyLive && ticker) { if (ticker > 0) clearTimeout(ticker); ticker = 0; tickGen++; }
   }
   function keyOf(el) {
     for (const a of ['data-dg-see', 'data-dg-stop', 'data-dg-toggle', 'data-dg-file', 'data-dg-question', 'data-dg-retry']) if (el.hasAttribute && el.hasAttribute(a)) return '[' + a + '="' + String(el.getAttribute(a)).replace(/["\\]/g, '\\$&') + '"]';
