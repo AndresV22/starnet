@@ -449,12 +449,17 @@ function makeJourneyStore(deps) {
     const counts = !(opts && opts.counts === false);
     const aid = agent(agentId); if (!aid) return '';
     const rec = read(), muted = rec.suppressed[aid] || {};
-    const order = counts ? (a, b) => b.count - a.count || a.domain.localeCompare(b.domain)
-      : (a, b) => (TIER_RANK[b.tier] || 0) - (TIER_RANK[a.tier] || 0) || a.domain.localeCompare(b.domain);
-    const rows = rec.mastery.filter(m => m.agentId === aid && !muted[m.domain]).sort(order);
-    if (!rows.length) return '';
+    // WHICH five: always the most-practised (by count), in both forms (review 2026-10-12: picking the five by tier, then
+    // name, let a tier-mate that sorts first push out the agent's most-practised domain). The tier-only form then RENDERS
+    // them by tier and domain, so its bytes change only when the 5th and 6th swap, a tier is crossed, or a domain is
+    // added or muted.
+    const byCount = (a, b) => b.count - a.count || a.domain.localeCompare(b.domain);
+    const byTier = (a, b) => (TIER_RANK[b.tier] || 0) - (TIER_RANK[a.tier] || 0) || a.domain.localeCompare(b.domain);
+    const top = rec.mastery.filter(m => m.agentId === aid && !muted[m.domain]).sort(byCount).slice(0, 5);
+    if (!top.length) return '';
+    const rows = counts ? top : top.slice().sort(byTier);
     const lines = ['<VERIFIED_JOURNEY_ADAPTATION>', 'Use this agent\'s verified outcome history as a planning prior, never as permission or proof about a new task:'];
-    for (const m of rows.slice(0, 5)) {
+    for (const m of rows) {
       const instruction = m.tier === 'proven' ? 'Reuse established patterns.'
         : m.tier === 'practiced' ? 'Prefer relevant repeated patterns, while stating uncertainty.'
           : 'Treat this as early evidence; consider the pattern but verify it.';

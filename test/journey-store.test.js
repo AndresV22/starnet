@@ -75,6 +75,23 @@ const fresh = fs => makeJourneyStore({ fs: fs || memFs(), path, workspaces: '/ws
     A.eq(t.adaptationBlock('builder', { counts: false }), tierOnly, 'tier-only block is byte-identical across a verified outcome that crosses no tier');
     A.ok(/building: 8 verified outcomes/.test(t.adaptationBlock('builder')), 'the default (counted) block still reports the live count');
   }
+  // the tier-only form keeps the agent's MOST-practised five (review 2026-10-12): six practiced domains, the most-practised
+  // one sorting last by name — picking by tier then name used to drop it
+  {
+    const t2 = fresh();
+    const plan = { building: 3, creative: 3, growth: 3, operations: 3, planning: 3, writing: 6 };
+    let k = 0;
+    for (const [domain, n] of Object.entries(plan)) for (let i = 0; i < n; i++) {
+      k++;
+      await t2.recordQuest({ id: 'q:w' + k, status: 'done', title: 'Job ' + k, domain, completedBy: 'writer', goalId: 'goal:w',
+        contract: { type: 'artifact', key: 'w-' + k + '.md' }, completedAt: 500 + k }, null, 500 + k);
+    }
+    const lean = t2.adaptationBlock('writer', { counts: false });
+    const named = lean.split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2).split(' (')[0]);
+    A.eq(named, ['building', 'creative', 'growth', 'operations', 'writing'], 'tier-only block: the five most-practised domains, rendered by tier then name');
+    const counted = t2.adaptationBlock('writer').split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2).split(':')[0]);
+    A.eq(counted.slice().sort(), named.slice().sort(), 'tier-only and counted blocks name the same five domains');
+  }
   // PROTOTYPE POLLUTION (security audit 2026-09-25): '__proto__' passes the agent-id regex, and
   // rec.suppressed['__proto__'] is Object.prototype — one /api/journey call used to set Object.prototype.building.
   for (const bad of ['__proto__', 'constructor', 'prototype']) {
