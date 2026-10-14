@@ -319,6 +319,19 @@ try {
     }
   }
   out0.idle.push(await idle('after the edits'));
+  if (flag('--close')) {   // SAVE & EXIT: what leaving BUILD MODE costs once the floor was edited (the live world takes over)
+    if (profiled.includes('close')) { await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 250 }); await cdp.send('Profiler.start'); }
+    await evalJS(cdp, `(window.__lt.length = 0, 1)`);
+    const c = await evalJS(cdp, `(() => { const t0 = performance.now(); Build.close(); return { sync: Math.round(performance.now() - t0), open: Build.isOpen() }; })()`);
+    await sleep(2500);
+    c.later = await evalJS(cdp, `window.__lt.slice()`);
+    console.log(`CLOSE (save & exit)    sync ${c.sync} ms · open after: ${c.open} · later long tasks [${c.later.join(', ')}]`);
+    if (profiled.includes('close')) { const p = summarize((await cdp.send('Profiler.stop')).profile, 40); console.log(`-- close profile busy ${p.total.toFixed(0)} ms
+-- inclusive:
+${p.incl}`); }
+    out0.close = c;
+    if (shots) console.log('closed shot', (await capture(cdp, shots, '99-closed')).path);
+  }
   for (let s = 1; s <= Number(arg('--settle', '0')); s++) { await sleep(4000); out0.idle.push(await idle('+' + (s * 6) + ' s later')); }
   if (flag('--esc')) {   // diagnosis only: does putting the armed tool down change the idle cost?
     console.log('tool before', await evalJS(cdp, `Build.__test__.tool()`));
@@ -340,7 +353,7 @@ try {
       ['no hi plates', `window.__ib = IndustrialTextures.drawBase, IndustrialTextures.drawBase = () => false`, `IndustrialTextures.drawBase = window.__ib`],
     ]) { await evalJS(cdp, `(${on}, 1)`); out0.idle.push(await idle(label)); await evalJS(cdp, `(${off}, 1)`); }
   }
-  const out = { station, opened, spots, rows, idle: out0.idle, errors: errors.slice(0, 20) };
+  const out = { station, opened, spots, rows, idle: out0.idle, close: out0.close || null, errors: errors.slice(0, 20) };
   if (flag('--verify')) {
     console.log('\n-- verify: kept chunked bake vs a fresh chunked bake, after every edit (base/light = mismatched pixels)');
     await evalJS(cdp, `(window.__verifyFirst = ${JSON.stringify(arg('--verify-first', 'rename'))}, 1)`);
