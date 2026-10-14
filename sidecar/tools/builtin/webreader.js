@@ -108,7 +108,8 @@
        relaunched it — 3 tries × ~20 s each — while the worker's web_search sat on "Searching …" for 80 s, then 185 s.
        A launch failure now ends that search's engine loop and holds the reader down for a cooldown: availability()
        says why, so web_search skips the rung at once (and tells the Commander) instead of relaunching a dead browser. */
-    const clock = typeof deps.now === 'function' ? deps.now : () => Date.now();
+    // the host injects the real clock (index.js); never ambient time here (lint-determinism) — with none, the cooldown never reads as over
+    const clock = typeof deps.now === 'function' ? deps.now : () => 0;
     const LAUNCH_COOLDOWN_MS = deps.launchCooldownMs == null ? 10 * 60000 : Number(deps.launchCooldownMs);
     let launchDown = null;   // { at, reason }
     const launchFailureOf = e => {

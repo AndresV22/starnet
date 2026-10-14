@@ -275,6 +275,16 @@ function stubFetch(routes) {
     const again = await w.searchTool.run({ query: 'q2' }, {});
     A.ok(/station browser could not start/.test(again.summary), 'R: a later search during the cooldown says so at once: ' + again.summary);
   }
+  {
+    /* S: the reader never reads ambient time (lint-determinism): the station's ONE reader gets the real clock from the
+       composition root, so its launch cooldown really ends in production; with no clock injected it never measures as over. */
+    const host = require('fs').readFileSync(require('path').join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+    A.ok(/const stationWebReader = makeWebReader\(\{ env: process\.env, now: \(\) => Date\.now\(\) \}\);/.test(host), 'S: the host injects the real clock into the station web reader');
+    const r = makeWebReader({ makeDriver: () => ({ navigate: async () => { throw new Error('browser unavailable: could not attach to Chromium'); },
+      lastResponse: () => null, evalPublic: async () => ({ value: [] }), getText: async () => '', close: async () => {} }), idleMs: 3600000 });
+    await r.search('q');
+    A.ok(!r.available().ok && r.available().launchFailed === true, 'S: with no clock injected, a dead browser stays down (the cooldown never reads as over)');
+  }
 
   A.report('web.reach.test');
 })();

@@ -63,7 +63,7 @@ const { makeWebReader } = require('./tools/builtin/webreader.js');
 const { makeBrowserTools, _internals: browserInternals } = require('./tools/builtin/browser.js');
 // ONE reader for the whole sidecar (lazy: no Chrome until the first bot-walled fetch actually needs
 // it; idle self-teardown). Per-run construction would pay the Chrome cold start on every run.
-const stationWebReader = makeWebReader({ env: process.env });
+const stationWebReader = makeWebReader({ env: process.env, now: () => Date.now() });
 const stationWebPoliteness = makePoliteScheduler({ now: () => Date.now() });
 const { makeComputerTools } = require('./tools/builtin/computer.js');
 const { makeCuaComputerTools } = require('./tools/builtin/cua-computer.js');
