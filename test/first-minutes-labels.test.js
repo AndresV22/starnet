@@ -40,13 +40,13 @@ const end = navSrc.indexOf('  groups.forEach(g => {', start);
 A.ok(start > 0 && end > start, 'found the nav coach block');
 const block = navSrc.slice(start, end);
 
-function run(held) {
+function run(held, dialogue) {
   const listeners = {};
   let observerCb = null;
   const el = (extra) => Object.assign({ hidden: true, addEventListener() {} }, extra || {});
   const coach = el();
   const game = el({ classList: { contains: c => c === 'active' } });
-  const state = { held };
+  const state = { held, dialogue: !!dialogue };
   const ctx = vm.createContext({
     document: {
       getElementById: id => (id === 'nav-coach' ? coach : id === 'screen-game' ? game : el()),
@@ -55,7 +55,8 @@ function run(held) {
     localStorage: { getItem: () => null, setItem() {} },
     setTimeout: () => 1, clearTimeout() {},
     MutationObserver: function (cb) { observerCb = cb; this.observe = () => {}; },
-    World: { awakeningHeld: () => state.held }
+    World: { awakeningHeld: () => state.held },
+    Dialogue: { isOpen: () => state.dialogue }
   });
   vm.runInContext(block, ctx);
   return { coach, state, fire: name => (listeners[name] || []).forEach(fn => fn()), observe: () => observerCb && observerCb() };
@@ -71,5 +72,19 @@ A.eq(born.coach.hidden, true, 'a class flicker on #screen-game during the awaken
 born.state.held = false;
 born.fire('starnet:awakening-released');
 A.eq(born.coach.hidden, false, 'the release shows the coach once the arrival is over');
+
+// org P31 review fix: closeOut releases the awakening while the Dialogue panel still covers COMMS (first-task hand-off,
+// tour). The coach ("Talk to your agent up in COMMS") must hold until that panel closes.
+A.ok(/const wasOpen = open;[\s\S]{0,1400}if \(wasOpen && [^\n]*dispatchEvent\(new CustomEvent\('starnet:dialogue-closed'\)\)/.test(read('frontend/app/dialogue.js')),
+  'Dialogue.close announces that COMMS is uncovered');
+const handoff = run(true, true);
+handoff.state.held = false;
+handoff.fire('starnet:awakening-released');
+A.eq(handoff.coach.hidden, true, 'the release with the hand-off panel still over COMMS keeps the coach hidden');
+handoff.observe();
+A.eq(handoff.coach.hidden, true, 'a class flicker while the panel is open does not show it');
+handoff.state.dialogue = false;
+handoff.fire('starnet:dialogue-closed');
+A.eq(handoff.coach.hidden, false, 'closing the panel shows the coach over an uncovered COMMS');
 
 A.report('first-minutes-labels.test');

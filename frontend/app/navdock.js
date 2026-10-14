@@ -110,9 +110,15 @@
   // (World.beginAwakening), so the coach waited for nothing and talked over the first meeting. It now waits for
   // World.releaseAwakening, which fires 'starnet:awakening-released'; a returning Commander (no awakening) is unchanged.
   const awakeningHeld = () => typeof World !== 'undefined' && typeof World.awakeningHeld === 'function' && World.awakeningHeld();
+  // NOT OVER A COVERED COMMS (org P31 review fix): closeOut releases the awakening while the Dialogue panel — mounted
+  // over #chat-panel — still runs the first-task hand-off and the tour, so "Talk to your agent up in COMMS" would point
+  // at a COMMS the panel hides. The coach also holds while a Dialogue is open; Dialogue.close fires
+  // 'starnet:dialogue-closed' and the coach asks again then.
+  const dialogueOpen = () => typeof Dialogue !== 'undefined' && typeof Dialogue.isOpen === 'function' && Dialogue.isOpen();
   function showCoachOnce() {
     if (!coach || !coach.hidden || coachShown) return;
     if (awakeningHeld()) return;   // the arrival is still on screen — the release event asks again
+    if (dialogueOpen()) return;    // COMMS is covered by the conversation panel — the close event asks again
     try { if (localStorage.getItem(COACH_KEY)) return; } catch (_) {}
     coachShown = true;
     coach.hidden = false;
@@ -127,6 +133,7 @@
       new MutationObserver(() => { if (game.classList.contains('active')) showCoachOnce(); })
         .observe(game, { attributes: true, attributeFilter: ['class'] });
       document.addEventListener('starnet:awakening-released', () => { if (game.classList.contains('active')) showCoachOnce(); });
+      document.addEventListener('starnet:dialogue-closed', () => { if (game.classList.contains('active')) showCoachOnce(); });
     }
   }
 
