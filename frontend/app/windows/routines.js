@@ -88,9 +88,9 @@
       '<div id="rt-out" class="msg rt-out" hidden></div>';
     const secCreate =
       '<div class="mc-form rt-simple-create">' +
-        '<div class="rt-identity"><label class="sn-menu-field">Name<input id="rt-name" class="key-input" placeholder="e.g. Morning research brief" maxlength="80" autocomplete="off"></label>' +
+        '<div class="rt-identity"><label class="sn-menu-field">Name<input id="rt-name" class="key-input" placeholder="e.g. Morning brief" maxlength="80" autocomplete="off"></label>' +
         // RUN BY (org P16): agents first, then workflows — a workflow runs the WHOLE line from its first step (runsLine)
-        '<label class="sn-menu-field">RUN BY<select id="rt-agent-select" class="key-input">' +
+        '<label class="sn-menu-field">Run by<select id="rt-agent-select" class="key-input">' +
           (lines.length ? '<optgroup label="AGENTS">' : '') +
           roster.map(a => '<option value="' + esc(a.id) + '"' + (!routineLineKey && a.id === routineAgentId ? ' selected' : '') + '>' + esc(a.name || a.id) + '</option>').join('') +
           (lines.length ? '</optgroup><optgroup label="WORKFLOWS">' + lines.map(l => '<option value="line:' + esc(l.key) + '"' + (l.dockId ? '' : ' disabled') + (routineLineKey === l.key ? ' selected' : '') + '>' +

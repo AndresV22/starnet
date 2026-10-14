@@ -64,7 +64,7 @@ A.ok(/maxPendingDeliveries: cronStore.MAX_PENDING_DELIVERIES/.test(idx), 'GET /a
   // the save says what it did: armedNow → "scheduling is now on"; offByChoice → the switch, never a silent override
   A.ok(src.includes("msgEl.textContent = '✓ saved · scheduling is now on'") && src.includes('r.scheduler.offByChoice') && src.includes('id="rt-msg-arm"'), 'the save confirm follows the server verdict');
   // RUN BY: agents, then workflows; a workflow posts its first step's agent + BAY + runsLine:true
-  A.ok(src.includes("'<label class=\"sn-menu-field\">RUN BY<select id=\"rt-agent-select\"") && /optgroup label="AGENTS"[\s\S]*optgroup label="WORKFLOWS"/.test(src), 'RUN BY lists agents, then workflows');
+  A.ok(src.includes("'<label class=\"sn-menu-field\">Run by<select id=\"rt-agent-select\"") && /optgroup label="AGENTS"[\s\S]*optgroup label="WORKFLOWS"/.test(src), 'RUN BY lists agents, then workflows');
   A.ok(src.includes("dockId: line ? line.dockId : undefined, runsLine: line ? true : undefined,"), 'a workflow choice posts dockId + runsLine:true (the line-schedule path)');
   const wfw = fs.readFileSync(path.join(__dirname, '../frontend/app/windows/workflows.js'), 'utf8');
   A.ok(/function startLines\(\)[\s\S]*Wl\.entryDocksOf/.test(wfw) && /showJob, startLines,/.test(wfw), 'WORKFLOWS exports each line\'s schedule entry (its first routed step) for RUN BY');
