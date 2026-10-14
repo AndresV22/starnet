@@ -202,6 +202,34 @@ const forbiddenToken = () => new Response('forbidden token', { status: 403 });
       A.ok(reads() === 1 && w.stale() === true && notes.length === 1 && /station restarted/.test(notes[0].text),
         'a keyed page whose token went stale keeps the restart + reload wording: ' + (notes[0] && notes[0].text));
     }
+    // (live walk 10-14) a restart whose first page read comes back without the new key (the ownership check timed out on a
+    // loaded box): ONE honest alert that stays while the page is refused, says the page keeps trying and reloads on a click —
+    // and the next refused call that finds the key marks it handled and says so in the same card
+    {
+      let served = withheldPage('lookup-failed');
+      const { w, notes, settled, reads, clock } = wire('', () => served);
+      w.note();
+      for (let i = 0; i < 3; i++) await w.staleToken.settle(forbiddenToken(), 'OLD', null);
+      A.ok(reads() === 1 && w.stale() === true, 'the first refused call reads the page at once; the next polls inside 3 s do not (' + reads() + ' reads)');
+      clock.now += 3000;
+      await w.staleToken.settle(forbiddenToken(), 'OLD', null);
+      A.ok(reads() === 2 && w.stale() === true, '…every 3 s the page is read again while the key is missing — never once per poll (each read runs the ownership lookup)');
+      A.eq(notes.length, 1, 'one notice for the whole refused stretch, not one per poll');
+      const n = notes[0] || {};
+      A.ok(/station restarted/.test(n.text) && /keeps trying on its own/.test(n.text) && /click here to reload/.test(n.text) && !/could not reconnect/.test(n.text),
+        'it says what is true: the page keeps trying, and a click reloads: ' + n.text);
+      A.ok(n.opts && n.opts.kind === 'alert' && n.opts.key === 'station-restarted', 'kept in NOTIFICATIONS as one alert (it outlives the four-second toast)');
+      A.ok(n.opts && typeof n.opts.onClick === 'function' && /Friendly\.actionButton\(\{ action: 'reload' \}\)/.test(String(harness)), 'its click takes the reload door COMMS error rows offer');
+      served = pageWith('NEW');
+      clock.now += 3000;
+      const out = await w.staleToken.settle(forbiddenToken(), 'OLD', fresh => Promise.resolve(new Response('replayed:' + fresh)));
+      A.eq(await out.text(), 'replayed:NEW', 'the next refused call that finds the key replays with it');
+      A.ok(w.stale() === false && w.token() === 'NEW', 'the page is no longer stale and holds the new key');
+      A.eq(settled.filter(k => k === 'station-restarted').length, 1, 'the restart alert is marked handled');
+      const last = notes[notes.length - 1];
+      A.ok(notes.length === 2 && last.cls === 'good' && /reconnected on its own/.test(last.text) && last.opts && last.opts.key === 'station-restarted',
+        'and "reconnected on its own" replaces the warning card in place: ' + (last && last.text));
+    }
     A.ok(/let tokenWithheld = \(typeof window !== 'undefined' && !window\.__STARNET_API_TOKEN__ && window\.__STARNET_TOKEN_WITHHELD__\)/.test(harness),
       'harness reads the withheld reason only when the page carries no key (cleared when a retry adopts one)');
     A.ok(/async function init\(\) \{\s*(\/\/[^\n]*\n\s*)?noteTokenWithheld\(\);/.test(harness), 'boot shows the withheld notice before the first refused call');
