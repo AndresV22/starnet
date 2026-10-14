@@ -288,15 +288,28 @@ const IndustrialTextures = (() => {
   }
   // Map the authored steel mullion down a splayed doorway reveal. Subpixel
   // slices retain the six-times wall bake resolution rather than pixel stairs.
+  /* A DRAW THAT MISSES THE CANVAS IS NOT MADE (2026-10-14, the busy-station walk: a BUILD MODE chunk bake walked every
+     doorway reveal and hull column within reach of its 384px square, and most of those slices land beside it). The rect,
+     in the context's own units, that its canvas covers — its dense plate covers the same rect — one pixel wider all round;
+     null under any transform but an axis-aligned positive one, which never skips. A slice wholly outside it paints
+     nothing there, so it is not drawn (the painter's save/restore keeps its state unchanged either way). */
+  function canvasBox(ctx) {
+    const m = ctx.getTransform ? ctx.getTransform() : null, cv = ctx.canvas;
+    if (!m || !cv || m.b !== 0 || m.c !== 0 || !(m.a > 0) || !(m.d > 0)) return null;
+    return { x0: (-1 - m.e) / m.a, x1: (cv.width + 1 - m.e) / m.a, y0: (-1 - m.f) / m.d, y1: (cv.height + 1 - m.f) / m.d };
+  }
+  const misses = (box, x, y, w, h) => !!box && (x + w < box.x0 || x > box.x1 || y + h < box.y0 || y > box.y1);
   function doorReturn(ctx,edge,top,foot,reach,side,base,capH=0) {
     if(!enabled())return false;
     const im=material('remaster/walls/viewport',base),height=foot-top+1;
     if(height<=0)return false;
     ctx.save();ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+    const box=canvasBox(ctx);
     for(let i=0;i<height*6;i++) {
       const y=top+i/6,h=Math.min(1/6,foot+1-y);
       const t=Math.min(1,(y+h/2-top)/(foot-top));
       const w=1+reach*(1-t),x=side?edge-w:edge;
+      if(misses(box,x,y,w,h))continue;
       ctx.drawImage(im,(side?.87:.03)*im.width,(.17+.58*(y-top)/height)*im.height,
         .10*im.width,.58*h/height*im.height,x,y,w,h);
       ctx.fillStyle=side?'rgba(0,0,0,0.13)':'rgba(0,0,0,0.27)';ctx.fillRect(x,y,w,h);
@@ -304,6 +317,7 @@ const IndustrialTextures = (() => {
     const cap=material('remaster/crown',base);
     for(let i=0;i<capH*6;i++) {
       const k=i/6,w=1+reach*(k+1/12)/capH,x=side?edge-w:edge;
+      if(misses(box,x,top-capH+k,w,1/6))continue;
       ctx.drawImage(cap,.22*cap.width,(.13+.73*k/capH)*cap.height,
         .18*cap.width,.73/capH/6*cap.height,x,top-capH+k,w,1/6);
     }
@@ -410,13 +424,16 @@ const IndustrialTextures = (() => {
     const im = shellImage(material, base), period = 96;
     if (!im) return false;
     ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    // a hull layer is cut to the part of the skirt that survives its mask, but the veins walk every column of the chunk
+    const box = canvasBox(ctx);
     // Sample each column relative to its actual contour top. The geometry's
     // alpha mask and exposure pass still clip and shade the resulting cladding.
     for (let x = 0; x < width; x++) {
+      if (misses(box, x, 0, 1, height)) continue;
       const top = topOf && topOf[x] >= 0 ? topOf[x] : -vy;
       for (let y = 0; y < height;) {
         const sy = mod(y - top, period), h = Math.min(period - sy, height - y);
-        ctx.drawImage(im, mod(vx + x, period) * im.width / period, sy * im.height / period,
+        if (!misses(box, x, y, 1, h)) ctx.drawImage(im, mod(vx + x, period) * im.width / period, sy * im.height / period,
           im.width / period, h * im.height / period, x, y, 1, h);
         y += h;
       }
