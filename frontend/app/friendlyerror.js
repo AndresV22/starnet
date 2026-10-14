@@ -223,8 +223,8 @@
     }
     if (r === 'refusal') return 'the model declined that request — try rephrasing it';
     if (r === 'cancelled') {
-      if (o.cancelSource === 'estop_by_run') return 'stopped by the E-STOP this run pressed — RESUME AUTOMATION (top bar) is yours alone';
-      return 'stopped from outside this chat — a STOP elsewhere (desk screen, HUD, phone or E-STOP) ended it before it finished';
+      if (o.cancelSource === 'estop_by_run') return 'stopped — this run paused all automation (what Pause Automation in the StarNet tray menu does); RESUME AUTOMATION (top bar) is yours alone';
+      return 'stopped from outside this chat — a STOP elsewhere (desk screen, HUD, phone, or Pause Automation in the StarNet tray menu) ended it before it finished';
     }
     if (r === 'error') return 'it stopped on an error before it finished — try again';
     if (!r || r === 'done' || r === 'clarifying') return '';

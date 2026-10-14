@@ -950,7 +950,7 @@ const Onboarding = (() => {
       : 'i’m ' + NAME + '. ready for my first assignment. you can change my setup in the agent dossier.';
     await Dialogue.say([seg(readyLine, 46, 0)]);
     if (birthFailed) {
-      await Dialogue.say([seg('the model connection failed during setup. check CONNECT before starting a task; your saved setup is still here.', 46, 0)]);
+      await Dialogue.say([seg('the model connection failed during setup. check SETTINGS › AI & MODELS before starting a task; your saved setup is still here.', 46, 0)]);
     }
     if (World.releaseAwakening) World.releaseAwakening();   // hand the agent back to its own autonomous life
     if (taughtCb) taughtCb();                               // → Tutorial.firstCommand opens the tour IN THIS PANEL

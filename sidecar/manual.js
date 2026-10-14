@@ -84,7 +84,7 @@ const NAV_REST =
   'class), or use the ＋ BUILD A CUSTOM CLASS tile to define their own. The new agent materializes on ' +
   'the floor.\n' +
   '- APPROVALS: an agent in ASK mode that needs a decision pauses with an approval card in COMMS, in the conversation ' +
-  'where it paused: Approve once, Always, Never ask, or Deny. NOTIFICATIONS › NEEDS YOU lists every one still waiting.\n';
+  'where it paused: Approve once, Always, Never ask, or Deny. NEEDS YOU at the top of SESSIONS lists every one still waiting (also NOTIFICATIONS › NEEDS YOU).\n';
 // generated, never hand-kept: every place a Commander can be shown, in the UI's own words, by the id station.show takes
 const NAV_PLACES = 'EVERY PLACE (the id station.show takes → the UI\'s words — what it is for):\n'
   + Places.PLACES.map(p => '- ' + p.id + ' → ' + p.words + ' — ' + p.about + '\n').join('');

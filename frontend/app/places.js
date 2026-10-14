@@ -73,7 +73,7 @@
     P('settings-alerts', 'SETTINGS › ALERTS', 'what pings the Commander and whether it chimes', { term: 'settings', section: 'notifs' }),
     P('settings-remote', 'SETTINGS › REMOTE', 'pair a phone and control the station from anywhere', { term: 'settings', section: 'remote' }),
     P('settings-browser', 'SETTINGS › BROWSER', 'where the station browser runs, and RESET STATION BROWSER when it is stuck', { term: 'settings', section: 'browser' }),
-    P('settings-app', 'SETTINGS › APP & BACKUP', 'startup, runtime limits, backups, updates, troubleshooting, START FRESH and ERASE EVERYTHING', { term: 'settings', section: 'system' }),
+    P('settings-app', 'SETTINGS › APP & BACKUP', 'startup, runtime limits, backups, updates, troubleshooting and ERASE EVERYTHING', { term: 'settings', section: 'system' }),
     P('notifications', 'NOTIFICATIONS', 'everything that happened and what is waiting on the Commander', { term: 'notifs' }),
     P('updates', 'UPDATES', 'check for and install a StarNet update', { term: 'updates' }),
     P('field-manual', 'FIELD MANUAL', 'the Commander\'s guide to StarNet', { term: 'manual' })

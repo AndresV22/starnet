@@ -143,6 +143,7 @@ test/credits-link.test.js
 test/credits-store-recovery.test.js
 test/friendlyerror.test.js
 test/stop-reason.test.js
+test/help-copy-matches-screen.test.js
 test/codexsignin.test.js
 test/oauthsignin.test.js
 test/hooks.test.js

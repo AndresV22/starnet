@@ -42,6 +42,7 @@ The big update v0.13.3 promised. Lines hand finished work to each other, a SPLIT
 - **A follow-up joins the running task.** In a direct chat on any connected chat app, a message you send while an agent is still working steers that task instead of replacing it. In a group chat, or with media or a forwarded message, a new message still replaces the running task. A plain "stop" or "cancel" from you in a direct chat now works like /stop.
 - **Recalling a chat from before this update now asks before running commands, because older history carries no trust stamp.**
 - **Group chats and chats with other people can no longer recall your other chats.** They only search their own conversation.
+- **FIND (Ctrl+K) is gone,** with its SYSTEM › FIND button. To find a conversation, use the search box at the top of SESSIONS in COMMS. To find a window or a setting, the FIELD MANUAL names where each one lives, or ask your agent to open it for you.
 - **Old ROOM LIGHT settings carry over.** LOW, MEDIUM and HIGH become 0, 15 and 30 on the new slider.
 
 ### New

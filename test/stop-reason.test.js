@@ -94,8 +94,9 @@ for (const n of [1, 2]) {
   A.eq(line, SR.stopSentence('empty', { toolsRan: n }), 'COMMS mirrors the chat wording for an empty end after ' + n + ' tool step(s)');
 }
 A.eq(Friendly.stopLine('empty', { toolsRan: 0 }), SR.stopSentence('empty'), 'COMMS mirrors the chat wording for an empty end with no tool step');
-A.ok(/outside this chat/.test(Friendly.stopLine('cancelled')) && /E-STOP/.test(Friendly.stopLine('cancelled')), 'COMMS: a cancel that was not yours says it came from elsewhere');
-A.ok(/E-STOP this run pressed/.test(Friendly.stopLine('cancelled', { cancelSource: 'estop_by_run' })), 'COMMS: the run\'s own E-STOP keeps its line');
+A.ok(/outside this chat/.test(Friendly.stopLine('cancelled')) && /Pause Automation in the StarNet tray menu/.test(Friendly.stopLine('cancelled')), 'COMMS: a cancel that was not yours says it came from elsewhere, naming the tray\'s real Pause Automation');
+A.ok(!/E-STOP/.test(Friendly.stopLine('cancelled')) && !/E-STOP/.test(Friendly.stopLine('cancelled', { cancelSource: 'estop_by_run' })), 'COMMS: stop lines never name an E-STOP the desk does not show (org P30)');
+A.ok(/this run paused all automation/.test(Friendly.stopLine('cancelled', { cancelSource: 'estop_by_run' })) && /RESUME AUTOMATION/.test(Friendly.stopLine('cancelled', { cancelSource: 'estop_by_run' })), 'COMMS: the run\'s own automation pause keeps its line');
 A.eq(Friendly.stopLine('done'), '', 'COMMS: a clean end has no stop line');
 A.ok(/Friendly\.stopLine\(endReason/.test(chat), 'COMMS routes its stop lines through Friendly.stopLine');
 // threads-backend-03: the stop line hears how many tool calls this run made, so an "empty" end after real steps is
