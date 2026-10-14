@@ -538,14 +538,16 @@ const WorkflowsWindow = (() => {
   function newHTML(f) {
     const first = !f.lines.length, pk = S.pick, dr = S.drafting;
     // the Build Library's tile: the line's miniature, its name, one small line; what it is for is its tip (the goal tile's tip quotes
-    // the Commander's own words first — the shelf's FOR YOUR GOAL tip)
+    // the Commander's own words first — the shelf's FOR YOUR GOAL tip). (org D2/D3) the goal tile leads on a row of its own above the
+    // four, and its small line is the step count like every tile and like CONVEYORS › LINES — the goal it fits is its tip, never a
+    // stat that reads as if it matched the still-empty field above
     const goal = goalStarter();
     const tiles = (goal ? [goal.id] : []).concat(STARTERS).map(id => {
       const bp = bpOf(id); if (!bp) return '';
       const roles = bayRoles(bp), art = lineArt(id), on = pk && pk.bp === id, isGoal = !!goal && goal.id === id, purpose = (words().purpose || {})[id] || '';
       const tip = (isGoal ? '“' + goal.quote + '” — ' + goal.why + '\n' : '') + (purpose ? purpose.charAt(0).toUpperCase() + purpose.slice(1) + '.' : plainName(id));
       return '<button type="button" class="wfw-tile' + (on ? ' on' : '') + (isGoal ? ' wfw-goal' : '') + '" data-starter="' + esc(id) + '" aria-pressed="' + !!on + '" data-tip="' + esc(tip) + '">'
-        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + (isGoal ? 'for your goal' : roles.length + ' step' + (roles.length === 1 ? '' : 's') + (bp.props.some(p => p.t === 'loop') ? ' · reviewed' : '')) + '</span></button>';
+        + '<span class="wfw-tart">' + (art ? '<img alt="" src="' + art + '">' : '') + '</span><b>' + esc(plainName(id)) + '</b><span class="wfw-tstat">' + roles.length + ' step' + (roles.length === 1 ? '' : 's') + (bp.props.some(p => p.t === 'loop') ? ' · reviewed' : '') + '</span></button>';
     }).join('');
     let h = '<header class="wfw-head">' + (first ? '' : '<button type="button" class="bb sm" data-act="back">‹ ALL WORKFLOWS</button>')
       + '<h2 class="wfw-title">' + (first ? 'Make your first workflow' : 'New workflow') + '</h2></header>'
@@ -553,7 +555,7 @@ const WorkflowsWindow = (() => {
       + '<section class="wfw-sec"><h3>What should it make?</h3>'
       + '<textarea id="wfw-describe" class="wfw-field" rows="2" maxlength="600" placeholder="e.g. a weekly digest of AI news for my newsletter">' + esc(S.draft.describe || '') + '</textarea>'
       + '<div class="wf-row"><button type="button" class="bb refit-primary" data-act="draft"' + (dr && dr.state === 'asking' ? ' disabled' : '') + '>' + (dr && dr.state === 'asking' ? 'SETTING IT UP…' : '✦ SET IT UP FOR ME') + '</button>'
-      + '<span class="wfw-note">The station picks one of the ' + catalogLines().length + ' ready-made lines and writes its steps’ instructions — one short model call.</span></div>'
+      + '<span class="wfw-note">The station picks one of ' + catalogLines().length + ' ready-made workflows and writes each step’s instructions (one short model call).</span></div>'   // (org D11) this page's word, workflows
       + (dr && dr.state === 'error' ? '<p class="wfw-bad">✕ ' + esc(dr.error) + '</p>' : '')
       + '</section>'
       + '<section class="wfw-sec"><h3>Or pick one</h3><div class="wfw-tiles">' + tiles + '</div>'
@@ -604,7 +606,7 @@ const WorkflowsWindow = (() => {
     return '<section class="wfw-sec wfw-stepbox"><h3>Step ' + s.n + ((s.label || s.role) ? ' · ' + esc(s.label || s.role) : '') + '</h3>'
       + '<div class="wfw-k">Who does it?</div><div class="wfw-agents">' + crew.map(a => '<button type="button" class="wfw-agent' + (a.id === s.agentId ? ' on' : '') + '" data-assign="' + esc(s.id) + '" data-aid="' + esc(a.id) + '" aria-pressed="' + (a.id === s.agentId) + '">'
         + thumb(a.id, 26, 32, 'wfw-av') + '<span>' + esc(String(a.name || a.id).toUpperCase()) + '</span></button>').join('') + '</div>'
-      + (s.agentId && !s.desk ? '<div class="wf-row"><span class="wfw-bad">' + esc(NAME(s.agentId)) + ' needs a desk to work this step.</span><button type="button" class="bb sm refit-primary" data-desk="' + esc(s.id) + '">GIVE ' + esc(NAME(s.agentId)) + ' A DESK</button></div>' : '')
+      + (s.agentId && !s.desk ? '<div class="wf-row"><span class="wfw-bad">' + esc(NAME(s.agentId)) + ' needs a desk to work this step.</span><button type="button" class="bb sm refit-primary" data-desk="' + esc(s.id) + '">⊕ GIVE ' + esc(NAME(s.agentId)) + ' A DESK</button></div>' : '')
       + '<div class="wfw-k">What it does</div><div class="wf-io wfw-does">' + esc(s.brief || '(no instructions — it does what the job asks)') + '</div>'
       + '<div class="wf-row"><span class="wfw-note">Change a step’s instructions with NEEDS CHANGES under a result, or in</span><button type="button" class="wf-link" data-act="edit">EDIT WORKFLOW</button></div></section>';
   }
@@ -614,7 +616,7 @@ const WorkflowsWindow = (() => {
     for (const s of missing) items.push('<div class="wfw-fixrow"><div class="wfw-fixh">Who does step ' + s.n + ((s.label || s.role) ? ' · ' + esc(s.label || s.role) : '') + '?</div><div class="wfw-agents">'
       + (crew.length ? crew.map(a => '<button type="button" class="wfw-agent" data-assign="' + esc(s.id) + '" data-aid="' + esc(a.id) + '">' + thumb(a.id, 26, 32, 'wfw-av') + '<span>' + esc(String(a.name || a.id).toUpperCase()) + '</span></button>').join('')
         : '<span class="wfw-bad">No agents yet — recruit one from CREW first.</span>') + '</div></div>');
-    for (const s of l.steps.filter(s => s.agentId && !s.desk)) items.push('<div class="wfw-fixrow"><div class="wfw-fixh">' + esc(NAME(s.agentId)) + ' needs a desk to work step ' + s.n + '.</div><div class="wf-row"><button type="button" class="bb sm refit-primary" data-desk="' + esc(s.id) + '">GIVE ' + esc(NAME(s.agentId)) + ' A DESK</button></div></div>');
+    for (const s of l.steps.filter(s => s.agentId && !s.desk)) items.push('<div class="wfw-fixrow"><div class="wfw-fixh">' + esc(NAME(s.agentId)) + ' needs a desk to work step ' + s.n + '.</div><div class="wf-row"><button type="button" class="bb sm refit-primary" data-desk="' + esc(s.id) + '">⊕ GIVE ' + esc(NAME(s.agentId)) + ' A DESK</button></div></div>');
     const handled = /needs an agent|needs a workstation/;
     for (const b of l.ready.blocking.filter(b => !handled.test(b.what))) items.push('<div class="wfw-fixrow"><div class="wfw-fixh">' + esc(b.what.charAt(0).toUpperCase() + b.what.slice(1)) + '</div><div class="wf-row"><button type="button" class="bb sm" data-act="edit">FIX IT IN THE EDITOR</button></div></div>');
     return '<section class="wfw-sec wfw-setup"><h3>Finish setting it up</h3><p class="wfw-note">' + (l.ready.blocking.length === 1 ? 'One thing' : l.ready.blocking.length + ' things') + ' before it can take a job:</p>'

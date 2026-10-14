@@ -101,8 +101,8 @@ textarea.wfw-field { min-height: 76px; }
   border: 1px solid var(--wf-edge); border-radius: 10px; background: var(--refit-glass); box-shadow: var(--wf-light);
   transition: background-color var(--t-fast) var(--ease-soft), border-color var(--t-fast) var(--ease-soft); }
 .wfw-tile:hover { border-color: rgba(var(--ph-rgb),.45); background: var(--wf-hover); }
-/* (org P18) the Commander's FOR YOUR GOAL line, leading the starters: the shelf's goal gold on its small line */
-.wfw-tile.wfw-goal .wfw-tstat { color: var(--gold); }
+/* (org P18, D2) the Commander's FOR YOUR GOAL line leads the starters on a row of its own, so the four below stay a whole grid */
+.wfw-tile.wfw-goal { grid-column: 1 / -1; }
 .wfw-tile.on { border-color: var(--ph); background: var(--wf-on); box-shadow: var(--wf-light), inset 0 -2px 0 rgba(var(--ph-rgb),.65); }
 .wfw-tart { display: grid; place-items: center; width: 100%; height: 62px; border-radius: 8px; background: radial-gradient(ellipse 72% 70% at 50% 64%, rgba(130,170,150,.11), transparent 76%); }
 .wfw-tart img { display: block; max-width: 100%; max-height: 58px; image-rendering: pixelated; }
@@ -163,7 +163,8 @@ textarea.wfw-field { min-height: 76px; }
 .wfw-acts { padding-top: 2px; }
 /* (org P14) the rating TO REVIEW asks for, mounted under a delivered job that still waits there (Chat.awayRate) */
 .wfw-rate { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 16px; color: var(--ph-dim); }
-.wfw-rate .work-rate-reference { flex-basis: 100%; }
+/* (org D1) YOU ASKED already sits at the top of this page: the task · run line would only repeat it */
+.wfw-rate .work-rate-reference { display: none; }
 .wfw-fix { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--wf-edge); border-radius: 10px; background: var(--wf-plate); box-shadow: var(--wf-light); }
 .wfw-fixes { display: grid; gap: 8px; }
 .wfw-changes { margin: 4px 0 0; padding-left: 1.2em; font-size: 16px; color: var(--text); }

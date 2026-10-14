@@ -4340,10 +4340,13 @@ body.crew-rail-off #screen-game.active {
 .refit-linegrid > .refit-linegroup:first-child, .refit-machines > .refit-machinegroup:first-child { margin-top: 0; }
 .refit-goalhd { color: var(--gold); }
 /* (org P18) a folded shelf: its name + count, one click from open. A plain heading in the heading voice, never a glass key */
-.refit-linegroup.refit-lineshelf-tog { display: flex; align-items: baseline; gap: 6px; width: auto; padding: 4px 2px; border: 0; border-radius: 0; background: none; box-shadow: none; font: inherit; color: var(--ph-dim); text-align: left; cursor: pointer; }
+/* (org D12) the folded shelves read as one tight, ruled list in the open headings' ink: full width, a hairline between them, no
+   12px heading gap stacked on the grid gap between two folded names */
+.refit-linegroup.refit-lineshelf-tog { display: flex; align-items: baseline; gap: 8px; width: 100%; margin: 6px 0 0; padding: 7px 4px; border: 0; border-top: 1px solid rgba(var(--ph-rgb),.16); border-radius: 0; background: none; box-shadow: none; font: inherit; color: var(--ph); text-align: left; cursor: pointer; }
+.refit-linegroup.refit-lineshelf-tog + .refit-linegroup.refit-lineshelf-tog { margin-top: -7px; }
 .refit-linegroup.refit-lineshelf-tog:hover, .refit-linegroup.refit-lineshelf-tog.open { color: var(--ph-bright); }
 .refit-linegroup.refit-lineshelf-tog:focus-visible { outline: 1px solid var(--ph); outline-offset: 2px; }
-.refit-lineshelf-tog small { opacity: .65; }
+.refit-lineshelf-tog small { color: var(--ph-dim); }
 /* MACHINES — three across, the prop tile: art, name, and the machine's wiring drawn small */
 .refit-machines { display: block; width: 100%; }
 .refit-machinegrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; width: 100%; margin-top: 6px; }
