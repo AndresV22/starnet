@@ -85,7 +85,8 @@ const DeskScreen = (() => {
       let s = null;
       for (let i = rec.steps.length - 1; i >= 0; i--) { const x = rec.steps[i]; if (!x.done && (!p.callId || !x.callId || x.callId === p.callId)) { s = x; break; } }
       if (!s) return;
-      s.done = true; s.ok = !p.isError && p.ok !== false;
+      // a call the Task Brief gate held never ran: no outcome (null), never a failed step
+      s.done = true; s.ok = (typeof TaskIntent !== 'undefined' && TaskIntent.isGateHeld && TaskIntent.isGateHeld(p)) ? null : (!p.isError && p.ok !== false);
       if (typeof p.ms === 'number' && isFinite(p.ms)) s.ms = p.ms;
       if (p.summary) s.summary = String(p.summary);
     } else if (name === 'agent.token') {

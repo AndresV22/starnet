@@ -487,6 +487,9 @@
     function makeChange(name, consentKey, isPower) {
       return {
         name, capability: 'orchestrator', consentKey, taintLocked: true, scope: 'write', requiresConsent: true, timeoutMs: 45000,
+        // a station SETTING (bring crew into this chat, rename a session…) is setup, not the deliverable a Task Brief settles —
+        // the team.summon rule (taskbrief-policy canMutate). It keeps its own approval card. An escalation (station.power) still waits.
+        briefExempt: !isPower,
         // in ASK an escalation is a card per call (no cached "always" approves it, none is left behind), and a Full Access
         // run that read outside content asks before it widens the leash (permissions.js, taint.js)
         freshConsent: isPower,
