@@ -3532,11 +3532,13 @@ const StationBake = (() => {
          filled as one rect, so the common case (nothing standing south of this corner) is the single
          fillRect it always was, and crownRects/record only ever record pixels actually painted —
          a mask that disagrees with the painter is the leaked-ambient class of bug. */
+      // (grouped by the limit as it CUTS this rect: a wall standing below the rect cuts nothing, so it is the same as none —
+      // a far room's north wall in the same columns used to split the rect, and the split rect drew different pixels)
       for (let cx0 = x0; cx0 < x1; ) {
-        const lim = nearerNorthTop(Math.floor(cx0 / T), ccy);
+        const lim = Math.min(y1, nearerNorthTop(Math.floor(cx0 / T), ccy));
         let cx1 = Math.min(x1, cx0 + sample);
-        while (cx1 < x1 && nearerNorthTop(Math.floor(cx1 / T), ccy) === lim) cx1 = Math.min(x1, cx1 + sample);
-        const yEnd = Math.min(y1, lim);
+        while (cx1 < x1 && Math.min(y1, nearerNorthTop(Math.floor(cx1 / T), ccy)) === lim) cx1 = Math.min(x1, cx1 + sample);
+        const yEnd = lim;
         if (yEnd > y0) {
           b.fillStyle = c;
           if (!missesCanvas(cx0, y0, cx1, yEnd)) {
@@ -5042,11 +5044,11 @@ const StationBake = (() => {
          south keeps those rows. `clamp` routes through here, so this covers the whole pass. */
       const fill = (x, y, w, h, c) => {
         if (w <= 0 || h <= 0) return;
-        for (let cx0 = x; cx0 < x + w; ) {
-          const lim = nearerNorthTop(Math.floor(cx0 / T), ccy);
+        for (let cx0 = x; cx0 < x + w; ) {   // (grouped by the limit as it cuts this rect — see bakeCornerCrown's put)
+          const lim = Math.min(y + h, nearerNorthTop(Math.floor(cx0 / T), ccy));
           let cx1 = cx0 + 1;
-          while (cx1 < x + w && nearerNorthTop(Math.floor(cx1 / T), ccy) === lim) cx1++;
-          const yEnd = Math.min(y + h, lim);
+          while (cx1 < x + w && Math.min(y + h, nearerNorthTop(Math.floor(cx1 / T), ccy)) === lim) cx1++;
+          const yEnd = lim;
           if (yEnd > y) { b.fillStyle = c; b.fillRect(cx0, y, cx1 - cx0, yEnd - y); }
           cx0 = cx1;
         }

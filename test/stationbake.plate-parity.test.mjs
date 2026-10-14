@@ -76,19 +76,28 @@ function probe() {
     }
     return out;
   };
-  let geo = st.projectGeometry(), cache = SB.bake(geo), last = null;
+  let geo = st.projectGeometry(), cache = SB.bake(geo), last = null, keysBefore = [];
   const density = Number(document.documentElement.dataset.textureResolution);
   st.onChange(p => { last = p; });
   const step = (label, fn) => {
     last = null; const r = fn(); const p = last;
     geo = st.projectGeometry();
     if (p && (!p.staticBakeUnchanged || p.global)) cache = SB.bakeIncremental(geo, cache, p.global ? null : p.dirtyRects);
-    rows.push({ label, ok: !!(r && r.ok), W: geo.W, H: geo.H, chunked: !!cache.chunked, reset: !!(cache.stats && cache.stats.fullReset), ...compare(cache, geo) });
+    // which chunks the edit baked, against the chunks its rects reach (plus any the floor grew that did not exist before)
+    const reach = p && !p.global ? SB.dirtyChunks(geo, p.dirtyRects).map(d => d.cx + ',' + d.cy) : [];
+    const baked = cache.stats ? cache.stats.dirtyChunks.filter(k => !reach.includes(k) && keysBefore.includes(k)) : [];
+    keysBefore = [...cache.chunkMap.keys()];
+    rows.push({ label, ok: !!(r && r.ok), W: geo.W, H: geo.H, chunked: !!cache.chunked, reset: !!(cache.stats && cache.stats.fullReset), bakedBeyondReach: baked, ...compare(cache, geo) });
   };
   step('rename a room (the first edit: chunks cut from the whole-station bake)', () => st.renameRoom('a', 'PARITY'));
   step('undo the rename', () => st.undo());
-  step('a room past the south edge', () => st.addRoom({ kind: 'hab', rects: [{ x1: 2, y1: 34, x2: 9, y2: 39 }] }));
+  step('a room past the south edge', () => st.addRoom({ kind: 'hab', rects: [{ x1: 2, y1: 34, x2: 9, y2: 39 }] }));   // (the edge row grows: AN EDGE CHUNK IS RESIZED, NOT RE-BAKED)
   step('undo it', () => st.undo());
+  /* a room far below a corner, in its columns, beyond the reach of the corner's chunk: the corner's rects were grouped by the
+     nearest wall standing below them however far it stood, so this room's north wall split them and the kept chunk (painted
+     without it) disagreed with a fresh one (2026-10-14, 1 base + 5 plate px on the busy station's west column) */
+  step('a room far below a corner, in its columns', () => st.addRoom({ kind: 'hab', rects: [{ x1: 26, y1: 42, x2: 30, y2: 46 }] }));
+  step('undo that one', () => st.undo());
   step('a room past the east edge (the plate density changes)', () => st.addRoom({ kind: 'hab', rects: [{ x1: 63, y1: 2, x2: 74, y2: 8 }] }));
   step('a room past the north edge (the origin moves)', () => st.addRoom({ kind: 'hab', rects: [{ x1: 36, y1: -10, x2: 44, y2: -5 }] }));
   step('rename again', () => st.renameRoom('b', 'PARITY-2'));
@@ -116,12 +125,13 @@ try {
   const result = await evalJS(cdp, '(' + probe.toString() + ')()');
   assert.ok(result.textures.loaded, 'the industrial textures loaded, so every bake paints a dense plate');
   assert.ok(result.density > 1.5 && !Number.isInteger(result.density), 'the plate density is fractional (got ' + result.density + ')');
-  for (const r of result.rows) console.log(`  ${r.label}: ${r.W}x${r.H} chunks ${r.chunks} missing ${r.missing} size-off ${r.sizeOff} base ${r.base} light ${r.light} plate ${r.plate}${r.reset ? ' (reset)' : ''}`);
+  for (const r of result.rows) console.log(`  ${r.label}: ${r.W}x${r.H} chunks ${r.chunks} missing ${r.missing} size-off ${r.sizeOff} base ${r.base} light ${r.light} plate ${r.plate}${r.reset ? ' (reset)' : ''}${r.bakedBeyondReach.length ? ' baked beyond its reach: ' + r.bakedBeyondReach.join(' ') : ''}`);
   for (const r of result.rows) {
     assert.ok(r.ok, r.label + ': the edit applied');
     assert.ok(r.chunked, r.label + ': BUILD MODE holds a chunked bake after it');
     assert.deepEqual({ missing: r.missing, sizeOff: r.sizeOff, base: r.base, light: r.light, plate: r.plate },
       { missing: 0, sizeOff: 0, base: 0, light: 0, plate: 0 }, r.label + ': the kept bake is the fresh one, pixel for pixel');
+    if (!r.reset) assert.deepEqual(r.bakedBeyondReach, [], r.label + ': it baked only the chunks its rects reach (an edge chunk the floor reshapes is resized, not baked)');
   }
   assert.ok(result.whole.stitched, 'a station wider than one chunk bakes as its chunks, stitched');
   console.log('stationbake.plate-parity: ' + result.rows.length + ' edits, kept bake == fresh bake (base, light, dense plate at ' + result.density + 'x)');
