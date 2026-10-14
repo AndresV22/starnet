@@ -213,9 +213,9 @@ const group = (members, extra = {}) => ({ id: 'direct', title: 'Direct', members
      1440x900 and none at all on a window ~80px shorter — 1366x768, a larger TEXT SIZE, a dragged picker). The members list
      gives way first, down to one row; below both floors the window body scrolls with the how-to line and footer in the flow. */
   const outRule = (source.match(/\.gc-sect\.out\{[^}]*\}/) || [''])[0], inRule = (source.match(/\.gc-sect\.in\{[^}]*\}/) || [''])[0];
-  assert.match(outRule, /min-height:calc\(var\(--gc-head-h\) \+ 2 \* var\(--gc-row-h\)\)/, 'the add list never shrinks below its heading and two agents');
+  assert.match(outRule, /min-height:calc\(var\(--gc-head-h\) \+ 2 \* var\(--gc-row-h\) \+ 2px\)/, 'the add list never shrinks below its heading and two agents');
   assert.match(inRule, /flex:0 1 auto/, 'the members list gives way when the window is short');
-  assert.match(inRule, /min-height:calc\(var\(--gc-head-h\) \+ var\(--gc-row-h\)\)/, 'but never below its heading and one agent');
+  assert.match(inRule, /min-height:calc\(var\(--gc-head-h\) \+ var\(--gc-row-h\) \+ 2px\)/, 'but never below its heading and one agent');
   // the row height the floors count in is the row's real height: the 38px portrait plus its padding and its 1px rule
   const thumbH = +(source.match(/thumbHTML\(.*?, 32, (\d+), 'gc-av'\)/) || [])[1];
   const basePad = +((source.match(/\.gc-row\{[^}]*padding:(\d+)px/) || [])[1]);
@@ -230,7 +230,11 @@ const group = (members, extra = {}) => ({ id: 'direct', title: 'Direct', members
   assert.match(source, /className: 'gc-picker-win'/, 'the ADD AGENTS window names itself to the dock');
   const glass = fs.readFileSync(path.join(__dirname, '../frontend/app/glass-demo.js'), 'utf8');
   assert.match(glass, /const roster = w\.classList\.contains\('gc-picker-win'\)/, 'the dock knows the picker is a roster');
-  assert.match(glass, /roster \? available \* \.8/, 'and opens it at 80% of the band, not the 56% that showed one and a half agents');
+  assert.match(glass, /roster \? Math\.max\(available \* \.8, rosterNeed\)/, 'and opens it at 80% of the band, not the 56% that showed one and a half agents — or taller, to hold its floors');
+  // a short screen (1366x768): at 80% the floors overflowed by 18px and DONE sat under the fold; once the roster is drawn the
+  // dock re-seats the window to the height its floors need (an explicit drag still wins, a short band still caps it)
+  assert.match(glass, /const rosterNeed = rosterBody \? w\.offsetHeight - rosterBody\.clientHeight \+ rosterBody\.scrollHeight : 0;/, 'the dock reads what the roster still needs from its own overflow');
+  assert.match(source, /if \(search\) search\.addEventListener\('input', render\);\s*render\(\);\s*const win = dialog\.closest \? dialog\.closest\('\.term'\) : null;\s*if \(win && typeof win\._fitDockedSheet === 'function'\) win\._fitDockedSheet\(\);/, 'the picker asks the dock to re-seat it once its roster is drawn');
   // tiny text (walk 10-14 #14): the footer status, section heads, how-to line and the lead tag read at the 14px glass floor
   for (const sel of ['.gc-sect-h', '.gc-picker-footer .gc-delta', '.gc-hint', '.gc-row .gc-lead']) {
     const rule = (source.match(new RegExp(sel.replace(/[.]/g, '\\.').replace(/ /g, ' ') + '\\{[^}]*\\}')) || [''])[0];
