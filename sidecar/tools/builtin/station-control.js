@@ -283,7 +283,7 @@
       if (!(a.session == null || THIS_SESSION.test(String(a.session)))) return 'bring ' + who + ' into ' + sess(a) + '.';
       return chat === 'group' ? 'add ' + who + ' to this group chat.'
         : chat === 'general' ? 'start a group chat with ' + who + ' beside General, with only this request.'
-        : 'bring ' + who + ' into this chat' + (chat === 'direct' ? '; it becomes a group chat when my reply ends.' : '.');
+        : 'bring ' + who + ' into this chat' + (chat === 'direct' ? '; it becomes a group when this reply ends.' : '.');
     } });
   def('group.configure', { takes: '{group (its id or title), members? [the group\'s WHOLE member list, crew ids], leadId?, title?, instructions?, maxTurns? 1-100}',
     // members REPLACES the roster: the card says so, so "add NOVA" sent as {members:["nova"]} cannot quietly remove everyone else
@@ -537,11 +537,17 @@
           }
           // the run that asked, host-stamped LAST (a model cannot name another run): the page lets a chat take a change
           // that must wait for THIS run's reply to end only when the run asking is the one running there
-          const caller = spec.caller && ctx && ctx.streamId && ctx.runId ? { caller: { streamId: String(ctx.streamId), runId: String(ctx.runId) } } : {};
+          // …with what the Commander already answered in this run's Task Brief (host-composed, their own words): the crew's
+          // kickoff turn starts from it instead of asking again (review 10-14: from General the new group re-asked "What
+          // are we launching?" right after the Commander had answered it)
+          const caller = spec.caller && ctx && ctx.streamId && ctx.runId ? { caller: Object.assign({ streamId: String(ctx.streamId), runId: String(ctx.runId) },
+            typeof ctx.briefAnswers === 'string' && ctx.briefAnswers.trim() ? { brief: clip(ctx.briefAnswers.trim(), 600) } : {}) } : {};
           const r = spec.page ? await page('station.control', Object.assign({}, a, { action: spec.name }, caller)) : await spec.run(a, env);
           if (!r || r.status >= 400 || r.refused || (r.json && r.json.ok === false)) return refuse(errorOf(r));
           // a change that lands only when this reply ends is NOT done yet — say exactly that (truthful telemetry)
-          if (r.json && r.json.joining) return { content: 'QUEUED, NOT DONE YET: ' + clip(r.json.note, 400) + ' Tell the Commander exactly that — never "done" or "added" (live 10-14: "Done. COPY and STRATEGY are joining…"). They are not in the chat yet, so do not hand them work in this reply: once they join you get a turn in the group chat to hand them their parts (group.handoff).', summary: spec.name + ' (queued)' };
+          // …and this reply's only job left is to say so and END: the join lands when it ends, and the lead's next turn (the
+          // kickoff in the group, with the request) is where the plan, the questions and the hand-offs belong
+          if (r.json && r.json.joining) return { content: 'QUEUED, NOT DONE YET: ' + clip(r.json.note, 400) + ' Say that in a sentence or two — they join when this reply ends; they have not been added — then END this reply: no plan, no questions. They are not in the chat yet: once they join you get a turn in the group chat, with the request, to hand them their parts (group.handoff).', summary: spec.name + ' (queued)' };
           return { content: shape({ done: spec.name, result: r.json }), summary: spec.name };
         }
       };

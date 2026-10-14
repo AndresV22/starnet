@@ -873,7 +873,10 @@ const GroupChat = (() => {
       }
       const cur = ws.pendingJoin && ws.pendingJoin.runId === runId ? ws.pendingJoin.ids : [];
       const all = [...new Set([...cur, ...add])].slice(0, 10);
-      ws.pendingJoin = { runId, ids: all, at: Date.now() }; save();
+      // what the Commander already answered in that run's Task Brief (the sidecar's host stamp): the kickoff starts from it
+      const brief = typeof caller.brief === 'string' && caller.brief.trim() ? caller.brief.trim().slice(0, 600)
+        : (ws.pendingJoin && ws.pendingJoin.runId === runId && ws.pendingJoin.brief) || '';
+      ws.pendingJoin = { runId, ids: all, at: Date.now(), ...(brief ? { brief } : {}) }; save();
       return { joining: true, agents: all.map(name), note: agentNames(all) + (all.length > 1 ? ' join ' : ' joins ')
         + (isGeneral(ws) ? 'a new group chat that opens beside General' : 'this chat (it becomes a group chat, its history kept)')
         + ' the moment this reply ends. If the reply is stopped or fails, nobody is added and the Commander is told in the chat.' };
@@ -904,7 +907,10 @@ const GroupChat = (() => {
     try {
       // the lead asked for them to work on the Commander's request: it gets the first turn in the group to hand them their parts
       const kickoff = agentNames(ids) + (ids.length > 1 ? ' have' : ' has') + ' joined this chat at your request. Carry on with the Commander\'s request: give '
-        + (ids.length > 1 ? 'each of them their part' : 'them their part') + ' (group.handoff) and do your own.';
+        + (ids.length > 1 ? 'each of them their part' : 'them their part') + ' (group.handoff) and do your own.'
+        // …starting from what the Commander already answered (review 10-14: from General the new group re-asked "What are
+        // we launching?" seconds after they had answered it there)
+        + (job.brief ? ' The Commander already answered: ' + job.brief + ' Never ask those again.' : '');
       const out = ws.conversationMode === 'group' ? await addAgents(ws, ids, null) : await startGroup(ws, ids, { kickoff });
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(agentNames(ids) + (ids.length > 1 ? ' joined ' : ' joined ') + (out && out.title ? '"' + out.title + '"' : 'the chat'), 'good');
       return out;

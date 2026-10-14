@@ -21753,6 +21753,14 @@ async function runOnceCore(o) {
     // A name no registered tool answers to: the registry's "unknown tool" reply names the closest tools THIS run can
     // call (advertised + deferred wire names), never an ungranted one (loop-breaker.js counts these as strikes).
     if (!liveTool) dctx = Object.assign({}, dctx, { toolNames: Array.from(fromWire.keys()) });
+    // CREW SEATED MID-TASK START FROM THE ANSWERS (review 10-14): station.control hands group.add what the Commander already
+    // answered in this run's Task Brief (host-composed, their own words), so the kickoff in the group never re-asks it
+    if (/^station[._]control$/.test(String(c.name || '')) && taskBriefState && taskBriefState.brief) {
+      try {
+        const answers = require('./taskbrief-context.js').answeredSoFar(taskBriefState.brief);
+        if (answers) dctx = Object.assign({}, dctx, { briefAnswers: answers });
+      } catch (e) { failNote('station-control.brief-answers', e); }
+    }
     if (postTaintConfirmed) {
       const baseAuthorize = dctx && dctx.authorize;
       dctx = Object.assign({}, dctx, {
