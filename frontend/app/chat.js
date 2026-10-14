@@ -8433,7 +8433,7 @@ const Chat = (() => {
     Object.freeze({ name: 'routine', aliases: ['routines'], desc: 'list, create, preview, pause or delete a scheduled routine', argsHint: '[list | add <schedule> | <task> | preview <schedule> | pause N | resume N | rm N]', action: 'routine' }),
     Object.freeze({ name: 'loop', desc: 'repeat a prompt on an interval in this workstream', argsHint: '<interval> <prompt> | status | off', action: 'loop' }),
     Object.freeze({ name: 'goal', desc: 'set an autonomous standing goal (status/pause/resume/clear)', argsHint: '[text|status|pause|resume|clear]', action: 'goal' }),
-    Object.freeze({ name: 'subgoal', desc: 'add a criterion the goal loop must also satisfy', argsHint: '[text|remove N|clear]', action: 'subgoal' }),
+    Object.freeze({ name: 'subgoal', desc: 'add a criterion the session goal must also satisfy', argsHint: '[text|remove N|clear]', action: 'subgoal' }),
     Object.freeze({ name: 'model', desc: 'show or set the active model', argsHint: '[model-id]', action: 'model' }),
     Object.freeze({ name: 'personality', desc: 'show or set the active personality', argsHint: '[personality]', action: 'personality' }),
     Object.freeze({ name: 'yolo', desc: 'toggle full-access approval mode', argsHint: '[on|off]', action: 'yolo' }),
@@ -8556,7 +8556,7 @@ const Chat = (() => {
   function goalCommand(args) {
     const raw = String(args || '').trim();
     const low = raw.toLowerCase();
-    if (typeof GoalLoop === 'undefined') return localLine('The goal loop is not available in this build.');
+    if (typeof GoalLoop === 'undefined') return localLine('Session goals are not available in this build.');
     if (!activeWs) return localLine('Open a workstream first.');
     const cur = goalOf(activeWs);
     if (!raw || low === 'status') return localLine(GoalLoop.statusLine(cur));
@@ -8596,11 +8596,11 @@ const Chat = (() => {
   function subgoalCommand(args) {
     const raw = String(args || '').trim();
     const low = raw.toLowerCase();
-    if (typeof GoalLoop === 'undefined') return localLine('The goal loop is not available in this build.');
+    if (typeof GoalLoop === 'undefined') return localLine('Session goals are not available in this build.');
     const cur = activeWs && goalOf(activeWs);
     if (!raw) {
       const subs = (cur && cur.subgoals) || [];
-      return localLine(subs.length ? ('Subgoals: ' + subs.map((t, i) => (i + 1) + '. ' + t).join(' | ')) : 'No subgoals set. Use /subgoal <text> once a goal loop is running.');
+      return localLine(subs.length ? ('Subgoals: ' + subs.map((t, i) => (i + 1) + '. ' + t).join(' | ')) : 'No subgoals set. Use /subgoal <text> once a session goal is set.');
     }
     if (!cur || !GoalLoop.hasGoal(cur)) return localLine('Set a goal first with /goal <text>, then add criteria with /subgoal.');
     if (low === 'clear') { cur.subgoals = []; persistGoal(); return localLine('Cleared subgoals.'); }
