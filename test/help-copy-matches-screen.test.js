@@ -55,12 +55,30 @@ for (const [k, proof, where] of [
   ['Ctrl + / Ctrl -', /ev\.key === '=' \|\| ev\.key === '\+'/, 'frontend/app/stationui.js'],
   ['Ctrl + 0', /ev\.key === '0' \? 0/, 'frontend/app/stationui.js'],
   ['Esc', /ev\.key === 'Escape'[\s\S]{0,600}requestCloseTerm\(key\)/, 'frontend/app/stationui.js'],
-  ['Shift + F10', /ev\.shiftKey && ev\.key === 'F10'/, 'frontend/app/stationui.js'],
+  // P30 review fix: Esc in COMMS is NOT a window close — the composer stops a live turn, a focused approval card denies,
+  // a focused question card answers "use your judgment". CONTROLS says so, each against its real handler.
+  ['Esc in COMMS', /e\.key === 'Escape' && isBusy\(\)\)[\s\S]{0,200}stopActive\('esc'\)/, 'frontend/app/chat.js'],
+  // P30 review fix: Shift+F10 on a SESSION row opens its actions menu (app.js openWsMenu); on a crew row it opens the
+  // dossier (stationui.js openAgent) — the label names both.
+  ['Shift + F10', /\(e\.shiftKey && e\.key === 'F10'\)\) \{\s*e\.preventDefault\(\);\s*const r = li\.getBoundingClientRect\(\);\s*openWsMenu\(/, 'frontend/app/app.js'],
 ]) {
   A.ok(tutorial.includes("['" + k + "', "), 'CONTROLS lists the anywhere key ' + k);
   A.ok(proof.test(read(where)), 'the ' + k + ' key it lists has a real handler in ' + where);
 }
 A.ok(!/\['Alt \+ H'/.test(tutorial), 'CONTROLS never lists Alt+H: no handler for it exists in the app');
+{
+  const chatSrc = read('frontend/app/chat.js');
+  A.ok(/addEventListener\('keydown', e => \{ if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); decide\('deny'/.test(chatSrc)
+    && /\['Esc in COMMS', '[^']*approval card: Deny/.test(tutorial), 'Esc on a focused approval card denies, and CONTROLS says so');
+  A.ok(/addEventListener\('keydown', e => \{ if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); answer\('use your judgment'/.test(chatSrc)
+    && /\['Esc in COMMS', '[^']*question card: answers “use your judgment”/.test(tutorial), 'Esc on a focused question card answers "use your judgment", and CONTROLS says so');
+  A.ok(/\['Esc', 'In a window: close it/.test(tutorial) && !/\['Esc', 'Close the window you are in'\]/.test(tutorial), 'the window Esc row is scoped to windows');
+  A.ok(!/These keys work from any screen\. <kbd>Esc<\/kbd>/.test(tutorial) && /The first four keys work from any screen/.test(tutorial), 'only the four global keys are claimed to work from any screen');
+  A.ok(/ev\.shiftKey && ev\.key === 'F10'\)\) \{ ev\.preventDefault\(\); sfx\('click'\); openAgent\(/.test(station)
+    && /\['Shift \+ F10', 'On a focused row: a session or project row opens its actions; a crew row opens the agent’s dossier'\]/.test(tutorial),
+    'Shift+F10 on a crew row opens the dossier, and CONTROLS says so');
+  A.ok(/e\.shiftKey && e\.key === 'F10'\)\) \{ e\.preventDefault\(\); const b = li\.getBoundingClientRect\(\); openProjectMenu\(/.test(read('frontend/app/app.js')), 'a project row\'s Shift+F10 opens its actions');
+}
 
 // ---- NEEDS YOU first ----
 A.ok(/NEEDS YOU at the top of SESSIONS lists every one still waiting \(also NOTIFICATIONS › NEEDS YOU\)/.test(manualSrc),

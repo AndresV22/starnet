@@ -1176,13 +1176,16 @@ const Tutorial = (() => {
     }
     if (tab === 'CONTROLS') {
       const keys = [['0', 'Select / inspect'], ['1', 'Room'], ['2', 'Hallway'], ['3', 'Surface'], ['5', 'Delete'], ['6', 'Props'], ['7', 'Belt'], ['8', 'Copy'], ['9', 'Conveyor lines']];
-      // keys that work anywhere in the app (org P30): each one is a real handler — F11 fullscreen.js, Ctrl+Shift+H
-      // hudmode.js, Ctrl +/-/0 stationui.js TEXT SIZE, Esc stationui.js window close, Shift+F10 the row action menus
-      const anywhere = [['F11', 'Full screen on / off'], ['Ctrl + Shift + H', 'HUD mode on / off'], ['Ctrl + / Ctrl -', 'Text size up / down'], ['Ctrl + 0', 'Text size back to AUTO'], ['Esc', 'Close the window you are in'], ['Shift + F10', 'Actions for the selected session or crew row']];
+      // keys outside BUILD MODE (org P30): each one is a real handler. F11 fullscreen.js, Ctrl+Shift+H hudmode.js and
+      // Ctrl +/-/0 stationui.js TEXT SIZE work from any screen. Esc and Shift+F10 mean what the focused thing makes them
+      // mean (P30 review fix): a window's Esc closes it (stationui.js), but in COMMS Esc stops a live turn (chat.js
+      // stopActive('esc')), denies a focused approval card and answers a focused question card "use your judgment";
+      // Shift+F10 opens a session/project row's actions (app.js) but a crew row's dossier (stationui.js openAgent).
+      const anywhere = [['F11', 'Full screen on / off'], ['Ctrl + Shift + H', 'HUD mode on / off'], ['Ctrl + / Ctrl -', 'Text size up / down'], ['Ctrl + 0', 'Text size back to AUTO'], ['Esc', 'In a window: close it. In a text field the first Esc only leaves the field, so a draft is never lost'], ['Esc in COMMS', 'Stops the running turn. On a focused approval card: Deny. On a focused question card: answers “use your judgment”'], ['Shift + F10', 'On a focused row: a session or project row opens its actions; a crew row opens the agent’s dossier']];
       return '<p class="fm-lead">Your control deck: chat to give orders, the bottom menus to manage the station, BUILD MODE to build.</p>'
         + fmEntry('CHAT', 'Send a command', '<kbd>Enter</kbd> sends. <kbd>Shift + Enter</kbd> adds a line. Type <kbd>/</kbd> to browse slash commands. Use the agent picker in COMMS to choose who receives your message.')
         + '<div class="fm-map"><div><b>CREW</b><span>Agents, recruitment, your Commander dossier.</span></div><div><b>WORK</b><span>Tasks, deliverables, recipes, automation, quests.</span></div><div><b>BUILD</b><span>Refit the station, manage abilities, connect channels.</span></div><div><b>APPS</b><span>The apps your crew built for you. It appears once you have one; until then NEW APP is under BUILD.</span></div><div><b>SYSTEM</b><span>This manual, settings, updates, notifications.</span></div></div>'
-        + '<h3 class="fm-subhead">ANYWHERE</h3><p class="fm-note">These keys work from any screen. <kbd>Esc</kbd> inside a text field first leaves the field, so a draft is never lost.</p>'
+        + '<h3 class="fm-subhead">ANYWHERE</h3><p class="fm-note">The first four keys work from any screen. <kbd>Esc</kbd> and <kbd>Shift + F10</kbd> act on what has focus, so read their rows before you press them in COMMS.</p>'
         + '<dl class="fm-keys">' + anywhere.map(([key, label]) => '<div><dt><kbd>' + key + '</kbd></dt><dd>' + label + '</dd></div>').join('') + '</dl>'
         + '<h3 class="fm-subhead">BUILD › BUILD MODE</h3><p class="fm-note">These keys work while BUILD MODE is open and you are not typing in a field. In the <b>Conveyors</b> tab, <kbd>1</kbd>–<kbd>8</kbd> pick a conveyor piece from its hotbar instead (BAY, INBOX, OUTBOX, SPLITTER, MERGER, JOINER, FILTER, LOOP); <kbd>0</kbd> and <kbd>9</kbd> work in every tab.</p>'
         + '<dl class="fm-keys">' + keys.map(([key, label]) => '<div><dt><kbd>' + key + '</kbd></dt><dd>' + label + '</dd></div>').join('') + '</dl>'
