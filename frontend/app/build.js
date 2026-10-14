@@ -1546,19 +1546,16 @@ const Build = (() => {
       pal.appendChild(secs);
       if (convSection === 'machines') pal.appendChild(machinePalette());
       else {
-        /* BUILD YOUR OWN (conveyor-links phase D): an INBOX, one step and an OUTBOX laid on clear floor in view, with its Workflow
-           panel open — where steps, branches, review loops and sorters are added, every change one UNDO */
-        if (typeof LineEdit !== 'undefined') {
-          const own = document.createElement('button'); own.type = 'button'; own.className = 'bb refit-ownline';
-          own.textContent = '＋ BUILD YOUR OWN LINE';
-          own.dataset.tip = 'an INBOX, one step and an OUTBOX, placed in view — then add steps, branches and review loops from its Workflow panel';
-          own.onclick = () => {
-            const r = lineEditRun('newLine', null, {});
-            if (r && r.ok) { sfx('chime'); flashTip(null, 'a new line: INBOX → a step → OUTBOX · UNDO removes it', true); openWorkflowPanel(r.focus); }
-            else { sfx('bad'); flashTip(null, (r && r.msg) || 'there is no clear floor for a new line here', false); }
-          };
-          pal.appendChild(own);
-        }
+        /* BUILD YOUR OWN (conveyor-links phase D) — the Commander places the line, the station never does (Andrew 2026-10-13: "it
+           should open the menu and automatically choose for the user to place an inbox, where they can click wherever they want to
+           place it. Not automatically place it for the user"). The key puts an INBOX IN HAND (startNewLine — the hotbar's own hand,
+           its ghost on the pointer); the click places it where they choose, and the line grows the hand's way from there. */
+        const own = document.createElement('button'); own.type = 'button'; own.className = 'bb refit-ownline' + (hand && hand.newLine ? ' active' : '');
+        own.setAttribute('aria-pressed', String(!!(hand && hand.newLine)));
+        own.textContent = '＋ BUILD YOUR OWN LINE';
+        own.dataset.tip = 'Hold an INBOX: click the floor where your line starts, then drag from it to lay the belt to its next piece';
+        own.onclick = () => startNewLine();
+        pal.appendChild(own);
         const grid = document.createElement('div'); grid.className = 'refit-linegrid';
         grid.setAttribute('aria-label', 'Line library');
         /* START FROM INTENT (2026-09-28): the ready-made line with the SHAPE of the Commander's own goal leads the shelf; its tip
@@ -1816,6 +1813,15 @@ const Build = (() => {
     if (!(o && o.silent)) sfx('click');
   }
   const toggleHand = t => setHand(hand && hand.t === t && !hand.agentId && !hand.cfg ? null : { t });
+  /* NEW LINE = AN INBOX IN HAND (Andrew 2026-10-13). BUILD YOUR OWN LINE used to lay INBOX → BAY → OUTBOX itself, near the middle of
+     the view; now nothing lands until the Commander clicks: the INBOX rides the pointer as the hand's ghost, a click on clear floor
+     places it THERE (commitPropStamp), and Esc / right-click puts it down with nothing placed. `newLine` marks it one-shot: once it
+     lands the hand empties, so the next drag FROM the INBOX lays its belt and letting go on clear floor offers the next piece (PICK
+     WHAT GOES HERE) — the hand's own way to grow a line, nothing laid for them. */
+  function startNewLine() {
+    setHand({ t: 'intake', newLine: true });
+    hidePropCard();
+  }
   // THE HOTBAR: the conveyor pieces, art + name (the sentence is the hover tip — no sentences under tiles), its key in the corner
   function hotbarEl() {
     const wrap = document.createElement('div'); wrap.className = 'refit-hotbar-wrap';
@@ -1862,6 +1868,7 @@ const Build = (() => {
   function paintHandKeys() {
     if (!root) return;
     root.querySelectorAll('.refit-hotslot').forEach(b => { const on = !!hand && b.dataset.hot === hand.t; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+    root.querySelectorAll('.refit-ownline').forEach(b => { const on = !!(hand && hand.newLine); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
     root.querySelectorAll('.refit-machinetile').forEach(b => { const on = (!!hand && b.dataset.machine === hand.t) || (tool === 'prop' && propType === b.dataset.machine); b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
     const lit = { remove: touchArm === 'remove', pipette: touchArm === 'pipette', corner: flipPref, alt: altLatched };
     root.querySelectorAll('.refit-handkey').forEach(b => { const on = !!lit[b.dataset.handkey]; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
@@ -2647,7 +2654,8 @@ const Build = (() => {
     if (tool === 'select' && buildGroup === 'props') verb = 'Pick a prop, then click the floor to place it · click a placed one to edit it';
     if (tool === 'select' && buildGroup === 'workflow') verb = 'Drag a machine onto another to belt them · click a piece, then drag it onto open floor to move it · drag a belt to branch it · 1–8 pick a piece · Q picks up the one under the pointer · right-click removes · hold Alt to see every setting';
     // THE HAND: what is held, what a click does with it, and how to put it down (or what the armed dock key's next tap does)
-    if (tool === 'select' && hand) verb = 'Holding ' + propLabel(hand.t) + (hand.agentId ? ' (crewed by ' + agentLabel(hand.agentId) + ')' : '') + ' · click to place it' + (JUNCTION_TAG_TYPES[hand.t] ? ' · click a belt to put it on that line' : '') + ' · right-click or Esc puts it down';
+    if (tool === 'select' && hand && hand.newLine) verb = 'Click where your line starts · Esc cancels';   // (the dock's hint bar shows ~45 characters; right-click cancels too)
+    else if (tool === 'select' && hand) verb = 'Holding ' + propLabel(hand.t) + (hand.agentId ? ' (crewed by ' + agentLabel(hand.agentId) + ')' : '') + ' · click to place it' + (JUNCTION_TAG_TYPES[hand.t] ? ' · click a belt to put it on that line' : '') + ' · right-click or Esc puts it down';
     if (tool === 'dupe' && dupe && dupe.type === 'lines') verb = 'Holding ' + dupe.label + ' · click to place a copy (it stays in hand) · R turns it · right-click or Esc puts it down';   // THE HAND part 2
     if (tool === 'select' && touchArm === 'remove') verb = 'REMOVE · tap a conveyor piece or a belt to remove it · tap REMOVE again to stop';
     if (tool === 'select' && touchArm === 'pipette') verb = 'PICK UP · tap a piece to hold one like it · tap PICK UP again to stop';
@@ -3262,6 +3270,7 @@ const Build = (() => {
   // the machines a line is made of — clicking one on the floor opens/selects it in the panel
   const WF_PART = { bay: 1, intake: 1, outbox: 1, loop: 1, joiner: 1, merger: 1, splitter: 1 };
   let wfHighlightId = null, wfPaused = null, wfHostMemo = null, wfKitAuto = false;   // wfKitAuto: the panel minimized the Build Library (and owes it back)
+  let wfShownPart = null;   // the part the panel last showed (its close-time highlight(null) leaves it): the line DONE keeps clear of the library
   let wfArtRev = -1, wfArtAt = 0;   // the authored-art revision the panel's tiles were last painted at (frame(): repaint when it moves)
   /* the HOST the panel is handed: live reads of THIS editor's state (station, compiled plan, camera) and the
      seams it already owns (sample, plan gate, flash/sfx). Lazy getters — the panel never caches a plan. */
@@ -3286,7 +3295,7 @@ const Build = (() => {
         return (typeof CronHuman !== 'undefined' && CronHuman.describeDisplay) ? CronHuman.describeDisplay(d, { tz }) : String(d == null ? '' : d); },
       provider: () => (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : undefined,
       openTerm: name => { close(); if (typeof StationUI !== 'undefined' && StationUI.openTerm) StationUI.openTerm(name); },
-      highlight: id => { wfHighlightId = id || null; },
+      highlight: id => { wfHighlightId = id || null; if (id) wfShownPart = id; },
       joinLine: id => armJoin(id),   // JOIN A LINE: BELT armed with this BAY as the destination (onDown's connectTo)
       focusProp: (id, onlyIfHidden) => focusPropOnFloor(id, onlyIfHidden),
       frameLine: key => frameLineOnFloor(key),
@@ -3295,11 +3304,18 @@ const Build = (() => {
       /* TWO PANELS SQUEEZE THE FLOOR (Andrew, 2026-09-22): opening the docked Workflow panel MINIMIZES the Build
          Library through its own MINIMIZE state (toggleKit), and closing the panel restores it — only if the
          panel was the one that minimized it, and only if the Commander has not reopened it since (toggleKit
-         clears wfKitAuto on any reopen, so a deliberate OPEN KIT is never overridden). */
+         clears wfKitAuto on any reopen, so a deliberate OPEN KIT is never overridden). The library it gives back must not land
+         on the line the panel was showing: the glass is measured while the library is still minimized, and keepClearOfKit moves
+         the camera only when the returning library covers what was on it (0.13.5 live, s1-hand r05b). */
       panelShown: on => {
         const dock = root && root.querySelector('.refit-dock');
         if (on) { if (dock && !dock.classList.contains('is-collapsed')) { toggleKit(true); wfKitAuto = true; } }
-        else { const restore = wfKitAuto; wfKitAuto = false; if (restore && dock && dock.classList.contains('is-collapsed')) toggleKit(false); }
+        else {
+          const restore = wfKitAuto, part = wfShownPart, seen = restore && running ? viewInsets() : null;   // (BUILD MODE closing: running is already false)
+          wfKitAuto = false; wfShownPart = null;
+          if (restore && dock && dock.classList.contains('is-collapsed')) toggleKit(false);
+          if (seen) keepClearOfKit(part, seen);
+        }
         bumpUi(); insMemo = null;
       },
       lineRenamed: () => { if (running) { finSig = ''; renderFinCard(); } },
@@ -3415,6 +3431,30 @@ const Build = (() => {
     zoom = clamp(Math.min(zoom, vw / (x2 - x1 + pad * 2), vh / (y2 - y1 + pad * 2)), MINZ, MAXZ);
     panX = L + vw / 2 - (x1 + x2) / 2 * zoom;
     panY = Tp + vh / 2 - (y1 + y2) / 2 * zoom;
+  }
+  /* DONE KEEPS THE LINE IN VIEW (0.13.5 live, s1-hand r05/r05b). The panel framed its line against the MINIMIZED library, so
+     closing it (✓ DONE, ✕, Escape) brought the library back open on top of the INBOX + BAY just edited, and the Commander had to
+     FIT or pan to reach them. When the library returns, the floor follows only what the library itself hides:
+       · some of the line was on the glass a moment ago (library still minimized: `seen`) and the returning library now covers part
+         of that → frame the line in the glass beside it (frameLineOnFloor: pan to its centre, zoom out only if it must, never in);
+       · a line already clear of the library is never moved;
+       · a line the Commander panned off the glass while the panel was open stays where they put it (the library hid none of it).
+     A part on no line yet (a lone BAY) gets the same rule on its own footprint. A CAMERA MOVE ONLY — panX/panY/zoom: no bake, no
+     geometry, no plan; the frame loop fills any newly visible chunks exactly as it does for a hand pan. */
+  function keepClearOfKit(partId, seen) {
+    const p = partId != null && station ? station.propById(partId) : null;
+    if (!p || !cv) return;
+    const c = lineOfProp(p.id), t = T(), o = (cacheGeo && cacheGeo.origin) || { tx: 0, ty: 0 };
+    const b = c && c.bbox && cacheGeo
+      ? { x1: (c.bbox.x1 + o.tx) * t, y1: (c.bbox.y1 + o.ty) * t, x2: (c.bbox.x2 + 1 + o.tx) * t, y2: (c.bbox.y2 + 1 + o.ty) * t }
+      : { x1: p.x * t, y1: p.y * t, x2: (p.x + (p.w || 1)) * t, y2: (p.y + (p.h || 1)) * t };
+    const W = cv.width, H = cv.height, ins = viewInsets();
+    // the part of it that was on the glass with the library minimized (canvas px)
+    const x1 = Math.max(b.x1 * zoom + panX, seen.l), x2 = Math.min(b.x2 * zoom + panX, W - (seen.r || 0));
+    const y1 = Math.max(b.y1 * zoom + panY, seen.t), y2 = Math.min(b.y2 * zoom + panY, H - seen.b);
+    if (x1 >= x2 || y1 >= y2) return;   // none of it: the Commander had moved the floor away — leave it there
+    if (x1 >= ins.l && x2 <= W - (ins.r || 0) && y1 >= ins.t && y2 <= H - ins.b) return;   // the library lands on none of it
+    if (c && c.bbox && cacheGeo) frameLineOnFloor(c.key); else focusPropOnFloor(p.id);
   }
   /* the panel's floor marks: the selected part pulses gold; a PAUSED step test parks a pulsing marker on the
      finished dock's OUTBOUND tile (plan.chains[agent].tile — the tile its product really ships from). The
@@ -6254,6 +6294,10 @@ const Build = (() => {
       // Configuration is a separate, explicit click on the placed object.
     }
     if (res && res.ok) renderEquipmentInfo(propType);
+    if (res && res.ok && held && held.newLine) {   // NEW LINE (startNewLine): one INBOX, where they clicked — then the hand's way on
+      setHand(null, { silent: true });
+      return feedback(res, ev, 'INBOX PLACED · DRAG FROM IT TO LAY YOUR LINE');
+    }
     if (res && res.ok && WORKSTATION_TYPES[propType]) {
       if (owner) { deskOwner = null; setHint(); }   // the next desk dropped is nobody's until picked
       selectedPropId = res.id; renderSelection();   // the tool stays armed; the new desk's card asks who sits there
@@ -7891,9 +7935,15 @@ const Build = (() => {
      prop's footprint top (masts/crowns; measured over propsprites.js), and SURFACE_RISE adds a few
      more — so the pad is better than double the art that can ever hang outside a footprint. */
   const PROP_CULL_PAD = 4;
+  /* EVERY PROP THE FLOOR HOLDS IS IN THE DRAW LIST (2026-10-13, Andrew: a new INBOX on the floor, its gold outline drawn, its body
+     not). The sorted list is memoized per edit (geoVer) and the outline reads the model directly, so a prop that reached the model
+     without the version moving would be outlined and never drawn — or picked. Whatever the edit path, the memo is the model's list
+     only while it IS that list at that length: the same array (an undo hands in a new one) and the same count (an add pushes). Two
+     compares a frame; a recompute only when they disagree. */
+  let mountList = null, mountLen = -1;
   function propDrawOrder(list) {
-    if (mountVer === geoVer && mountOrder) return mountOrder;
-    mountVer = geoVer;
+    if (mountVer === geoVer && mountOrder && mountList === list && mountLen === list.length) return mountOrder;
+    mountVer = geoVer; mountList = list; mountLen = list.length;
     const mounts = new Map();
     for (const p of list) {
       let m = null;
