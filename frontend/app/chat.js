@@ -1118,6 +1118,9 @@ const Chat = (() => {
         if (near) stick = true;
         else if (userScrollHeld || Date.now() - userScrollAt < 1200) stick = false;
         else if (stick) log.scrollTop = log.scrollHeight;
+        // …and the same inside the near band: an approval card shrinking as its keys leave moved a follower ~34 px up and left
+        // the working line cut off under the fold (live walk 10-14). No gesture, still following: back to the newest line.
+        if (near && stick && !userScrollHeld && Date.now() - userScrollAt >= 1200 && log.scrollHeight - log.scrollTop - log.clientHeight > 1) log.scrollTop = log.scrollHeight;
         if (stick) hideNewPill(); else showNewPill(false);
       });   // at the bottom → retire the pill; scrolled up → a persistent "↓ latest" affordance
       // A real attempt to inspect history wins even during the two-frame settle window.

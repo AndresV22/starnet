@@ -90,6 +90,19 @@ const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8').replace(/
     A.ok(!a.stick && a.pill === 1, 'scrolling up to read history still stops the follow and offers the way back');
   }
   {
+    // Approve once: the card sheds its keys and shrinks, which moves a follower ~34 px up INSIDE the near band (the working
+    // line sat cut off under the fold for the rest of the run) — no gesture, still following: back to the newest line
+    const w = world(), a = w.api;
+    a.log.scrollTop = a.log.scrollHeight - a.log.clientHeight - 34;
+    a.onScroll();
+    A.ok(a.stick && a.log.scrollTop === a.log.scrollHeight, 'a follower nudged up inside the near band is put back on the newest line');
+    const r = world(), b = r.api;
+    b.log.scrollTop = b.log.scrollHeight - b.log.clientHeight - 34;
+    b.logGesture({ target: text });   // …but a small wheel / PageUp of the reader's own is left where they put it
+    b.onScroll();
+    A.eq(b.log.scrollTop, b.log.scrollHeight - b.log.clientHeight - 34, 'a reader\'s own small scroll inside the near band is not undone');
+  }
+  {
     // a key outside a control (PageUp on the focused log) is a gesture; typing in a field inside the log is not
     const w = world(), a = w.api;
     a.logGesture({ target: { closest: sel => /input/.test(sel) ? {} : null } });
