@@ -140,7 +140,7 @@
         '</label>' +
         '</div>' +
         '</details>' +
-        '<div id="rt-create-state" class="set-about" role="status">Checking scheduling status…</div><button class="bb sm" id="rt-add">SAVE SCHEDULE</button>' +
+        '<div id="rt-create-state" class="set-about" role="status">Checking scheduling status…</div><button class="bb sm" id="rt-add">▸ SAVE SCHEDULE</button>' +
       '</div>' +
       '<div id="rt-msg" class="msg"></div>';
     const frag = h => (el => { el.innerHTML = h; });
@@ -352,7 +352,7 @@
         if (createState) createState.textContent = schedulerArmed ? 'Scheduling is on. Saving adds this task to the schedule shown below.'
           : (j && j.halted) ? 'Scheduling is stopped (E-STOP). Saving keeps it stopped: it runs only after you turn scheduling on in Active Routines.'
           : (j && j.armSet) ? 'Scheduling is off — you turned it off. Saving keeps it off: press ▶ TURN SCHEDULING ON in Active Routines when you want it to run.'
-          : 'Saving turns scheduling on unless you turned it off.';
+          : 'Scheduling is off. Saving turns it on for the whole station, so every saved schedule runs at its time.';   // the INBOX form's own words (workflowpanel.js) — one SAVE SCHEDULE, one sentence
         maxConsecutive = (j && Number(j.maxConsecutiveFailures)) || 0;
         maxPendingDeliveries = (j && Number(j.maxPendingDeliveries)) || 0;
         // DEGRADED STORE (routine hardening, 2026-08-21): GET /api/cron carries `degraded` when cron.jobs.json AND

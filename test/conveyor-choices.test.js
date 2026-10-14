@@ -155,7 +155,7 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   A.ok(!/id="trg-create-only"/.test(panel) && !/SAVE ONLY/.test(panel) && !/SAVE · TURN SCHEDULING ON/.test(panel), 'the INBOX pair collapsed: no SAVE ONLY, no second save key');
   A.ok(/id="trg-create"[^\n]*>▸ SAVE SCHEDULE<\/button>/.test(panel), 'one SAVE SCHEDULE key');
   A.ok(/S\.cron\.armSet \? 'Scheduling is off — you turned it off\. Saving keeps it off; press ▶ TURN SCHEDULING ON when you want it to run\.'/.test(panel)
-    && /'Saving turns scheduling on for the whole station, so every saved schedule runs at its time\.'/.test(panel), 'the help line says what this save will do: on when never set, off kept after an explicit OFF');
+    && /'Scheduling is off\. Saving turns it on for the whole station, so every saved schedule runs at its time\.'/.test(panel), 'the help line says what this save will do: on when never set, off kept after an explicit OFF');
   A.ok(/runsLine: true, arm: true \}\)/.test(panel) && !/api\('\/api\/cron\/arm', 'POST', \{ enabled: true \}\)\.catch/.test(panel), 'the save asks the server (arm:true, the SCHEDULES form\'s rule) — no second arm call from the form');
   A.ok(/'✓ saved · scheduling is now on — fires at '/.test(panel) && /scheduling is off \(you turned it off\), so it will not run: press ▶ TURN SCHEDULING ON above/.test(panel), 'the result is said as it happened');
   A.ok(/\$\('#trg-create'\)\.onclick = \(\) => create\(\);/.test(panel), 'one save path');
