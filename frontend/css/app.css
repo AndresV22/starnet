@@ -3494,8 +3494,8 @@ body:not(.rows-inbox) #workstreams .ws-row.attn:not(.renaming):has(> .ws-agent-g
 .gx-sec { display:flex; align-items:center; gap:7px; height:18px; border-bottom:1px solid var(--ph-glow2); margin-bottom:11px; }
 .gx-ref { font-family:inherit; font-size:11px; letter-spacing:.1em; color:var(--ink); background:var(--ph); padding:1px 6px; border-radius:2px; }
 .gx-ref.gold { background:var(--gold); }
-.gx-title { font-family:inherit; font-size:12px; letter-spacing:.16em; color:var(--ph); text-transform:uppercase; }
-.gx-tag { margin-left:auto; font-family:inherit; font-size:10px; letter-spacing:.1em; color:var(--ph-dim); }
+.gx-title { font-family:inherit; font-size:var(--sn-type-meta, 14px); letter-spacing:.16em; color:var(--ph); text-transform:uppercase; }
+.gx-tag { margin-left:auto; font-family:inherit; font-size:var(--sn-type-meta, 14px); letter-spacing:.1em; color:var(--ph-dim); }
 
 .gx-lbl { font-family:inherit; font-size:10px; letter-spacing:.12em; color:var(--ph-dim); text-transform:uppercase; }
 .gx-val { font-family:inherit; color:var(--ph-bright); }

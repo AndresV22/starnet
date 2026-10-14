@@ -29,7 +29,7 @@
 .agent-dossier :is(.sec,.gx-sec) { height: auto; flex-wrap: wrap; gap: 8px; margin: 20px 0 12px; border: 0; padding: 0; }
 .agent-dossier .sec-l,.agent-dossier .gx-title { font-size: 18px; letter-spacing: .3px; line-height: 1.35; }
 .agent-dossier .gx-ref { display: none; }
-.agent-dossier .gx-tag { white-space: normal; font-size: 12px; line-height: 1.5; letter-spacing: .1px; }
+.agent-dossier .gx-tag { white-space: normal; font-size: var(--sn-type-meta, 14px); line-height: 1.5; letter-spacing: .1px; }
 .agent-dossier :is(.cf-grp-note,.cf-desc,.mc-note,.mc-hint,.sk-note,.ag-foot-row,.ag-del-why) { font-size: 14px; line-height: 1.55; letter-spacing: 0; }
 .agent-dossier :is(.bb,.consent-btn,.cf-nav-b,.ov-vchip,.lb-tx-btn) { font: inherit; font-size: 13px; line-height: 1.4; padding: 9px 12px; border: 1px solid rgba(var(--ph-rgb),.24); border-radius: 7px; background: rgba(var(--ph-rgb),.035); color: var(--ph); box-shadow: none; text-shadow: none; cursor: pointer; }
 .agent-dossier :is(.bb,.consent-btn,.cf-nav-b,.ov-vchip):hover { background: var(--menu-glass); border-color: var(--ph); color: var(--ph-bright); }
