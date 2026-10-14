@@ -395,7 +395,10 @@ textarea.wf-io:focus { outline: none; border-color: var(--ph); box-shadow: var(-
 /* the WHEN picker, on the panel's scale: cadence keys the size of the panel's own keys, fields you can read */
 .wf-panel .sp, .wf-panel .rt-when { gap: 8px; margin: 0; }
 .wf-panel .sp-modes, .wf-panel .sp-days, .wf-panel .sp-units { gap: 6px; }
+/* the six cadence keys are two even rows of three — a free wrap left CUSTOM alone on a line under the other five (org P16 polish) */
+.wf-panel .sp-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .wf-panel :is(.sp-mode,.sp-unit) { min-height: 34px; padding: 5px 12px; font-size: 16px; letter-spacing: .5px; }
+.wf-panel .sp-mode { min-width: 0; line-height: 1.1; }
 .wf-panel .sp-day { width: 40px; height: 36px; font-size: 16px; }
 .wf-panel .sp-pane.on { gap: 8px; }
 .wf-panel :is(.sp-lbl,.sp-tz,.sp-hint,.sp-note) { font-size: 15px; letter-spacing: .4px; text-transform: none; }
