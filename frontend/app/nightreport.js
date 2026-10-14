@@ -254,7 +254,7 @@
   // buildMode/draftReason (server-proven). An older sidecar without the field → '' (render nothing, never guess).
   function modeText(s) {
     if (!s || (s.buildMode !== 'build' && s.buildMode !== 'draft')) return '';
-    if (s.buildMode === 'build') return 'jobs build real deliverables — each arrives as a new ⚒ session in your rail';
+    if (s.buildMode === 'build') return 'jobs build real deliverables — each arrives as a new session in your rail';
     if (s.draftReason === 'no-workshop-grant') return 'drafts only — the away-workshop grant is off, so jobs can only draft';
     return 'drafts only — to let it build real things while you’re away, set REACH to LOCAL ONLY under FINE-TUNE above';
   }
