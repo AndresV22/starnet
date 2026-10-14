@@ -127,10 +127,23 @@ const Chat = (() => {
      MESSAGES pill). Every pointer release in the WINDOW stamped a gesture — the click on the composer or the send key —
      and so did a press on a key inside the log (Approve once, a brief chip). Content landing in the next 1.2 s then read
      as "they scrolled up" and the follow stopped mid-exchange. Only a scroll gesture on the log counts: wheel, touch, the
-     scrollbar or text drag (a hold that began ON the log), or a key outside a control. */
+     scrollbar or text drag (a hold that began ON the log), or a key that moves the reader. */
   const PRESS_SEL = 'button, a[href], input, textarea, select, label, summary, [role="button"], [contenteditable="true"]';
   function isPress(ev) { const t = ev && ev.target; return !!(t && t.closest && t.closest(PRESS_SEL)); }
-  function logGesture(ev) { if (!isPress(ev)) userScrollAt = Date.now(); }
+  /* A KEY THAT MOVES THE READER IS A GESTURE WHEREVER FOCUS SITS (review 10-14: with focus left on a message's copy key, PageUp
+     and ArrowUp were read as layout moving under a follower and pulled straight back down — the reader could not move and no
+     pill showed). Only a key that ACTS on a control is a press: Enter or Space on a key, link or chip, and typing or caret keys
+     in a field. PageUp / PageDown / Tab move the reader even from a field (Tab scrolls the next key into view). */
+  const READ_KEYS = ['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab', ' ', 'Spacebar'];
+  const FIELD_SEL = 'input, textarea, select, [contenteditable="true"]';
+  function keyMovesReader(ev) {
+    const k = ev.key, t = ev.target, on = sel => !!(t && t.closest && t.closest(sel));
+    if (READ_KEYS.indexOf(k) < 0) return !on(PRESS_SEL);   // any other key: on the log itself as ever; on a key or in a field it acts there
+    if (k === 'PageUp' || k === 'PageDown' || k === 'Tab') return true;
+    if (on(FIELD_SEL)) return false;   // arrows / Home / End / Space move a caret or type a space
+    return !((k === ' ' || k === 'Spacebar') && on(PRESS_SEL));   // Space presses a key; arrows / Home / End on a key scroll the log
+  }
+  function logGesture(ev) { if (ev && ev.type === 'keydown' ? keyMovesReader(ev) : !isPress(ev)) userScrollAt = Date.now(); }
   function logHold(ev) { if (!isPress(ev)) userScrollHeld = true; }
   function endLogHold() { if (!userScrollHeld) return; userScrollHeld = false; userScrollAt = Date.now(); }   // a release ends a hold begun on the log, never stamps one begun elsewhere
   function nearBottom() { return !log || (log.scrollHeight - log.scrollTop - log.clientHeight < 40); }
@@ -190,7 +203,7 @@ const Chat = (() => {
   // The revealed row as a selector, so the load's server-history repaint (which rebuilds every row) can find it again.
   function revealSelector(target) {
     const sel = attr => (target.hasAttribute && target.hasAttribute(attr)) ? '[' + attr + '="' + String(target.getAttribute(attr)).replace(/["\\]/g, '\\$&') + '"]' : '';
-    return sel('data-dg-row') || sel('data-clarify-prompt');
+    return sel('data-dg-row') || sel('data-clarify-prompt') || sel('data-consent-prompt');   // an approval card too (NEEDS YOU › Review)
   }
   function forgetReveal() { revealKey = ''; }
   // ONE HOP TO A QUESTION (2026-10-13 review: from NEEDS YOU it took Answer → the worker's row → Answer → the card). A

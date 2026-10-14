@@ -8882,8 +8882,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
              under the whole-station override every row reads FULL POWER, and the stored answer stays visible. */
           const AP = agentPostureOf(a);
           const badge = effFull ? 'FULL POWER' : (AP ? AP.label : 'CUSTOM');
+          // under the override the clause leads with what the agent returns to: the collapsed row ellipses it at ~40 characters,
+          // and "whole-station override is ON · returns to FU…" cut off the one fact it is there for (the badge says FULL POWER)
           const stateLine = overridden
-            ? 'whole-station override is ON · ' + (AP ? 'returns to ' + AP.label : 'returns to its custom mix') + ' when it is off'
+            ? (AP ? 'returns to ' + AP.label : 'returns to its custom mix') + ' when the whole-station override is off'
             : (AP ? AP.agentBlurb : (full ? 'never asks · ' : 'asks first · ') + p.short);
           const postureChips = STATION_POSTURES.map(P =>
             '<button class="ov-vchip pc-posture' + (AP && AP.id === P.id ? ' sel' : '') + (P.id === 'open' ? ' danger' : '') + '" data-agent-posture="' + P.id + '" data-agent="' + esc(String(a.id)) + '"' +

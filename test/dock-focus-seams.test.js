@@ -43,8 +43,12 @@ const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8').replace(/
 /* ---------- #1: a press is not a scroll; Review lands on the approval card ---------- */
 {
   const chat = rd('frontend/app/chat.js'), ny = rd('frontend/app/needsyou.js');
-  const fns = ['function isPress(ev)', 'function logGesture(ev)', 'function logHold(ev)', 'function endLogHold()'].map(h => { const b = A.fnBody(chat, h); A.ok(b.length > 20 && b.length < 600, 'sliced ' + h); return b; }).join('\n');
-  const press = /const PRESS_SEL = '[^'\n]*';/.exec(chat);
+  // the whole press filter (its selectors and every helper, from PRESS_SEL up to nearBottom), run as shipped
+  const iBlk = chat.indexOf('  const PRESS_SEL = '), jBlk = chat.indexOf('  function nearBottom()');
+  A.ok(iBlk > 0 && jBlk > iBlk && jBlk - iBlk < 4000, 'sliced the press filter (' + (jBlk - iBlk) + ' chars)');
+  const block = chat.slice(iBlk, jBlk);
+  ['function isPress(ev)', 'function logGesture(ev)', 'function logHold(ev)', 'function endLogHold()'].forEach(h => A.ok(block.indexOf(h) >= 0, 'the filter has ' + h));
+  const press = /const PRESS_SEL = '[^'\n]*';/.exec(block);
   A.ok(!!press && /button/.test(press[0]) && /input/.test(press[0]) && /textarea/.test(press[0]), 'a press is a press on a control (button, input, textarea, …)');
   const scroll = (/log\.addEventListener\('scroll', \(\) => \{([^]*?)\n      \}\);/.exec(chat) || [])[1];
   A.ok(!!scroll && /const near = nearBottom\(\);/.test(scroll), 'sliced the transcript\'s scroll handler');
@@ -55,7 +59,7 @@ const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8').replace(/
       + 'const log = { scrollTop: 600, scrollHeight: 1400, clientHeight: 500 };\n'
       + 'function nearBottom() { return log.scrollHeight - log.scrollTop - log.clientHeight < 40; }\n'
       + 'function hideNewPill() { pill = 0; } function showNewPill() { pill = 1; }\n'
-      + press[0] + '\n' + fns + '\nfunction onScroll() {' + scroll + '\n}\n'
+      + block + '\nfunction onScroll() {' + scroll + '\n}\n'
       + 'this.api = { isPress, logGesture, logHold, endLogHold, onScroll, get stick() { return stick; }, get pill() { return pill; }, get at() { return userScrollAt; }, get held() { return userScrollHeld; }, log };', ctx);
     return ctx;
   }
@@ -105,10 +109,47 @@ const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8').replace(/
   {
     // a key outside a control (PageUp on the focused log) is a gesture; typing in a field inside the log is not
     const w = world(), a = w.api;
-    a.logGesture({ target: { closest: sel => /input/.test(sel) ? {} : null } });
+    a.logGesture({ type: 'keydown', key: 'a', target: { closest: sel => /input/.test(sel) ? {} : null } });
     A.eq(a.at, 0, 'typing in the brief card\'s correction field is not a scroll gesture');
-    a.logGesture({ target: text });
+    a.logGesture({ type: 'keydown', key: 'PageUp', target: text });
     A.eq(a.at, w.now, 'PageUp / arrows on the log itself are');
+  }
+  /* (review 10-14) A KEY THAT MOVES THE READER IS A GESTURE WHEREVER FOCUS SITS. With focus left on a message's copy key after
+     a click, PageUp / ArrowUp were read as layout moving under a follower and pulled straight back to the bottom: the reader
+     could not move and no pill showed. Only a key that ACTS on a control is a press: Enter or Space on a key, or typing and
+     caret keys in a field. */
+  {
+    const key = { closest: sel => /button/.test(sel) ? {} : null };                // button.cmsg-copy, still focused after its click
+    const field = { closest: sel => /input/.test(sel) ? {} : null };               // the brief card's correction field
+    const stamps = (k, target) => { const w = world(), a = w.api; a.logGesture({ type: 'keydown', key: k, target }); return a.at === w.now; };
+    for (const k of ['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab']) A.ok(stamps(k, key), k + ' with focus on a key in the log is a reading gesture');
+    for (const k of ['Enter', ' ']) A.ok(!stamps(k, key), JSON.stringify(k) + ' on a key in the log presses it (not a gesture)');
+    for (const k of ['PageUp', 'PageDown', 'Tab']) A.ok(stamps(k, field), k + ' in a field inside the log still moves the reader');
+    for (const k of ['a', ' ', 'Enter', 'ArrowUp', 'Home', 'End']) A.ok(!stamps(k, field), JSON.stringify(k) + ' in a field types or moves its caret (not a gesture)');
+    A.ok(stamps(' ', text), 'Space on the log itself scrolls it');
+    // far: PageUp from the bottom with focus on the copy key — the reader stays where the key put them, the pill offers the way back
+    const w = world(), a = w.api;
+    a.log.scrollTop = a.log.scrollHeight - a.log.clientHeight; a.onScroll();
+    A.ok(a.stick && a.pill === 0, '(setup) following at the bottom');
+    a.logGesture({ type: 'keydown', key: 'PageUp', target: key });
+    a.log.scrollTop -= 450; const far = a.log.scrollTop; a.onScroll();
+    A.ok(!a.stick && a.log.scrollTop === far && a.pill === 1, 'PageUp on a focused key scrolls the transcript up and is not pulled back down (' + a.log.scrollTop + ' vs ' + far + ')');
+    // near band: one ArrowUp (inside the 40 px band) is the reader's too — not re-pinned
+    const r = world(), b = r.api;
+    b.log.scrollTop = b.log.scrollHeight - b.log.clientHeight; b.onScroll();
+    b.logGesture({ type: 'keydown', key: 'ArrowUp', target: key });
+    b.log.scrollTop -= 34; const nudged = b.log.scrollTop; b.onScroll();
+    A.eq(b.log.scrollTop, nudged, 'ArrowUp on a focused key inside the near band is left where the reader put it');
+  }
+  // a server-history repaint after NEEDS YOU › Review finds the approval card again, as it does a question card
+  {
+    // sliced by its own two-space closing line: a quote inside its regex class sends fnBody long (the _assert.js hazard)
+    const sel = (/\n  function revealSelector\(target\) \{\n([\s\S]*?)\n  \}\n/.exec(chat) || [])[1] || '';
+    A.ok(sel.length > 20 && sel.length < 600, 'sliced revealSelector (' + sel.length + ' chars)');
+    const run = new Function('target', sel);
+    const card = attrs => ({ hasAttribute: n => n in attrs, getAttribute: n => attrs[n] });
+    A.eq(run(card({ 'data-consent-prompt': 'p7' })), '[data-consent-prompt="p7"]', 'an approval card is found again by its prompt after the repaint');
+    A.eq(run(card({ 'data-clarify-prompt': 'q2' })), '[data-clarify-prompt="q2"]', '…as a question card is');
   }
   // the wiring: a window release only ENDS a log hold; presses go through the filter; wheel / touch-drag always count
   A.ok(/\['pointerup', 'pointercancel', 'blur'\]\.forEach\(type => window\.addEventListener\(type, endLogHold, \{ passive: true \}\)\)/.test(chat), 'a release anywhere only ends a hold that began on the log');
@@ -182,6 +223,18 @@ const rd = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8').replace(/
   // labels inside a line are set in that line's size (no-shrunken-inline-chips)
   A.ok(/font-size:\s*inherit/.test(rule('.q-outcome') || '') && !/font-size:\s*9px/.test(rule('.q-outcome') || ''), 'QUESTS: the run outcome ("NOTHING PASSED") is set in its line\'s size');
   A.ok(/font-size: var\(--sn-type-meta/.test(rule('.pc-rh') || ''), 'PERMISSIONS: a reach rung\'s house name is at the station\'s smallest type, not 9 px');
+  // PERMISSIONS: a collapsed crew row's state clause is one ellipsed line (~40 characters at a window's width). Under the
+  // whole-station override it read "whole-station override is ON · returns to FU…" — the one fact it exists for (what the
+  // agent returns to) was the part cut off. The posture it returns to leads the clause now; the badge already says FULL POWER.
+  const ovr = /const stateLine = overridden\n\s*\? ([^\n]+)\n/.exec(ui);
+  A.ok(!!ovr, 'sliced the override branch of the crew row\'s state line');
+  const said = new Function('AP', 'return ' + (ovr ? ovr[1] : "''"));
+  for (const label of ['CHECK WITH ME', 'LET IT WORK', 'FULL POWER']) {
+    const s = said({ label }), end = s.indexOf(label) + label.length;
+    A.ok(s.indexOf(label) >= 0 && end <= 32, 'under the override the row names what it returns to inside the visible clause: "' + s + '" (' + label + ' ends at ' + end + ')');
+    A.ok(/override/.test(s) && /off/.test(s), '…and still says it waits on the whole-station override');
+  }
+  A.ok(/returns to its custom mix/.test(said(null)) && said(null).indexOf('custom mix') <= 32, 'a custom mix names that first too: ' + said(null));
 }
 
 A.report('dock-focus-seams');
