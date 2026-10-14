@@ -816,7 +816,9 @@
     const tsAuthorityEl = body.querySelector('#ts-authority');
     const agents = H.present || [];
     tsAgentEl.innerHTML = agents.map(a => '<option value="' + esc(a.id) + '">' + esc(a.name || a.id) + '</option>').join('') || '<option value="">Station defaults</option>';
-    if (agents[H.sel]) tsAgentEl.value = agents[H.sel].id;
+    // ORG P21: open on the same agent the skills lane in this console shows (sent from a dossier, or the dossier's own)
+    const openOn = typeof H.skillsAgentId === 'function' ? H.skillsAgentId() : (agents[H.sel] && agents[H.sel].id);
+    if (openOn && agents.some(a => a.id === openOn)) tsAgentEl.value = openOn; else if (agents[H.sel]) tsAgentEl.value = agents[H.sel].id;
     let tsRequest = 0;
     const tsLabels = {};
     tsAgentEl.addEventListener('change', tsRefresh);

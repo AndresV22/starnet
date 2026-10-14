@@ -18,7 +18,9 @@ const context = {
   present: [{ id: 'agent', name: 'Agent' }],
   sel: 0,
   esc: value => String(value),
-  skillsPick: null,   // org P21: the AGENT SKILLS picker's choice (null = the dossier's agent)
+  skillsPick: null,   // org P21: a one-shot request from a dossier's SKILLS row (null = the dossier's agent)
+  skillsShown: null,  // org P21: the agent the open window's lane shows, tied to that window instance
+  open: { connectors: { id: 'win-1' } },
   result: null
 };
 // org P21: the lane names the shown agent through skillsIntro — run the shipped helper, not a stub
@@ -27,6 +29,38 @@ A.ok(introMatch, 'the AGENT SKILLS intro helper is present');
 vm.runInNewContext((introMatch ? introMatch[0] : '') + '\n' + laneSource + '\nresult = abilitySkillsLane({});', context);
 A.ok(/Reusable procedures <b>Agent<\/b> created or learned/.test(context.result.sections.find(s => s.id === 'agent') ? (() => { const el = { innerHTML: '' }; context.result.sections.find(s => s.id === 'agent').build(el); return el.innerHTML; })() : ''),
   'AGENT SKILLS names the agent it shows');
+
+// org P21 fix (review): the dossier's SKILLS pick is ONE-SHOT. Run the shipped lane builder through a sequence of
+// opens: sent from NOVA's dossier → NOVA; a later open from anywhere else → the dossier's agent again; a rerender of
+// the SAME window keeps an in-window pick; a FRESH window never inherits it.
+{
+  const helper = (source.match(/function skillsAgentId\(\) \{[\s\S]*?\n  \}/) || [''])[0];
+  A.ok(helper, 'skillsAgentId (the one reader every skills action uses) is present');
+  const seq = { present: [{ id: 'agent', name: 'Agent' }, { id: 'nova', name: 'NOVA' }], sel: 0, esc: v => String(v), skillsPick: null, skillsShown: null, open: { connectors: { id: 'w1' } } };
+  vm.runInNewContext((introMatch ? introMatch[0] : '') + '\n' + laneSource + '\n' + helper, seq);
+  const shownAfterBuild = () => { vm.runInNewContext('abilitySkillsLane({});', seq); return vm.runInNewContext('skillsAgentId()', seq); };
+  seq.skillsPick = 'nova';
+  A.eq(shownAfterBuild(), 'nova', 'P21: sent from NOVA\'s dossier SKILLS row → the lane shows NOVA');
+  A.eq(seq.skillsPick, null, 'P21: the request is consumed when the lane builds');
+  A.eq(shownAfterBuild(), 'nova', 'P21: a rerender of the same open window keeps NOVA');
+  seq.open.connectors = { id: 'w2' };
+  A.eq(shownAfterBuild(), 'agent', 'P21: a later fresh open (not from the SKILLS row) follows the dossier\'s agent again');
+  seq.skillsShown = { id: 'nova', win: seq.open.connectors };
+  A.eq(vm.runInNewContext('skillsAgentId()', seq), 'nova', 'P21: an in-window pick is what every skills action reads');
+  seq.open.connectors = null;
+  A.eq(vm.runInNewContext('skillsAgentId()', seq), 'agent', 'P21: once that window is gone the pick is gone with it');
+}
+const changeSrc = (laneSource.match(/pick\.addEventListener\('change', \(\) => \{[\s\S]*?\n      \}\);/) || [''])[0];
+A.ok(/loadAgentSkills\(pick\.value\); loadSkillLibrary\(pick\.value\); loadSkillMarket\(pick\.value\);/.test(changeSrc) && !/skillsPick =/.test(changeSrc),
+  'P21: the picker moves the whole lane (agent skills, library, market) to the picked agent and never leaves a sticky request behind');
+A.ok(/wireSkillExchange\(skillsAgentId\)/.test(laneSource) && /renderSkillExchangePreview\(host, r\.preview, shownAgent\(\)\)/.test(source),
+  'P21: a SKILL EXCHANGE install goes to the agent shown at inspect time');
+A.ok(/host\.dataset\.agent = agentId;/.test(source) && /const shownId = host\.dataset\.agent \|\| agentId;/.test(source),
+  'P21: the market\'s once-wired click handler acts for the agent of the latest load');
+A.ok(/const agentName = \(\(present\.find\(x => x && x\.id === agentId\) \|\| \{\}\)\.name\) \|\| agentId;/.test(source),
+  'P21: the library\'s "active for <agent>" names the agent it was loaded for, not the dossier selection');
+A.ok(/const openOn = typeof H\.skillsAgentId === 'function' \? H\.skillsAgentId\(\)/.test(fs.readFileSync(path.join(__dirname, '../frontend/app/windows/connectors.js'), 'utf8')),
+  'P21: BUILT-IN ABILITIES opens on the same agent as the skills lane');
 
 A.eq(context.result.sections.map(section => section.id), ['market', 'library', 'agent', 'exchange'],
   'the live lane builds all four Skills sections without throwing');
@@ -54,7 +88,7 @@ async function checkAvailability() {
     let requested = '', rendered = null;
     const host = { innerHTML:'', closest:() => null };
     vm.runInNewContext(loader + '\nloadSkillLibrary("agent");', {
-      $: () => host, Harness:{api:{get:async () => view}},
+      $: () => host, skillLibLoad: 0, Harness:{api:{get:async () => view}},
       World:{heroCaps:() => [],stationCaps:() => shared.map(objectType => ({objectType}))},
       fetch:async url => { requested = url; return {ok:true,json:async () => ({skills:[]})}; },
       renderSkillLibrary:(_host,_skills,_id,placed) => { rendered = Array.from(placed); },

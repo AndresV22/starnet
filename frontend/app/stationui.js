@@ -2673,7 +2673,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     U.bus.on('deliverable', p => {
       if (!p || p.kind !== 'skill') return;
       if (!open['connectors'] || !$('#sk-agent')) return;             // the AGENT SKILLS host lives in the ABILITIES console (skills lane)
-      const a = (skillsPick && present.find(x => x && x.id === skillsPick)) || present[sel]; const shownId = (a && a.id) || 'agent';
+      const shownId = skillsAgentId();
       if ((p.agentId || 'agent') !== shownId) return;                 // only refresh the agent the panel is actually showing
       clearTimeout(skillsRefreshTimer);
       skillsRefreshTimer = setTimeout(() => { if (open['connectors'] && $('#sk-agent')) loadAgentSkills(shownId); }, 400);
@@ -3739,11 +3739,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      owns the whole "what agents can do" axis. Same two-part lane shape as windows/automation.js
      ({sections, wire}); wire() runs after the shared mountConsole call. */
   function abilitySkillsLane(body) {
-    // ORG P21: AGENT SKILLS shows the agent picked here (or sent from its dossier's SKILLS row); otherwise the dossier's
-    // selected agent, as before. The intro names whose procedures these are.
-    const picked = skillsPick && present.find(x => x && x.id === skillsPick);
+    // ORG P21: the skills lane shows ONE agent — the one sent from its dossier's SKILLS row (a one-shot request,
+    // consumed here so a later open from anywhere else follows the dossier again), or the one picked in this same
+    // open window (kept across its own rerenders), else the dossier's selected agent, as before.
+    const sentFrom = skillsPick; skillsPick = null;
+    const keptHere = (skillsShown && skillsShown.win === open.connectors) ? skillsShown.id : null;
+    const picked = present.find(x => x && x.id === (sentFrom || keptHere));
     const a = picked || present[sel];
     const agentId = (a && a.id) || 'agent';
+    skillsShown = { id: agentId, win: open.connectors };
     const agentPicker = present.length
       ? '<label class="mc-hint" for="sk-agent-pick">Skills of</label><select id="sk-agent-pick" class="ab-agent-pick" aria-label="Show the skills of agent">' +
         present.map(x => '<option value="' + esc(x.id) + '"' + (x.id === agentId ? ' selected' : '') + '>' + esc(x.name || x.id) + '</option>').join('') + '</select>'
@@ -3803,12 +3807,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       loadAgentSkills(agentId);
       const pick = document.getElementById('sk-agent-pick');
       if (pick) pick.addEventListener('change', () => {
-        skillsPick = pick.value; sfx('click');
+        skillsShown = { id: pick.value, win: open.connectors }; sfx('click');
         const shown = present.find(x => x && x.id === pick.value);
         const intro = document.getElementById('sk-agent-intro'); if (intro) intro.innerHTML = skillsIntro(shown);
-        loadAgentSkills(pick.value);
+        // one agent per lane: the library's "active for <agent>" readout, the market's gear check and an exchange
+        // install all follow the pick, not the agent the window first opened on
+        loadAgentSkills(pick.value); loadSkillLibrary(pick.value); loadSkillMarket(pick.value);
       });
-      wireSkillExchange(agentId);
+      wireSkillExchange(skillsAgentId);
       wireSkillsLive();   // A3: keep the AGENT SKILLS list live while the panel is open (registers once)
     }
     return { sections, wire };
@@ -3977,10 +3983,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const f = $('#skm-filters');
       if (f) f.querySelectorAll('[data-skm-filter]').forEach(x => { const on = x.dataset.skmFilter === 'all'; x.classList.toggle('active', on); x.setAttribute('aria-pressed', on ? 'true' : 'false'); });
     }
+    host.dataset.agent = agentId;   // ORG P21: the once-wired handler below acts for the agent of the LATEST load
+    const load = ++skillMarketLoad;  // …and only the latest load may land (the picker can reload for another agent mid-fetch)
     skillPlacedTypes(agentId)
       .then(placed => Harness.api.get('/api/skill-market?placed=' + encodeURIComponent(placed.join(',')) + (refresh ? '&refresh=1' : '')))
-      .then(d => { if ($('#skm-list') === host) { renderSkillMarket(host, d, agentId); const search = host.closest('.term-body')?.querySelector('.con-search-in'); if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles: true })); } })
-      .catch(e => { if ($('#skm-list') === host) renderSkillMarket(host, { ok: false, error: e && e.message }, agentId); });
+      .then(d => { if ($('#skm-list') === host && load === skillMarketLoad) { renderSkillMarket(host, d, agentId); const search = host.closest('.term-body')?.querySelector('.con-search-in'); if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles: true })); } })
+      .catch(e => { if ($('#skm-list') === host && load === skillMarketLoad) renderSkillMarket(host, { ok: false, error: e && e.message }, agentId); });
     if (host.dataset.wired) return;
     host.dataset.wired = '1';
     const filters = $('#skm-filters');
@@ -3992,10 +4000,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     });
     host.addEventListener('click', async ev => {
       const place = ev.target.closest('[data-place]');
-      if (place) { sfx('click'); placeGearForSkill(place.dataset.place, (typeof App !== 'undefined' && App.agentName) ? App.agentName(agentId) : ''); return; }
+      const shownId = host.dataset.agent || agentId;
+      if (place) { sfx('click'); placeGearForSkill(place.dataset.place, (typeof App !== 'undefined' && App.agentName) ? App.agentName(shownId) : ''); return; }
       const b = ev.target.closest('[data-skm-act]'); if (!b || b.disabled) return;
       const act = b.dataset.skmAct, slug = b.dataset.slug;
-      if (act === 'retry') { host.innerHTML = '<span class="loading pulse">loading the skill market…</span>'; loadSkillMarket(agentId, true); return; }
+      if (act === 'retry') { host.innerHTML = '<span class="loading pulse">loading the skill market…</span>'; loadSkillMarket(shownId, true); return; }
       if (skmBusy.has(slug)) return;
       const msg = $('#skm-msg');
       const card = b.closest('[data-skm]');
@@ -4021,7 +4030,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // always re-read: even a timed-out request may have finished on the station
         skmBusy.delete(slug);
         skmFocus = slug;
-        loadSkillMarket(agentId); loadSkillLibrary(agentId);
+        loadSkillMarket(shownId); loadSkillLibrary(shownId);
       }
     });
   }
@@ -4031,6 +4040,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // that was closed mid-fetch is a safe no-op. The global fetch wrapper (harness.js) attaches the API token.
   function loadSkillLibrary(agentId) {
     const host = $('#sk-lib'); if (!host) return;
+    const load = ++skillLibLoad;   // ORG P21: the picker can reload for another agent mid-fetch — only the latest load may land
     let placed = [];
     try { placed = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(agentId).map(c => c.objectType) : []; } catch (e) {}
     Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(agentId) + '&placed=' + encodeURIComponent(placed.join(',')))
@@ -4045,7 +4055,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       .then(r => { if (!r.ok) throw Error('Skill library unavailable'); return r.json(); })
       .then(d => {
         const h = $('#sk-lib');
-        if (h === host) {
+        if (h === host && load === skillLibLoad) {
           renderSkillLibrary(h, (d && d.skills) || [], agentId, placed);
           const search = h.closest('.term-body')?.querySelector('.con-search-in');
           if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles:true }));
@@ -4054,7 +4064,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       })
       .catch(() => {
         const h = $('#sk-lib');
-        if (h) {
+        if (h && load === skillLibLoad) {
           h.innerHTML = '<div class="sk-loading">Could not load the skill library — is the sidecar running?</div>';
           requestAnimationFrame(() => fitTermInViewport(open.connectors));
         }
@@ -4136,7 +4146,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const placedSet = {}; (placed || []).forEach(p => placedSet[p] = true);
     const objLabel = (r) => SK_OBJ_NAME[r] || String(r).toUpperCase();
     const active = skills.filter(s => s.enabled && s.available).length;
-    const agentName = (present[sel] && present[sel].name) || agentId;
+    const agentName = ((present.find(x => x && x.id === agentId) || {}).name) || agentId;   // ORG P21: the agent this list was loaded for
     const groups = groupSkillsByState(skills);
     let html = '<div class="sk-lib-sum">' + skills.length + ' skill' + (skills.length === 1 ? '' : 's') +
       ' · <b>' + active + '</b> active for ' + esc(agentName) + '</div>';
@@ -4271,7 +4281,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     });
   }
 
-  function wireSkillExchange(agentId) {
+  function wireSkillExchange(agentOf) {
+    const shownAgent = () => (typeof agentOf === 'function' ? agentOf() : agentOf);   // ORG P21: the lane's picker can change the agent after wiring
     const input = $('#sk-exchange-url'), button = $('#sk-exchange-inspect'), importer = $('#sk-exchange-import'), host = $('#sk-exchange-preview');
     if (!input || !button || !host || !Harness.skillExchangeInspect) return;
     const inspect = async () => {
@@ -4281,7 +4292,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       host.innerHTML = '<div class="sk-loading"><span class="loading pulse">fetching and scanning exact source bytes…</span></div>';
       const r = await Harness.skillExchangeInspect(url);
       button.classList.remove('busy'); button.textContent = 'INSPECT';
-      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, agentId);
+      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, shownAgent());
       else host.innerHTML = '<div class="sk-exchange-note bad">' + esc((r && r.error) || 'That source could not be inspected.') + '</div>';
     };
     button.addEventListener('click', inspect);
@@ -4292,7 +4303,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       let envelope = ''; try { envelope = await file.text(); } catch (_) {}
       const r = envelope ? await Harness.skillExchangeImport(envelope) : { ok: false, error: 'That file could not be read.' };
       importer.value = '';
-      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, agentId);
+      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, shownAgent());
       else host.innerHTML = '<div class="sk-exchange-note bad">' + esc((r && r.error) || 'That package could not be inspected.') + '</div>';
     });
     const registryUrl = $('#sk-registry-url'), registryQuery = $('#sk-registry-query'), registryButton = $('#sk-registry-search'), registryResults = $('#sk-registry-results');
@@ -4333,8 +4344,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   let skillPanelLoad = 0;
-  // ORG P21: the agent AGENT SKILLS shows when it was picked there or sent from a dossier (null = the dossier's agent)
+  // ORG P21: skillsPick = a ONE-SHOT request from a dossier's SKILLS row (consumed when the lane builds);
+  // skillsShown = the agent the open ABILITIES skills lane shows, tied to that window instance so a fresh open never
+  // inherits an old pick. skillsAgentId() is what every skills action reads at click time.
   let skillsPick = null;
+  let skillsShown = null;
+  let skillLibLoad = 0, skillMarketLoad = 0;
+  function skillsAgentId() {
+    const id = skillsShown && skillsShown.win === open.connectors && present.some(x => x && x.id === skillsShown.id) ? skillsShown.id : null;
+    return id || (present[sel] && present[sel].id) || 'agent';
+  }
   function skillsIntro(a) {
     const n = '<b>' + esc((a && (a.name || a.id)) || 'this agent') + '</b>';
     return 'Reusable procedures ' + n + ' created or learned. These appear as a compact index in ' + n + '’s future runs; it loads the full body only when a task matches.';
@@ -11497,6 +11516,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // live core state (read-only views — never reassign through these)
     get present() { return present; },
     get sel() { return sel; },
+    skillsAgentId,   // ORG P21: the agent the ABILITIES skills lane shows — the BUILT-IN ABILITIES picker opens on the same one
     get deskAgentId() { return deskAgentId; },
     get store() { return store; }
   };
