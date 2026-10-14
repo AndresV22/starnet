@@ -3930,10 +3930,15 @@ const WorldModel = (() => {
        place: the faint plate it stencils at the bottom-right corner of the room's bounding box (StationBake buildBase, a
        24-char cap at 7px — well inside one chunk reach of that corner). A rename used to emit [] and re-bake the whole
        station (~6 s on a large floor); it now names that corner, so only the chunks around the plate re-bake. */
+    /* ...AND ONLY THE TEXT (2026-10-14, the busy-station walk: a rename still froze BUILD MODE ~0.4 s re-baking two chunks).
+       The plate is its own pixels and nothing else: 24 chars at 7px written rightward from 28px inside the box's right edge,
+       baseline 4px above its bottom — tiles x2-3..x2+12 of its bottom row hold it in any font (<= 7px a glyph). No wall
+       paints differently for a name, so the rect carries no wall reach (pad 0; StationBake pads every other rect by its
+       dirty reach): one chunk instead of two around most plates. */
     function nameplateRect(rm) {
       let x2 = -Infinity, y2 = -Infinity;
       for (const r of rm.rects) { if (r.x2 > x2) x2 = r.x2; if (r.y2 > y2) y2 = r.y2; }
-      return { x1: x2 - 3, y1: y2, x2, y2 };
+      return { x1: x2 - 3, y1: y2, x2: x2 + 12, y2, pad: 0 };
     }
     function renameRoom(id, name) {
       const rm = doc.rooms[id];

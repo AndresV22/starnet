@@ -5350,13 +5350,15 @@ const StationBake = (() => {
     const x = cx * CHUNK_PX, y = cy * CHUNK_PX;
     return { x, y, w: Math.min(CHUNK_PX, geo.W - x), h: Math.min(CHUNK_PX, geo.H - y) };
   }
+  // a rect is padded by the dirty reach (what a tile there can paint) unless it names its own (`pad`, in px: a room's name
+  // plate changes only the text's pixels — worldmodel nameplateRect)
   function dirtyRectToLocalPx(geo, r) {
-    const t = geo.TILE;
+    const t = geo.TILE, p = typeof r.pad === 'number' && r.pad >= 0 ? r.pad : dirtyPadPx();
     return {
-      x1: Math.max(0, (r.x1 - geo.origin.tx) * t - dirtyPadPx()),
-      y1: Math.max(0, (r.y1 - geo.origin.ty) * t - dirtyPadPx()),
-      x2: Math.min(geo.W, (r.x2 + 1 - geo.origin.tx) * t + dirtyPadPx()),
-      y2: Math.min(geo.H, (r.y2 + 1 - geo.origin.ty) * t + dirtyPadPx())
+      x1: Math.max(0, (r.x1 - geo.origin.tx) * t - p),
+      y1: Math.max(0, (r.y1 - geo.origin.ty) * t - p),
+      x2: Math.min(geo.W, (r.x2 + 1 - geo.origin.tx) * t + p),
+      y2: Math.min(geo.H, (r.y2 + 1 - geo.origin.ty) * t + p)
     };
   }
   function dirtyChunks(geo, dirtyRects) {

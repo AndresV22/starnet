@@ -232,6 +232,9 @@ canvases.length = 0;
 const second = StationBake.bakeIncremental(geo, first, [{ x1: 10, y1: 10, x2: 10, y2: 10 }]);
 A.eq(second.stats.fullReset, false, 'same bounds/origin allow incremental reuse');
 A.eq(second.stats.dirtyChunks, ['0,0'], 'single tile edit maps to the exact dirty chunk');
+// a rect that names its own reach (a room's name plate: only the text's pixels change) is not padded by the wall reach
+A.eq(StationBake.dirtyChunks(geo, [{ x1: 28, y1: 20, x2: 30, y2: 20 }]).map(d => d.key), ['0,0', '1,0'], 'a tile edit near a chunk edge reaches the next chunk');
+A.eq(StationBake.dirtyChunks(geo, [{ x1: 28, y1: 20, x2: 30, y2: 20, pad: 0 }]).map(d => d.key), ['0,0'], '…a pad-0 rect there re-bakes only the chunk it lies in');
 A.eq(second.stats.rebakedChunks, 1, 'single tile edit rebakes one chunk');
 A.eq(second.stats.reusedChunks, 5, 'single tile edit reuses untouched chunks');
 A.ok(second.chunkMap.get('1,0') === reusedBefore.get('1,0'), 'untouched chunk object is reused');
