@@ -24,13 +24,16 @@
     if (key) h['x-goog-api-key'] = key;
     return h;
   }
+  // GitHub #98: 'google/<model>' is the OpenRouter spelling of a Gemini model, which a station keeps after switching to
+  // the native GEMINI provider. It names the native model 'models/<model>', never a 'google/…' resource (Google 404s).
+  function routedToNative(id) { return String(id || '').trim().replace(/^google\//i, ''); }
   function modelPath(id) {
-    const s = String(id || '').trim();
+    const s = routedToNative(id);
     if (!s) return 'models/gemini-pro';
     return s.indexOf('/') >= 0 ? s.replace(/^\/+/, '') : ('models/' + s);
   }
   function stripModelPrefix(id) {
-    return String(id || '').replace(/^models\//, '');
+    return routedToNative(id).replace(/^models\//, '');
   }
   function safeJson(value, fallback) {
     if (value && typeof value === 'object') return value;
@@ -553,7 +556,7 @@
     // which silently disabled the per-run spend ceiling and the day/global pools (loop.js only stops when
     // spentUsd crosses the cap). Resolved off the dated list-rate table, independent of catalog warm state so
     // the cap works from the first turn; an unrecognized model still returns null and stays 'unpriced'.
-    function priceOf(id) { return prices.priceOf('gemini', id); }
+    function priceOf(id) { return prices.priceOf('gemini', routedToNative(id)); }
     function supportsTools(id) { const m = findModel(id); return m ? m.supportsTools : true; }
     // Resolved from the model NAME: /v1beta/models publishes no capability data, and the dock asks before a
     // catalog fetch has necessarily landed.
