@@ -114,7 +114,7 @@ A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the pale
     A.ok(d && d.type === 'button' && /consent-btn/.test(d.className) && d.textContent === '▸ AUTOMATE › SCHEDULES', '/loop status carries one door key to SCHEDULES');
     d.onclick(); A.eq(opened.pop(), 'automation:routines-create', '…which opens the New schedule form');
   }
-  // the server-run /routine, /cron and /away replies gain their door client-side (sidecar/slash.js unchanged)
+  // the server-run /routine and /away replies gain their door client-side (sidecar/slash.js unchanged)
   {
     const body = ['let lastSaid = null, slashDispatchRefusal = null;', A.fnBody(src, 'function automateDoor('),
       src.match(/const SERVER_SLASH_DOORS = \{[^\n]+\};/)[0], A.fnBody(src, 'function applySlashDirective('), A.fnBody(src, 'async function dispatchSlash('), 'return dispatchSlash;'].join('\n');
@@ -128,11 +128,36 @@ A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the pale
     const routine = await run('routine', { type: 'say', title: 'Routines', lines: ['1. Morning brief'] });
     A.ok(routine.ok && routine.door && routine.door.textContent === '▸ AUTOMATE › SCHEDULES', '/routine reply carries the SCHEDULES door');
     routine.door.onclick(); A.eq(opened.pop(), 'automation:routines', '…opening Scheduled jobs');
-    const cron = await run('cron', { type: 'say', text: 'scheduling is on' });
-    A.ok(cron.ok && cron.door && cron.door.textContent === '▸ AUTOMATE › SCHEDULES', '/cron reply carries the SCHEDULES door');
     const away = await run('away', { type: 'say', text: 'queued: a small dashboard' });
     A.ok(away.ok && away.door && away.door.textContent === '▸ AUTOMATE › AWAY WORK', '/away reply carries the AWAY WORK door');
     away.door.onclick(); A.eq(opened.pop(), 'automation:away', '…opening AWAY WORK');
+    // /cron is a CLIENT action (sidecar/slash.js gives it no dispatch:'server'): the sidecar answers {type:'client', action:'cron'}
+    // and cronCommand prints the reply itself — so the door must ride cronCommand's own line, on every outcome
+    {
+      const cronBody = ['let lastSaid = null, slashDispatchRefusal = null;', A.fnBody(src, 'function automateDoor('),
+        src.match(/const SERVER_SLASH_DOORS = \{[^\n]+\};/)[0], A.fnBody(src, 'function applySlashDirective('), A.fnBody(src, 'async function dispatchSlash('), 'return dispatchSlash;'].join('\n');
+      const runCron = async (cronReply) => {
+        const nodes = [], lines = [];
+        const fetchFn = url => url === '/api/slash/dispatch'
+          ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, directive: { type: 'client', action: 'cron', args: '' } }) })
+          : Promise.resolve(cronReply);
+        const localLine = t => { lines.push(t); const n = mkNode(); nodes.push(n); return n; };
+        let cronCommand = null;
+        const dispatch = new Function('StationUI', 'document', 'fetch', 'systemCard', 'localLine', 'slashPlacedTypes', 'activeWs', 'localSlashActions', 'insertSlashText', cronBody)(
+          SUI, doc, fetchFn, () => mkNode(), localLine, () => [], { agentId: 'agent' }, () => ({ cron: a => cronCommand(a) }), () => true);
+        cronCommand = new Function('StationUI', 'document', 'fetch', 'localLine', A.fnBody(src, 'function automateDoor(') + '\n' + A.fnBody(src, 'async function cronCommand(') + '\nreturn cronCommand;')(SUI, doc, fetchFn, localLine);
+        const ok = await dispatch({ name: 'cron' }, '/cron');
+        for (let i = 0; i < 5 && !lines.length; i++) await Promise.resolve();
+        await new Promise(r => setTimeout(r, 0));
+        return { ok, lines, doors: nodes.map(doorOf).filter(Boolean) };
+      };
+      const live = await runCron({ ok: true, status: 200, json: () => Promise.resolve({ enabled: true, halted: false, jobs: [{ name: 'Morning brief' }] }) });
+      A.ok(live.ok && /^Routines: scheduler on, 1 job/.test(live.lines[0] || ''), '/cron prints its own status line: ' + live.lines[0]);
+      A.ok(live.doors.length === 1 && live.doors[0].textContent === '▸ AUTOMATE › SCHEDULES', '/cron reply carries ONE SCHEDULES door');
+      live.doors[0].onclick(); A.eq(opened.pop(), 'automation:routines', '…opening Scheduled jobs');
+      const down = await runCron({ ok: false, status: 503, json: () => Promise.resolve(null) });
+      A.ok(/real state is unknown/.test(down.lines[0] || '') && down.doors.length === 1, 'an unread /cron still says the state is unknown and keeps the door');
+    }
     const other = await run('usage', { type: 'say', text: '$0.12 today' });
     A.ok(other.ok && !other.door, 'any other server command\'s reply is unchanged (no door)');
   }

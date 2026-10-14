@@ -9261,23 +9261,25 @@ const Chat = (() => {
   }
   async function cronCommand(args) {
     const raw = String(args || '').trim().toLowerCase();
+    // org P19: /cron runs HERE (a client action, not a server 'say'), so its reply carries the SCHEDULES door itself
+    const reply = t => { const n = localLine(t); automateDoor(n, '▸ AUTOMATE › SCHEDULES', 'routines'); return n; };
     try {
       if (/^(on|enable|enabled|arm)$/.test(raw) || /^(off|disable|disabled|disarm)$/.test(raw)) {
         const want = /^(on|enable|enabled|arm)$/.test(raw);
         const r = await fetch('/api/cron/arm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: want }) });
         const j = await r.json().catch(() => null);
-        return localLine(r.ok && j ? ('Routines scheduler ' + (j.enabled ? 'enabled' : 'disabled') + '.') : 'Could not update the routines scheduler.');
+        return reply(r.ok && j ? ('Routines scheduler ' + (j.enabled ? 'enabled' : 'disabled') + '.') : 'Could not update the routines scheduler.');
       }
       const r = await fetch('/api/cron', { cache: 'no-store' });
       // an errored read is NOT "scheduler off, 0 jobs" — that reassuring line is exactly the lie to avoid.
-      if (!r.ok) return localLine('Could not read the routines scheduler (HTTP ' + r.status + ') — its real state is unknown.');
+      if (!r.ok) return reply('Could not read the routines scheduler (HTTP ' + r.status + ') — its real state is unknown.');
       const j = await r.json();
       const jobs = (j && Array.isArray(j.jobs)) ? j.jobs : [];
       const bits = jobs.slice(0, 5).map((job, i) => (i + 1) + '. ' + (job.name || job.id || 'routine') + (job.enabled === false ? ' [paused]' : ''));
       const schedulerLine = j && j.halted ? 'stopped (E-STOP)' : (j && j.enabled ? 'on' : 'off');
-      localLine('Routines: scheduler ' + schedulerLine + ', ' + jobs.length + ' job' + (jobs.length === 1 ? '' : 's')
+      reply('Routines: scheduler ' + schedulerLine + ', ' + jobs.length + ' job' + (jobs.length === 1 ? '' : 's')
         + (bits.length ? ' - ' + bits.join(' | ') : '.') + (j && j.halted ? ' Use /cron on to resume.' : ' Use /cron on or /cron off to arm/disarm.'));
-    } catch (_) { localLine('Could not load routines from the sidecar.'); }
+    } catch (_) { reply('Could not load routines from the sidecar.'); }
   }
   async function reloadMcpCommand(args) {
     const target = String(args || '').trim();
@@ -9654,9 +9656,10 @@ const Chat = (() => {
     host.appendChild(document.createTextNode(' ')); host.appendChild(door);
     return door;
   }
-  // the server ran /routine, /cron or /away and printed its reply: the reply carries the door to the tab that holds that work
+  // the server ran /routine or /away and printed its reply: the reply carries the door to the tab that holds that work
+  // (/cron is a CLIENT action — cronCommand attaches its own door)
   // (client-side only — sidecar/slash.js and its reply text are unchanged)
-  const SERVER_SLASH_DOORS = { routine: ['▸ AUTOMATE › SCHEDULES', 'routines'], cron: ['▸ AUTOMATE › SCHEDULES', 'routines'], away: ['▸ AUTOMATE › AWAY WORK', 'away'] };
+  const SERVER_SLASH_DOORS = { routine: ['▸ AUTOMATE › SCHEDULES', 'routines'], away: ['▸ AUTOMATE › AWAY WORK', 'away'] };
   let lastSaid = null;
   async function dispatchSlash(item, rawInput) {
     lastSaid = null;
