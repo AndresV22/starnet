@@ -92,11 +92,11 @@ const Onboarding = (() => {
       // even 'run free' caps Reach at sandbox there. Asked once, at the orchestrator awakening (the posture is
       // station-wide for now), and always retunable from the station SETTINGS panel.
       { posturePreset: true, optional: true,
-        prompt: 'one more thing — while you’re away, how much should i run on my own?',
+        prompt: 'while you’re away, how much should i run on my own?',   // never 'one more thing': the station pick can follow (P31 polish)
         options: [
           { label: 'Wait for me', value: 'wait' },
           { label: 'Line up suggestions', value: 'suggest' },
-          { label: 'Quietly do small jobs — each one a new ⚒ session', value: 'build' },
+          { label: 'Quietly do small jobs — each one a new session', value: 'build' },   // no ⚒: a symbol glyph falls back to another font in dialogue text
           { label: 'Run free toward my goals', value: 'free' },
           { label: 'Decide later', value: '', skip: true }
         ],
@@ -655,8 +655,8 @@ const Onboarding = (() => {
         ...(!interviewOnly ? [{ label: 'Quick setup — ' + quickSays, value: 'quick' }] : []),
         // the pace hint rides IN the label (no sentence under a choice): the follow-up wallet each pace really gets —
         // loose: followupsLeft = 1, deep: FOLLOWUP_BUDGET; the mind's ASK: NONE can end either one sooner
-        { label: 'A short conversation — one follow-up at most', value: 'loose' },
-        { label: 'Let’s talk it through — up to ' + (COUNT_WORD[FOLLOWUP_BUDGET] || FOLLOWUP_BUDGET) + ' follow-ups', value: 'deep' }
+        { label: 'A short conversation — at most one follow-up', value: 'loose' },
+        { label: 'Let’s talk it through — at most ' + (COUNT_WORD[FOLLOWUP_BUDGET] || FOLLOWUP_BUDGET) + ' follow-ups', value: 'deep' }
       ]
     });
     if (!running) return;
@@ -925,7 +925,7 @@ const Onboarding = (() => {
     const ask = 'last question: which station should i build for you? '
       + (rec ? 'from what you told me, i’d start with the ' + rec.name.toLowerCase() + ': ' + rec.pitch + '.'
              : 'pick the kind of work you’ll do most, or start with one room and build it yourself.')
-      + ' you can change it any time in BUILD MODE › ▦ Presets.';
+      + ' you can change it any time in BUILD MODE › Presets.';
     const res = await Dialogue.node({
       lines: [seg(ask, 46, 0)],
       // each choice names its kind of work in the purpose question's own words ("Software Studio — Code & build")
@@ -935,13 +935,13 @@ const Onboarding = (() => {
     if (!running) return;
     const id = res && !res.skip ? String(res.value || '') : '';
     const pick = works.find(c => c.id === id);
-    if (!pick) { await Dialogue.say([seg('one room it is. you can pick a station any time in BUILD MODE › ▦ Presets.', 44, 360)]); return; }
+    if (!pick) { await Dialogue.say([seg('one room it is. you can pick a station any time in BUILD MODE › Presets.', 44, 360)]); return; }
     let r = null;
     try { r = S.apply(pick.id); } catch (_) { r = null; }
     if (!running) return;
     await Dialogue.say([seg(r && r.ok
       ? 'done. the ' + pick.name.toLowerCase() + ' is built, and its line is waiting for a crew: WORK › AUTOMATE › WORKFLOWS walks you through who works each step.'
-      : 'i couldn’t build that station here, so we’ll keep one room. you can try again in BUILD MODE › ▦ Presets.', 44, 360)]);
+      : 'i couldn’t build that station here, so we’ll keep one room. you can try again in BUILD MODE › Presets.', 44, 360)]);
   }
 
   // DAWN — the pull-back reveals its whole world, the light blooms, and it speaks its first WHOLE sentences
