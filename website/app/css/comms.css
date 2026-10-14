@@ -899,10 +899,6 @@ body.glass-demo :is(#chat-log, #gc-log) .cmsg.user  + .cmsg.user  > .cmsg-head {
 #chat-panel .chat-attach-strip:not([hidden]) { max-height: 124px; overflow-y: auto; scrollbar-color: var(--ph-dim) transparent; }
 #chat-panel .chat-queued:not(:empty) { max-height: 104px; overflow-y: auto; scrollbar-color: var(--ph-dim) transparent; }
 #voice-interruption { cursor: pointer; }
-/* /goal's door (org pass 10-14, P29 polish): 'Lasting goal loops:' and its key sit on a row of their own under the set line, so the
-   key never rides the end of the prose and swells its last line */
-.cmsg.system .goal-loops-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
-/* an AUTOMATE door on a slash reply (org P19 polish): the key takes a row of its own under the reply, never the tail of a prose line,
-   and lines up on the reply text column — a plain line indents 11px, a collapsed syscard has no inset of its own, so the door adds it */
-.cmsg.system .automate-door { display: block; width: fit-content; margin: 8px 0 2px; }
-.cmsg.system.syscard > .automate-door { margin: 2px 0 6px 11px; }
+/* a system line's door keys (/goal's GOAL LOOPS, the AUTOMATE doors on slash replies) take ONE row of their own under the line's
+   text (.sys-doors, chat.js systemDoor) — the COMMS look of that row lives in comms-convo.css's SYSTEM register */
+.cmsg.system > .sys-doors { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 4px; }

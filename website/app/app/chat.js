@@ -2682,6 +2682,22 @@ const Chat = (() => {
     if (typeof Systems !== 'undefined' && Systems.noticeReply) { try { Systems.noticeReply(t); } catch (_) {} }   // door law: a station line naming a system brings it online
     return r.d;
   }
+  /* A GOAL STEP IS THE STATION'S WORDS (org P29-sys, 2026-10-14). The goal loop sends each continuation as a user-role turn
+     (GoalLoop.continuationPrompt — that wire text is unchanged), but the Commander never typed it: COMMS shows the step as ONE
+     compact system line naming the goal — live (send) and on every replay (renderHistory) — never the station's internal prompt
+     as the Commander's speech. goalStepOf reads the stored turn's own text, so history written before this change replays the
+     same way. */
+  function goalStepOf(text) {
+    return (typeof GoalLoop !== 'undefined' && GoalLoop.continuationGoal) ? GoalLoop.continuationGoal(text) : null;
+  }
+  function goalStepLine(goal) {
+    if (!log) return null;
+    const g = String(goal || '').replace(/\s+/g, ' ').trim();
+    const r = row('system'); r.d.classList.add('goal-step');
+    r.body.textContent = '↻ Continuing toward your session goal' + (g ? ' — ' + (g.length > 160 ? g.slice(0, 159) + '…' : g) : '');
+    autoscroll();
+    return r.d;
+  }
   // the history-cap marker ("…N earlier turns trimmed …") as a dim, centered, hairline-flanked system line —
   // a scrollback boundary, not a dropped record. Reuses the broadcast register's chrome (theme tokens only).
   function trimMarkerLine(t) {
@@ -2699,6 +2715,10 @@ const Chat = (() => {
     clearEmptyState();
     opts = opts || {};
     const d = document.createElement('div'); d.className = 'cmsg system syscard';
+    // the SYSTEM tag a plain station line carries (CSS shows it only on the first line of a run), so a run that opens on
+    // a card is headed like any other (org P29-sys, 2026-10-14)
+    const who = document.createElement('span'); who.className = 'who'; who.textContent = 'SYSTEM';
+    d.appendChild(who);
     const head = document.createElement('button'); head.type = 'button'; head.className = 'syscard-head';
     const open0 = !!opts.open;
     head.setAttribute('aria-expanded', open0 ? 'true' : 'false');
@@ -7933,7 +7953,11 @@ const Chat = (() => {
       // TIMESTAMP TRUTH (P0): pass the turn's STORED real time (m.ts), or `false` when a legacy turn carries none —
       // never `true` here (that would re-stamp replayed history with the current clock, the fabrication we're killing).
       const stamp = (m && m.ts != null) ? m.ts : false;
-      if (m.role === 'user') { addUser(m.content, m.attachments, stamp, m.from); lastReal = m; continue; }
+      if (m.role === 'user') {
+        const step = m.from ? null : goalStepOf(m.content);   // a goal-loop continuation replays as the station's line, not the Commander's
+        if (step != null) goalStepLine(step); else addUser(m.content, m.attachments, stamp, m.from);
+        lastReal = m; continue;
+      }
       // a SYSTEM STATUS marker (sys — e.g. an autosessions run-outcome framing line) renders as a system-styled
       // line, NOT as agent speech; it never seeds the model (historyWindow drops it) and it stays visible in-thread.
       if (m && m.sys) { if ((m.content || '').trim()) toolLine(m.content, !!m.error); continue; }
@@ -8817,12 +8841,7 @@ const Chat = (() => {
        read as a contradiction). */
     const set = localLine('⊙ goal set for this session only: ' + s.goal + ' (budget ' + s.maxTurns + ' turns). It works while StarNet is open and stays with this session through a reload. Working toward it…');
     if (set && typeof StationUI !== 'undefined' && StationUI.openTerm) {
-      const door = document.createElement('button'); door.type = 'button'; door.className = 'consent-btn goal-loops-door'; door.textContent = '▸ AUTOMATE › GOAL LOOPS';
-      door.onclick = () => StationUI.openTerm('automation', 'loops');
-      const host = set.querySelector ? (set.querySelector('.body') || set) : set;
-      const doorRow = document.createElement('div'); doorRow.className = 'goal-loops-row';
-      doorRow.appendChild(document.createTextNode('Lasting goal loops:')); doorRow.appendChild(door);
-      host.appendChild(doorRow);
+      systemDoor(set, '▸ AUTOMATE › GOAL LOOPS', () => StationUI.openTerm('automation', 'loops'), { cls: 'goal-loops-door', lead: 'Lasting goal loops:' });
     }
     kickGoal(activeWs);
   }
@@ -9180,7 +9199,11 @@ const Chat = (() => {
     n = Math.min(n, 30);
     const slice = h.slice(-n);
     // ONE collapsed card instead of up to 31 flooding rows — click to expand the turns.
-    const lines = slice.map(m => (m.role === 'user' ? 'You' : 'Agent') + ': ' + String(m.content).replace(/\s+/g, ' ').slice(0, 160));
+    const lines = slice.map(m => {
+      const step = m.role === 'user' && !m.from ? goalStepOf(m.content) : null;   // a goal-loop step is the station's, not "You"
+      return step != null ? ('Goal step: ' + step.replace(/\s+/g, ' ')).slice(0, 166)
+        : (m.role === 'user' ? 'You' : 'Agent') + ': ' + String(m.content).replace(/\s+/g, ' ').slice(0, 160);
+    });
     systemCard('History — last ' + slice.length + ' of ' + h.length + ' turn' + (h.length === 1 ? '' : 's') + ' (click to expand)', lines);
   }
   // /whoami — the current agent identity: id/name, role/class, level + XP (Xp.compute), model + provider, and the
@@ -9881,16 +9904,37 @@ const Chat = (() => {
     }
     return false;
   }
-  /* ONE DOOR KEY on an automation slash reply (org P19, 2026-10-14): a consent key on the reply itself — never a new card — into
-     the AUTOMATE tab where that command's lasting form lives. node = a localLine row or a systemCard; section = the AUTOMATE console
-     section (automation.js: routines / routines-create / loops / away). */
+  /* SYSTEM-LINE DOORS (org P29-sys, 2026-10-14 — Andrew: system messages "look ugly and unaligned"). A station line's door keys
+     sit in ONE compact row under that line's own text (.sys-doors), on the same text edge, in the approval cards' glass key —
+     never a key bigger than the message it belongs to. A run of consecutive system lines never shows the same door twice: the
+     key moves down to the newest line that offers it, so it sits under the last thing it answers.
+     node = a system row (localLine / systemCard); onOpen = what the key opens; opts.cls = an extra class (automate-door …);
+     opts.lead = a short label in front of the key ("Lasting goal loops:"). */
+  function systemDoor(node, label, onOpen, opts) {
+    if (!node || !node.appendChild) return null;
+    opts = opts || {};
+    for (let p = node.previousElementSibling; p && p.classList && p.classList.contains('system'); p = p.previousElementSibling) {
+      const dup = Array.from(p.querySelectorAll('.sys-door')).find(k => k.textContent === label);
+      if (!dup) continue;
+      const was = dup.parentNode; dup.remove();
+      if (was && !was.querySelector('.sys-door')) was.remove();   // its lead label leaves with it
+      break;
+    }
+    let doors = Array.from(node.children || []).find(c => c.classList && c.classList.contains('sys-doors'));
+    if (!doors) { doors = document.createElement('div'); doors.className = 'sys-doors'; node.appendChild(doors); }
+    if (opts.lead) { const k = document.createElement('span'); k.className = 'sys-doors-lead'; k.textContent = opts.lead; doors.appendChild(k); }
+    const key = document.createElement('button'); key.type = 'button';
+    key.className = 'sys-door' + (opts.cls ? ' ' + opts.cls : ''); key.textContent = label;
+    key.onclick = onOpen;
+    doors.appendChild(key);
+    return key;
+  }
+  /* ONE DOOR KEY on an automation slash reply (org P19, 2026-10-14): a key on the reply itself — never a new card — into the
+     AUTOMATE tab where that command's lasting form lives. section = the AUTOMATE console section (automation.js: routines /
+     routines-create / loops / away). */
   function automateDoor(node, label, section) {
     if (!node || typeof StationUI === 'undefined' || !StationUI.openTerm) return null;
-    const door = document.createElement('button'); door.type = 'button'; door.className = 'consent-btn automate-door'; door.textContent = label;
-    door.onclick = () => StationUI.openTerm('automation', section);
-    const host = node.querySelector ? (node.querySelector('.body') || node) : node;
-    host.appendChild(document.createTextNode(' ')); host.appendChild(door);
-    return door;
+    return systemDoor(node, label, () => StationUI.openTerm('automation', section), { cls: 'automate-door' });
   }
   // the server ran /routine or /away and printed its reply: the reply carries the door to the tab that holds that work
   // (/cron is a CLIENT action — cronCommand attaches its own door)
@@ -10162,7 +10206,8 @@ const Chat = (() => {
     stick = true;   // sending a message means you want to watch the exchange — re-follow the bottom
     // TIMESTAMP TRUTH (P0): stamp the turn with its REAL wall-clock time at push, and render the same instant on
     // screen — so a later replay/switch shows this turn's actual time, never the reload clock.
-    if (!retry) { const uts = Date.now(); addUser(text, attsIn, uts); ws.history.push(attsIn.length ? { role: 'user', content: text, attachments: attsIn, ts: uts } : { role: 'user', content: text, ts: uts }); capHistory(ws); }   // on RETRY the user turn is already in the thread + on screen
+    // a goal-loop continuation shows as ONE station line (goalStepLine); its history turn — what the model receives — is unchanged
+    if (!retry) { const uts = Date.now(); if (goalContinuation) goalStepLine(goalStepOf(text) || ((goalOf(ws) || {}).goal) || ''); else addUser(text, attsIn, uts); ws.history.push(attsIn.length ? { role: 'user', content: text, attachments: attsIn, ts: uts } : { role: 'user', content: text, ts: uts }); capHistory(ws); }   // on RETRY the user turn is already in the thread + on screen
     const retryDirectiveTurn = ws.history.slice().reverse().find(m => m.role === 'user');
     // name an untitled stream from its first real message (no-op on General / already-titled)
     if (typeof Workstreams !== 'undefined' && Workstreams.autoTitle(ws.id, text)) {
