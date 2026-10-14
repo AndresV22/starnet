@@ -1086,13 +1086,14 @@ const WorkflowPanel = (() => {
         + (docks.length > 1 ? '<details class="wf-more"><summary>Starting agent · ' + esc(nameOf(trgAgent())) + '</summary><p class="wf-help">Usually, start with the first step. Choosing a later step skips the steps before it.</p><div class="wf-chips" id="trg-docks">' + docks.map(dockChip).join('') + '</div><div class="wf-help trg-dock-hint" id="trg-dock-hint">' + esc(dockHint(S.trgDock)) + '</div></details>'
           : docks.length === 1 ? '<div class="wf-help">fires at ' + thumb(docks[0].agentId, 16, 20, 'wf-ithumb') + '<b>' + esc((firstName ? firstName + ' · ' : '') + nameOf(docks[0].agentId)) + '</b> — this line’s first step</div>'
           : '<div class="wf-warnline">Assign an agent to a connected BAY first. A schedule needs an agent to start the work.</div>')
-        /* SAVE, AND TURN IT ON (2026-09-28 — "have saving the first schedule offer to turn scheduling on"): while scheduling is off
-           for the station, saving offers the switch in the same click — a schedule saved under a switched-off scheduler was the
-           T1 trap. SAVE ONLY stays one tap away; an E-STOP is never lifted from here (that is a deliberate act in AUTOMATION). */
+        /* ONE ARM RULE (org P16, 2026-10-14 — the SCHEDULES form's rule, one server seam): the first save on a scheduling switch nobody
+           ever set turns it ON; after the Commander turned it OFF a save keeps it off and offers ▶ TURN SCHEDULING ON; an E-STOP is
+           never lifted from here. One SAVE SCHEDULE key — the help line says which of the three this save will do (GET /api/cron armSet). */
+        + '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="trg-create"' + (docks.length ? '' : ' disabled') + '>▸ SAVE SCHEDULE</button><button type="button" class="bb sm" id="trg-cancel">CANCEL</button></div>'
         + ((S.cron && !S.cron.enabled && !S.cron.halted)
-          ? '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="trg-create" data-arm="1"' + (docks.length ? '' : ' disabled') + '>▸ SAVE · TURN SCHEDULING ON</button><button type="button" class="bb sm" id="trg-create-only"' + (docks.length ? '' : ' disabled') + '>SAVE ONLY</button><button type="button" class="bb sm" id="trg-cancel">CANCEL</button></div>'
-            + '<div class="wf-help dim">Scheduling is off for the whole station. Turning it on lets every saved schedule run at its time.</div>'
-          : '<div class="wf-row"><button type="button" class="bb sm refit-primary" id="trg-create"' + (docks.length ? '' : ' disabled') + '>▸ SAVE SCHEDULE</button><button type="button" class="bb sm" id="trg-cancel">CANCEL</button></div>')
+          ? '<div class="wf-help dim">' + (S.cron.armSet ? 'Scheduling is off — you turned it off. Saving keeps it off; press ▶ TURN SCHEDULING ON when you want it to run.'
+            : 'Saving turns scheduling on for the whole station, so every saved schedule runs at its time.') + '</div>'
+          : (S.cron && S.cron.halted) ? '<div class="wf-help dim">Scheduling is stopped (E-STOP). Saving keeps it stopped — turn scheduling on in AUTOMATE › SCHEDULES.</div>' : '')
         + '</div><div class="wf-help trg-msg' + (S.trgMsg && S.trgMsg.bad ? ' bad' : '') + '" id="trg-msg"' + (S.trgMsg ? '' : ' hidden') + '>' + esc(S.trgMsg ? S.trgMsg.t : '') + '</div></div>'
       + startHead('A channel message', !S.chans ? 'checking…' : tr.chanRows.length ? '' : 'none connected', 'ch', '<button type="button" class="bb sm" id="trg-chan">CONNECT A CHANNEL ▸</button>')
       + '<div class="trg-list" id="wf-chans">' + chanRows + '</div></div>'
@@ -1414,12 +1415,12 @@ const WorkflowPanel = (() => {
     const showForm = on => { S.trgOpen = on; S.trgMsg = null; const m = $('#trg-msg'); if (m) m.hidden = true; formEl.hidden = !on; newBtn.classList.toggle('active', on); newBtn.setAttribute('aria-expanded', on ? 'true' : 'false'); if (on) promptEl.focus(); else newBtn.focus(); };
     newBtn.onclick = () => { H.sfx('click'); showForm(formEl.hidden); };
     $('#trg-cancel').onclick = () => { H.sfx('click'); showForm(false); };
-    const create = arm => {
+    const create = () => {
       const prompt = promptEl.value.trim(), schedule = schedEl.value.trim();
       if (!prompt || !schedule) { H.sfx('bad'); say('a task and a schedule are required', true); return; }
       const dockId = S.trgDock, agentId = agentOfDock(dockId);
       if (!dockId || !agentId) { H.sfx('bad'); say('assign an agent to a step first — a routine fires at an agent', true); return; }
-      const btns = [$('#trg-create'), $('#trg-create-only')].filter(Boolean), hold = on => btns.forEach(b => { b.disabled = on; });
+      const btns = [$('#trg-create')].filter(Boolean), hold = on => btns.forEach(b => { b.disabled = on; });
       hold(true); say('saving…');
       const ln = lineName();
       const name = (ln ? ln + ' — ' : '') + (prompt.length > 48 ? prompt.slice(0, 45) + '…' : prompt);
@@ -1427,7 +1428,8 @@ const WorkflowPanel = (() => {
       // FIRES AT a bay: the agent that runs + WHICH of its bays (multi-bay; cron-store keeps dockId additively).
       // No provider: the routine inherits its agent's (or the station default's) model AND provider together, exactly
       // like the ROUTINES window — freezing the dock's current wire here paired one provider with another's model (#24 class).
-      api('/api/cron', 'POST', { name, prompt, schedule, agentId, dockId, tz, runsLine: true }).then(async ({ status, j: r }) => {
+      // arm:true — the one arm rule, decided server-side (handleCronCreate → armOnSaveIfUnset): on only when never set (org P16)
+      api('/api/cron', 'POST', { name, prompt, schedule, agentId, dockId, tz, runsLine: true, arm: true }).then(async ({ status, j: r }) => {
         if (r && r.error) return refuse(r.error);
         if (r && r.declined) return refuse(r.message || 'this routine name was deleted before — reword the task');
         if (r && r.duplicate) return refuse('a similar routine already exists' + (r.job && r.job.name ? ' ("' + r.job.name + '")' : '') + ' — reword the task; nothing new was created');
@@ -1436,31 +1438,23 @@ const WorkflowPanel = (() => {
         const cur = rb.j, saved = cur && Array.isArray(cur.jobs) && cur.jobs.find(x => x.id === r.job.id);
         if (!saved || cur.degraded) return refuse('save not confirmed — check AUTOMATION before retrying');
         S.cron = cur; hold(false); H.sfx('chime');
-        let armedNow = !!(cur.enabled && !cur.halted), armedHere = false, armFailed = false;
-        // SAVE · TURN SCHEDULING ON: the same POST /api/cron/arm the switch and AUTOMATION use — then the truth is re-read
-        if (arm && !armedNow && !cur.halted && saved.enabled) {
-          const ar = await api('/api/cron/arm', 'POST', { enabled: true }).catch(() => null);
-          if (ar && ar.status === 200 && ar.j && ar.j.ok) {
-            const rb2 = await api('/api/cron').catch(() => null);
-            if (rb2 && rb2.j && Array.isArray(rb2.j.jobs)) S.cron = rb2.j;
-            armedNow = !!(S.cron.enabled && !S.cron.halted); armedHere = armedNow; armFailed = !armedNow;
-          } else armFailed = true;
-        }
+        // what the save did to the switch: the create reply's own verdict (armedNow), checked against the re-read truth
+        const sch = (r && r.scheduler) || {}, armedNow = !!(cur.enabled && !cur.halted), armedHere = !!sch.armedNow && armedNow, offByChoice = !armedNow && !cur.halted && !!sch.offByChoice;
         if (!S.testJob[S.lineKey]) { S.testJob[S.lineKey] = prompt; saveTests(); }
         // saved: the form starts clean (un-flag the fields too, or the next paint's keepDrafts re-remembers them)
         S.drafts['trgprompt:' + p.id] = ''; delete S.drafts[schedKey]; promptEl.dataset.typed = ''; schedEl.dataset.typed = '';
         S.trgOpen = false;
         H.pollFeed().then(() => paint(true), () => paint(true));
         say(saved.state === 'completed' ? '✓ routine completed — see its result in AUTOMATION' : !saved.enabled ? '✓ saved — this routine is paused; manage it in AUTOMATION'
-          : armedHere ? '✓ schedule saved and scheduling is on — fires at ' + nameOf(agentId)
+          : armedHere ? '✓ saved · scheduling is now on — fires at ' + nameOf(agentId)
           : armedNow ? '✓ schedule saved — fires at ' + nameOf(agentId)
-          : armFailed ? '✓ saved — but scheduling could not be turned on: press TURN SCHEDULING ON above'
+          : cur.halted ? '✓ saved — scheduling is stopped (E-STOP), so it will not run until you turn scheduling on in AUTOMATE › SCHEDULES'
+          : offByChoice ? '✓ saved — scheduling is off (you turned it off), so it will not run: press ▶ TURN SCHEDULING ON above'
           : '✓ saved — scheduling is off for the whole station, so it will not run until you turn it on (above)', !saved.enabled || !armedNow);
         paint(true);
       }).catch(() => refuse('save not confirmed — check AUTOMATION before retrying'));
     };
-    $('#trg-create').onclick = () => create(!!$('#trg-create').dataset.arm);
-    const createOnly = $('#trg-create-only'); if (createOnly) createOnly.onclick = () => create(false);
+    $('#trg-create').onclick = () => create();
   }
 
   /* ===== LOOP / JOINER gates — the same configureJunction path, the same compiled-plan labels ===== */

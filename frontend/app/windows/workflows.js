@@ -885,7 +885,18 @@ const WorkflowsWindow = (() => {
       }, 600);
     });
   }
-  return { open, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob,
+  /* every workflow and where a schedule would start it (org P16 — SCHEDULES' RUN BY): the line's first routed step with an agent
+     (WorkflowLine.entryDocksOf — the same entry the INBOX form's schedule fires at). dockId/agentId are null when no agent works
+     its first step yet: the form offers that line disabled, never a guess. */
+  function startLines() {
+    const f = floor(), Wl = W();
+    if (!f || !Wl) return [];
+    return f.lines.map(l => {
+      const entry = (Wl.entryDocksOf ? Wl.entryDocksOf(l.flow) : [])[0] || null, d = entry && l.flow && l.flow.docks ? l.flow.docks[entry] : null;
+      return { key: l.key, name: l.name, dockId: d && d.agentId ? entry : null, agentId: d && d.agentId ? d.agentId : null, ready: !!(l.ready && l.ready.ready) };
+    });
+  }
+  return { open, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob, startLines,
     _state: S, _floor: floor, _lineWord: lineWord, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, _resultHTML: resultHTML, EX_HEAD };   // (the _ seams are test/eval reads)
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowsWindow;

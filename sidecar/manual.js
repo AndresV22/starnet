@@ -178,7 +178,7 @@ const CONCEPTS =
   'WORK [away-work] is an agent\'s consent to build from its own queue, inside its own workspace, while the Commander is away. ' +
   'You: routine.create/manage, loop.create/manage (if you have them); station.power agent.away_work on; station.control away.queue / ' +
   'away.remove fill and trim an agent\'s away queue. Trap: read ' +
-  'routine.create\'s scheduler note before saying "it will run" — scheduling can be off (▶ ENABLE SCHEDULING) or stopped by ' +
+  'routine.create\'s scheduler note before saying "it will run" — scheduling can be off (▶ TURN SCHEDULING ON) or stopped by ' +
   'an E-STOP, and you can never lift an E-STOP. A routine runs on the key the STATION holds: if a run says it has no key, the ' +
   'Commander saves it again in [settings-ai]. routine.create enabledToolsets takes toolset ids ([] = no limit).\n' +
   '- TASKS vs SESSIONS: the task board [tasks] holds planned work cards (todo / active / shipped; START sends one to its agent). ' +

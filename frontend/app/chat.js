@@ -4671,7 +4671,7 @@ const Chat = (() => {
     btns.appendChild(run); btns.appendChild(later);
     if (opts.schedOff) {
       // a schedule IS saved; the station's scheduling is off — the fix is one click, right here (R3)
-      const arm = document.createElement('button'); arm.className = 'consent-btn'; arm.textContent = '▸ TURN SCHEDULING ON';
+      const arm = document.createElement('button'); arm.className = 'consent-btn'; arm.textContent = '▶ TURN SCHEDULING ON';
       arm.onclick = () => {
         arm.disabled = true; arm.textContent = '… turning on';
         Harness.api.post('/api/cron/arm', { enabled: true }).then(res => {
@@ -4679,7 +4679,7 @@ const Chat = (() => {
           arm.textContent = ok ? '✓ scheduling is on' : 'could not turn scheduling on';
           if (!ok) arm.disabled = false;
           if (ok && typeof World !== 'undefined' && World.pollFeed) { try { World.pollFeed(); } catch (_) {} }
-        }).catch(() => { arm.disabled = false; arm.textContent = '▸ TURN SCHEDULING ON'; });
+        }).catch(() => { arm.disabled = false; arm.textContent = '▶ TURN SCHEDULING ON'; });
       };
       btns.appendChild(arm);
     }
