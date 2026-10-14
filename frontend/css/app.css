@@ -3235,6 +3235,8 @@ body:not(.rows-inbox) #workstreams .ws-row.attn:has(> .ws-agent-group) {
   grid-template-areas: "dot agent agent pin" "title title title title" ". meta meta menu";
 }
 body:not(.rows-inbox) #workstreams .ws-row.attn:has(> .ws-agent-group) > .ws-kebab { grid-area: menu; }
+/* the hover/focus swap below hides every other row's meta for its kebab; this row's kebab has its own cell */
+body:not(.rows-inbox) #workstreams .ws-row.attn:not(.renaming):has(> .ws-agent-group):is(:hover, :focus-within) > .ws-meta:not(:empty) { display: block; }
 /* the ⋯ button is the discoverable twin of right-click: hidden until the row is hovered, where it takes the meta slot */
 .ws-kebab {
   display: none; flex: 0 0 auto; font-family: inherit; font-size: 15px; line-height: 1; letter-spacing: 1px;

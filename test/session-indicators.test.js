@@ -142,4 +142,27 @@ A.ok(!context.railRowTip(savedA, row(savedA), true).includes('right-click'), 'pr
   A.eq(context.railAgentLine({ ...pair, conversationMode: 'direct' }), 'UL&lt;&amp;&quot;&#39;', 'a direct conversation ignores group membership and keeps its escaped agent name');
   A.eq(context.railAgentLine({ ...pair, id: 'unknown' }), 'UL&lt;&amp;&quot;&#39;', 'unknown group membership never invents a count or a second member');
 }
+// The default COMPACT layout (Andrew 10-13: a group row must read "AGENT, AGENT +3", never nothing and never a
+// shrunken chip). The names line above is only half of it: COMPACT hides .ws-agent for every row, so the group line
+// needs its own compact rules. These read the shipped stylesheet's real rules (comments stripped), not prose.
+{
+  const css = fs.readFileSync(path.join(__dirname, '../frontend/css/app.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(m => ({ sels: m[1].split(/,(?![^()]*\))/).map(s => s.trim().replace(/\s+/g, ' ')), body: m[2] }));
+  const decl = (sel, prop) => {
+    let v = null;
+    for (const r of rules) if (r.sels.includes(sel)) { const m = r.body.match(new RegExp('(?:^|;)\\s*' + prop + '\\s*:\\s*([^;]+)')); if (m) v = m[1].trim(); }
+    return v;
+  };
+  A.eq(decl('.ws-agent', 'display'), 'none', 'COMPACT still hides the agent line by default (direct rows keep their one-line layout)');
+  A.eq(decl('body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group', 'display'), 'flex', 'a group row shows its crew identity line in COMPACT');
+  A.eq(decl('body:not(.rows-inbox) #workstreams .ws-agent.ws-agent-group', 'font-size'), '12px', 'the compact crew line is the INBOX line’s readable size, not a shrunken chip');
+  const grid = 'body:not(.rows-inbox) #workstreams .ws-row:has(> .ws-agent-group)';
+  A.eq(decl(grid, 'display'), 'grid', 'a compact group row lays the identity on its own line');
+  A.ok(/"dot agent pin meta"\s*"title title title title"/.test(decl(grid, 'grid-template-areas') || ''), 'names sit above the full-width title');
+  const attn = 'body:not(.rows-inbox) #workstreams .ws-row.attn:has(> .ws-agent-group)';
+  A.ok(/"\. meta meta menu"/.test(decl(attn, 'grid-template-areas') || ''), 'an attention group row keeps its request and its menu in separate cells');
+  A.eq(decl(attn + ' > .ws-kebab', 'grid-area'), 'menu', 'the kebab takes the menu cell, not the request');
+  A.eq(decl('.ws-row:hover .ws-meta', 'display'), 'none', 'other rows still swap their meta for the kebab on hover');
+  A.eq(decl('body:not(.rows-inbox) #workstreams .ws-row.attn:not(.renaming):has(> .ws-agent-group):is(:hover, :focus-within) > .ws-meta:not(:empty)', 'display'), 'block', 'hover or focus never hides a group row’s pending request');
+}
 A.report('session-indicators.test');
