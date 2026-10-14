@@ -173,7 +173,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   A.ok(Array.isArray(row.artifacts) && row.artifacts.length === 1, 'the dispatch result carries the worker artifact ledger');
   A.eq(row.artifacts[0].workspace, 'designer', "each artifact is stamped with the owning WORKSPACE (the lead can answer 'where is it' truthfully)");
   A.eq(row.artifacts[0].path, 'images/x.png', 'the artifact keeps its jail-relative path');
-  A.ok(/private workspace/.test(dispatchTool.description) && /fs_read EXACTLY the files a worker's row lists/.test(dispatchTool.description) && /never guess one/.test(dispatchTool.description),
+  A.ok(/private workspace/.test(dispatchTool.description) && /fs_read EXACTLY the files a worker's row lists/.test(dispatchTool.description) && /never guess another path/.test(dispatchTool.description) && /ORDER: workers run one after another/.test(dispatchTool.description),
     "the tool contract teaches the lead that worker files live in the worker's workspace and only the listed files are readable (the ghost-file reply)");
 }
 
