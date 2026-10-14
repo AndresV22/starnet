@@ -3252,6 +3252,7 @@ const Build = (() => {
   // the machines a line is made of — clicking one on the floor opens/selects it in the panel
   const WF_PART = { bay: 1, intake: 1, outbox: 1, loop: 1, joiner: 1, merger: 1, splitter: 1 };
   let wfHighlightId = null, wfPaused = null, wfHostMemo = null, wfKitAuto = false;   // wfKitAuto: the panel minimized the Build Library (and owes it back)
+  let wfShownPart = null;   // the part the panel last showed (its close-time highlight(null) leaves it): the line DONE keeps clear of the library
   let wfArtRev = -1, wfArtAt = 0;   // the authored-art revision the panel's tiles were last painted at (frame(): repaint when it moves)
   /* the HOST the panel is handed: live reads of THIS editor's state (station, compiled plan, camera) and the
      seams it already owns (sample, plan gate, flash/sfx). Lazy getters — the panel never caches a plan. */
@@ -3276,7 +3277,7 @@ const Build = (() => {
         return (typeof CronHuman !== 'undefined' && CronHuman.describeDisplay) ? CronHuman.describeDisplay(d, { tz }) : String(d == null ? '' : d); },
       provider: () => (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : undefined,
       openTerm: name => { close(); if (typeof StationUI !== 'undefined' && StationUI.openTerm) StationUI.openTerm(name); },
-      highlight: id => { wfHighlightId = id || null; },
+      highlight: id => { wfHighlightId = id || null; if (id) wfShownPart = id; },
       joinLine: id => armJoin(id),   // JOIN A LINE: BELT armed with this BAY as the destination (onDown's connectTo)
       focusProp: (id, onlyIfHidden) => focusPropOnFloor(id, onlyIfHidden),
       frameLine: key => frameLineOnFloor(key),
@@ -3285,11 +3286,18 @@ const Build = (() => {
       /* TWO PANELS SQUEEZE THE FLOOR (Andrew, 2026-09-22): opening the docked Workflow panel MINIMIZES the Build
          Library through its own MINIMIZE state (toggleKit), and closing the panel restores it — only if the
          panel was the one that minimized it, and only if the Commander has not reopened it since (toggleKit
-         clears wfKitAuto on any reopen, so a deliberate OPEN KIT is never overridden). */
+         clears wfKitAuto on any reopen, so a deliberate OPEN KIT is never overridden). The library it gives back must not land
+         on the line the panel was showing: the glass is measured while the library is still minimized, and keepClearOfKit moves
+         the camera only when the returning library covers what was on it (0.13.5 live, s1-hand r05b). */
       panelShown: on => {
         const dock = root && root.querySelector('.refit-dock');
         if (on) { if (dock && !dock.classList.contains('is-collapsed')) { toggleKit(true); wfKitAuto = true; } }
-        else { const restore = wfKitAuto; wfKitAuto = false; if (restore && dock && dock.classList.contains('is-collapsed')) toggleKit(false); }
+        else {
+          const restore = wfKitAuto, part = wfShownPart, seen = restore && running ? viewInsets() : null;   // (BUILD MODE closing: running is already false)
+          wfKitAuto = false; wfShownPart = null;
+          if (restore && dock && dock.classList.contains('is-collapsed')) toggleKit(false);
+          if (seen) keepClearOfKit(part, seen);
+        }
         bumpUi(); insMemo = null;
       },
       lineRenamed: () => { if (running) { finSig = ''; renderFinCard(); } },
@@ -3405,6 +3413,30 @@ const Build = (() => {
     zoom = clamp(Math.min(zoom, vw / (x2 - x1 + pad * 2), vh / (y2 - y1 + pad * 2)), MINZ, MAXZ);
     panX = L + vw / 2 - (x1 + x2) / 2 * zoom;
     panY = Tp + vh / 2 - (y1 + y2) / 2 * zoom;
+  }
+  /* DONE KEEPS THE LINE IN VIEW (0.13.5 live, s1-hand r05/r05b). The panel framed its line against the MINIMIZED library, so
+     closing it (✓ DONE, ✕, Escape) brought the library back open on top of the INBOX + BAY just edited, and the Commander had to
+     FIT or pan to reach them. When the library returns, the floor follows only what the library itself hides:
+       · some of the line was on the glass a moment ago (library still minimized: `seen`) and the returning library now covers part
+         of that → frame the line in the glass beside it (frameLineOnFloor: pan to its centre, zoom out only if it must, never in);
+       · a line already clear of the library is never moved;
+       · a line the Commander panned off the glass while the panel was open stays where they put it (the library hid none of it).
+     A part on no line yet (a lone BAY) gets the same rule on its own footprint. A CAMERA MOVE ONLY — panX/panY/zoom: no bake, no
+     geometry, no plan; the frame loop fills any newly visible chunks exactly as it does for a hand pan. */
+  function keepClearOfKit(partId, seen) {
+    const p = partId != null && station ? station.propById(partId) : null;
+    if (!p || !cv) return;
+    const c = lineOfProp(p.id), t = T(), o = (cacheGeo && cacheGeo.origin) || { tx: 0, ty: 0 };
+    const b = c && c.bbox && cacheGeo
+      ? { x1: (c.bbox.x1 + o.tx) * t, y1: (c.bbox.y1 + o.ty) * t, x2: (c.bbox.x2 + 1 + o.tx) * t, y2: (c.bbox.y2 + 1 + o.ty) * t }
+      : { x1: p.x * t, y1: p.y * t, x2: (p.x + (p.w || 1)) * t, y2: (p.y + (p.h || 1)) * t };
+    const W = cv.width, H = cv.height, ins = viewInsets();
+    // the part of it that was on the glass with the library minimized (canvas px)
+    const x1 = Math.max(b.x1 * zoom + panX, seen.l), x2 = Math.min(b.x2 * zoom + panX, W - (seen.r || 0));
+    const y1 = Math.max(b.y1 * zoom + panY, seen.t), y2 = Math.min(b.y2 * zoom + panY, H - seen.b);
+    if (x1 >= x2 || y1 >= y2) return;   // none of it: the Commander had moved the floor away — leave it there
+    if (x1 >= ins.l && x2 <= W - (ins.r || 0) && y1 >= ins.t && y2 <= H - ins.b) return;   // the library lands on none of it
+    if (c && c.bbox && cacheGeo) frameLineOnFloor(c.key); else focusPropOnFloor(p.id);
   }
   /* the panel's floor marks: the selected part pulses gold; a PAUSED step test parks a pulsing marker on the
      finished dock's OUTBOUND tile (plan.chains[agent].tile — the tile its product really ships from). The

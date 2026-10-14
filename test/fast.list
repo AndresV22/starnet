@@ -781,6 +781,7 @@ test/workflow-line-compiled-order.test.js
 test/floor.multibay.test.js
 test/workflow-panel-source.test.js
 test/workflow-panel-review-1012.test.js
+test/workflow-panel-done-reframe.test.js
 test/workflow-panel-sendto-truth.test.js
 test/sibling-scope.test.js
 test/propanchor.test.js
