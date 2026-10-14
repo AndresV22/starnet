@@ -54,6 +54,10 @@
 .quests-win .gx-quests .q-progress-section > summary { padding: 0; min-height: 24px; }
 .quests-win .q-progress-section > .q-section-body { padding: 16px 0 0; }
 .quests-win .q-section-note { font-size: 12px; color: var(--ph-dim); }
+/* Station milestones (org pass 10-14, P28 polish): the count sits beside the name and the TROPHY CASE door at the row end — the
+   fold chevron stays the row's one arrow */
+.quests-win .q-milestones > summary .q-section-count { margin-left: 0; }
+.quests-win .q-milestones > summary .q-trophy-door { margin-left: auto; }
 .quests-win .q-refresh-options > summary { display: flex; align-items: center; gap: 10px; }
 .quests-win .q-refresh-options .q-refresh-card { border: 0; padding: 0; background: none; box-shadow: none; }
 .quests-win .q-refresh-options .q-refresh-sec { margin-top: 20px; }

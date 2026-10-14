@@ -289,7 +289,7 @@
     // a four-line paragraph sat (TO REVIEW still lands right after this p.muted — stationui's deliverables builder)
     body.innerHTML = '<div class="cfg dlv"><p class="muted dlv-lead" title="Previews open safely inside StarNet in a browser; desktop OPEN uses your file app.">Everything your crew made, filed by project — open one for the ask, the answer and every file.</p>' +
       '<div id="dl-head" class="dlv-head-strip"></div><div id="dl-run-scope" class="cfg-block" hidden></div>' +
-      '<div class="deliverables-toolbar"><input id="dl-query" aria-label="Search deliverables" placeholder="search title, agent, project"><select id="dl-status" aria-label="Filter deliverables"><option value="">ALL</option><option value="pending">NEEDS A DECISION</option><option value="produced">DONE</option><option value="kept">KEPT</option><option value="implemented">IMPLEMENTED</option><option value="failed">FAILED</option><option value="discarded">DISCARDED</option></select><button class="bb sm" id="dl-clear-shown" hidden>CLEAR ALL</button>' +
+      '<div class="deliverables-toolbar"><input id="dl-query" aria-label="Search deliverables" placeholder="search title, agent, project"><select id="dl-status" aria-label="Filter deliverables"><option value="">ALL</option><option value="pending">NEEDS A DECISION</option><option value="produced">DONE</option><option value="kept">KEPT</option><option value="implemented">IMPLEMENTED</option><option value="failed">FAILED</option><option value="discarded">DISCARDED</option></select><button class="bb sm" id="dl-clear-shown" data-tip="Takes these cards out of the library (not TO REVIEW&rsquo;s rating list) — the files stay on disk, and UNDO brings them back" hidden>CLEAR ALL</button>' +
         // the two upkeep keys fold behind ONE quiet MORE key (org pass 10-14, P13): search, the status filter, the KIND chips and
         // CLEAR ALL/THESE stay in view (FOLD BY FREQUENCY); the fold opens inline in this row — never a popover.
         '<details class="dlv-tools" id="dl-tools"><summary class="bb sm" aria-label="More library tools">MORE <span class="dlv-tools-car" aria-hidden="true">▸</span></summary>' +
@@ -368,7 +368,7 @@
         // the main file leads the list (its OPEN is the drawer's first key — org pass 10-14, P13); the rows are built in the
         // backend's order first, so every data-file index still points at its own file
         ? '<ul class="dlv-files">' + mainFirst((r.files || []).map((f, fi) => f.openUrl
-            ? '<li><a class="bb sm' + (r.main && f.path === r.main ? ' dlv-hero' : '') + '" data-file="' + fi + '" href="' + esc(openHref(f)) + '" target="_blank" rel="noopener">OPEN</a><span class="dlv-floc" data-floc="' + fi + '"></span><span class="dlv-fname">' + esc(f.path) + '</span><span class="dlv-fsize">' + esc(fmtSize(f.bytes)) + '</span>' + (r.main && f.path === r.main ? '<span class="dlv-fmain">the main one</span>' : '') + '</li>'
+            ? '<li><a class="bb sm' + (r.main && f.path === r.main ? ' dlv-hero' : '') + '" data-file="' + fi + '" href="' + esc(openHref(f)) + '" target="_blank" rel="noopener">OPEN</a><span class="dlv-fname">' + esc(f.path) + '</span><span class="dlv-fsize">' + esc(fmtSize(f.bytes)) + '</span>' + (r.main && f.path === r.main ? '<span class="dlv-fmain">the main one</span>' : '') + '<span class="dlv-floc" data-floc="' + fi + '"></span></li>'
             : '<li><span class="dlv-fname off">' + esc(f.path) + '</span><span class="dlv-fsize">no longer available</span></li>')) + '</ul>'
         : '<p class="dlv-none">This run recorded no files.</p>';
       const openSession = (r.jobId ? '<button class="bb sm" data-act="workflow">OPEN IN WORKFLOWS</button>' : '') + ((run && run.streamId) ? '<button class="bb sm" data-act="session">↗ OPEN THE FULL CONVERSATION</button>' : '');
@@ -630,11 +630,26 @@
         const loc = f && savedLocation(r, f, r.project || '');
         if (!loc) return;
         slot.dataset.wired = '1';
-        const keys = [Chat.folderButton(loc.agentId, loc.path)];
+        // a browser cannot reveal a folder, so its one key is the COMMS copy-path key itself (its own ⧉ glyph — the folder glyph
+        // belongs to the desktop key that really opens the folder)
+        const keys = [tauriCore() ? Chat.folderButton(loc.agentId, loc.path) : Chat.copyPathButton(loc.agentId, loc.path)];
         if (tauriCore()) keys.push(Chat.copyPathButton(loc.agentId, loc.path));
-        const lead = loc.inProject === false ? 'saved in ' + agentLabel(loc.agentId) + ' workspace, not in ' + projLeaf(r.project) + ' — ' : '';
-        const tip = p => keys.forEach(k => { k.removeAttribute('title'); k.setAttribute('data-tip', lead + p); });
-        keys.forEach(k => { k.classList.add('bb', 'sm', 'dlv-loc-key'); slot.appendChild(k); });
+        const lead = loc.inProject === false ? 'saved in ' + agentLabel(loc.agentId) + ' workspace, not in ' + projLeaf(r.project) : '';
+        /* ICON KEYS (org pass 10-14, P24 polish): the row's width belongs to the file NAME — labelled keys squeezed it to nothing.
+           Each key is its glyph alone at the row's end; what it does rides its tip and aria-label, and its feedback word
+           ('path copied', 'opened', 'no path') still shows on the key while it lasts (.fb-live). */
+        const verbs = keys.map(k => k.getAttribute('title') || '');
+        /* the tip is a PATH card (data-tip-path → tooltip.js widens it and keeps these line breaks): what the key does, the
+           outside-the-project note, then the path on lines of its own — breaking only after a folder separator, never mid-name */
+        const breakable = p => String(p || '').replace(/([\\/])(?=.)/g, '$1\u200b');
+        const tip = p => keys.forEach((k, ki) => { k.removeAttribute('title'); k.setAttribute('data-tip-path', ''); k.setAttribute('data-tip', [verbs[ki], lead, breakable(p)].filter(Boolean).join('\n')); });
+        keys.forEach((k, ki) => {
+          k.classList.add('bb', 'sm', 'dlv-loc-key');
+          if (verbs[ki]) k.setAttribute('aria-label', verbs[ki]);
+          const lbl = k.querySelector && k.querySelector('.fb-label');
+          if (lbl && typeof MutationObserver !== 'undefined') new MutationObserver(() => k.classList.toggle('fb-live', lbl.textContent !== k.getAttribute('data-default-label'))).observe(lbl, { childList: true, characterData: true, subtree: true });
+          slot.appendChild(k);
+        });
         tip(loc.path);
         if (Chat.fullSavedPath) Promise.resolve(Chat.fullSavedPath(loc.agentId, loc.path)).then(full => { if (full) tip(full); }, () => tip(loc.path));
       });

@@ -52,7 +52,7 @@
       : '';
 
     body.innerHTML = '<div class="gx">'
-      + '<div class="dim" style="margin:2px 0 10px;">the station&rsquo;s real achievements, made permanent. every honour here is a completion that genuinely happened &mdash; never points, never invented. no dates are guessed.</div>'
+      + '<div class="dim" style="margin:2px 0 10px;">the station&rsquo;s real achievements, made permanent. every milestone here is a completion that genuinely happened &mdash; never points, never invented. no dates are guessed.</div>'
       + '<div class="gx-sec"><span class="gx-title">MILESTONES</span> <span class="gx-tag">' + surf.earned + ' EARNED</span></div>'
       + trophiesHtml
       + toolsHtml

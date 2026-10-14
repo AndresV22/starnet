@@ -113,6 +113,8 @@
       // (2026-09-30) a Build Library tile's tip — and a Workflow panel tile's — is its name, then what it does, on lines of their
       // own, in the station glass
       card.classList.toggle('glass-tip', !!el.closest('.refit-dock, .wf-panel'));
+      // (org pass 10-14, P24) a saved-file key's tip carries a full path: a wider card that keeps its line breaks
+      card.classList.toggle('path-tip', el.hasAttribute('data-tip-path'));
       card.textContent = text;
       card.hidden = false;
       card.classList.remove('show');
