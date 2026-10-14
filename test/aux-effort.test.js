@@ -40,8 +40,17 @@ A.ok(/provider\.reasoningEfforts\(model\)/.test(fnSrc) && /AuxGovernor\.pickAuxE
   'auxPassEffort: unconfigured, it picks from what the provider verifiably offers for that model');
 A.ok(/const _auxEffort = _auxDone \? auxPassEffort\(provider, _auxModel\) : null;/.test(idx), 'reflection · study · thread-mine · scout ride auxPassEffort');
 A.ok(/const _auxFailEffort = _auxFail \? auxPassEffort\(provider, _auxFailModel\) : null;/.test(idx), 'failure review rides auxPassEffort');
-A.ok(/const internalEffort = o\.internal \? auxPassEffort\(provider, model\) : null;/.test(idx), 'an INTERNAL (self-talk) run picks the aux effort for its own model — never an /v1 outputOnly repair');
 A.ok(/reasoningEffort: internalEffort \|\| undefined,/.test(idx), 'and hands it to the loop (absent for every other run)');
+// …except an internal run whose reply IS work the Commander reads (the autopilot's desk draft + its self-critique):
+// it keeps the Commander's effort. Opt-out is explicit, end to end: page -> /api/run body -> runOnce.
+A.ok(/const internalEffort = o\.internal && !o\.workProduct \? auxPassEffort\(provider, model\) : null;/.test(idx), 'an INTERNAL self-talk run picks the aux effort for its own model (o.internal, never an /v1 outputOnly repair); a work-product one keeps the Commander effort');
+A.ok(/const workProduct = !!\(internal && body && body\.workProduct === true\);/.test(idx) && /internal, evidence, workProduct,/.test(idx), 'handleRun reads workProduct (only beside internal) and hands it to runOnce');
+const harness = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'harness.js'), 'utf8');
+A.ok(/if \(internal && workProduct\) reqBody\.workProduct = true;/.test(harness), 'Harness.chat forwards workProduct only on an internal run');
+const ap = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'autopilotstore.js'), 'utf8');
+A.ok(/buildDoDirective\(sel\.selected, \{ name \}\) \}\], agentId: 'agent', isTask: false, placed: \[\], internal: true, workProduct: true \}/.test(ap), 'the autopilot DRAFT run is a work product');
+A.ok(/buildCritiqueDirective\(deliverable, sel\.selected, \{ style, standingOrders \}\) \}\], agentId: 'agent', isTask: false, placed: \[\], internal: true, workProduct: true \}/.test(ap), 'its self-critique (which can rewrite the draft) is a work product');
+A.ok(/buildCandidateDirective\(\{ beliefs, eligible \}\) \}\], agentId: 'agent', isTask: false, placed: \[\], internal: true \}/.test(ap), 'its candidate list stays strict-format self-talk (aux effort)');
 A.ok(/auxEffortFor: auxReasoningEffort,/.test(idx), 'compaction keeps auxReasoningEffort (the Commander\'s task context)');
 // the measured session's skill-review spend row carried no model ("(unknown)" in the breakdown): every aux spend row names it
 A.ok(/ledger\.record\(\{ runId: reviewRunId, [^}]*model: model \|\| '',/.test(idx), 'the skill review spend row names the model it spent on');

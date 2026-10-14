@@ -78,6 +78,7 @@ function startMock(opts) {
             summary: messages.some(m => String((m && typeof m.content === 'string') ? m.content : '').indexOf('Summarize this earlier part of the conversation') >= 0),
             reasoning: body.reasoning || null,
             selfTalk: raw.indexOf('INTERNAL — AUXMODEL TITLE CHECK') >= 0,
+            draft: raw.indexOf('INTERNAL — AUXMODEL DRAFT CHECK') >= 0,
             tools: Array.isArray(body.tools) ? body.tools.length : 0
           };
           state.calls.push(rec);
@@ -236,9 +237,15 @@ const COMMON = { SKYNET_QUEST_REFRESH: '0', SKYNET_FULL_ACCESS: '1' };
         body: JSON.stringify({ key: 'sk-or-v1-auxmodel-fake', model: RUN_MODEL, agentId: 'auxmodel-effort', internal: true, isTask: false, placed: [], reasoningEffort: 'high',
           messages: [{ role: 'user', content: 'INTERNAL — AUXMODEL TITLE CHECK. Reply with a 3 word title.' }] }) });
       A.eq(r.status, 200, 'the internal self-talk run opened'); await r.text();
+      // an internal run whose reply IS work the Commander reads (the autopilot draft) keeps the effort it asked for
+      const w = await fixture.request('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'sk-or-v1-auxmodel-fake', model: RUN_MODEL, agentId: 'auxmodel-effort', internal: true, workProduct: true, isTask: false, placed: [], reasoningEffort: 'high',
+          messages: [{ role: 'user', content: 'INTERNAL — AUXMODEL DRAFT CHECK. Write the draft.' }] }) });
+      A.eq(w.status, 200, 'the work-product internal run opened'); await w.text();
       await settle(mock.state);
       const calls = mock.state.calls;
-      const main = calls.filter(c => c.main), aux = calls.filter(c => !c.main && !c.summary && !c.selfTalk), self = calls.filter(c => c.selfTalk);
+      const main = calls.filter(c => c.main), aux = calls.filter(c => !c.main && !c.summary && !c.selfTalk && !c.draft), self = calls.filter(c => c.selfTalk), draft = calls.filter(c => c.draft);
+      A.ok(draft.length === 1 && draft[0].reasoning && draft[0].reasoning.effort === 'high', 'a work-product internal run keeps the effort it asked for (' + JSON.stringify(draft.map(c => c.reasoning)) + ')');
       A.ok(main.length >= 1 && main.every(c => c.reasoning && c.reasoning.effort === 'medium'), 'the main run keeps the Commander effort (medium default)');
       A.ok(aux.length >= 3, 'the single-shot aux passes fired (' + aux.length + ' calls)');
       A.ok(aux.every(c => c.reasoning && c.reasoning.effort === 'none'), 'every aux pass rides effort none — no hidden thinking (' + JSON.stringify(aux.map(c => c.reasoning)) + ')');
