@@ -2622,7 +2622,7 @@ const Chat = (() => {
       const open = bodyWrap.hidden; bodyWrap.hidden = !open;
       head.setAttribute('aria-expanded', open ? 'true' : 'false');
       d.classList.toggle('open', open);
-      if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
+      if (typeof SFX !== 'undefined') ((open ? SFX.press : SFX.close) || SFX.press)();   // fold = close(), like a dock going back
     });
     if (open0) d.classList.add('open');
     d.appendChild(head); d.appendChild(bodyWrap);
@@ -3014,7 +3014,8 @@ const Chat = (() => {
     // blob URLs fetched FOR the lightbox are freed with it (the decoded thumbnail elsewhere keeps its own)
     if (lb.revokeUrl) { try { URL.revokeObjectURL(lb.revokeUrl); } catch (_) {} }
     lb.root.remove();
-    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
+    // closing is the docks' close() (the same sample pitched down), so direction still reads
+    if (typeof SFX !== 'undefined') (SFX.close || SFX.press)();
   }
   // `load` -> Promise<objectURL>; opts.revoke says the URL is ours to free on close (false for a staged
   // attachment's localUrl, which renderAttachStrip still owns and revokes on remove/clear).
@@ -7849,7 +7850,7 @@ const Chat = (() => {
     if (typeof GoalLoop !== 'undefined') { const g = goalOf(activeWs); if (g && GoalLoop.isActive(g)) { GoalLoop.pause(g, 'you stopped the run'); persistGoal(); } }
     if (typeof Channels !== 'undefined' && Channels.clearPending) Channels.clearPending(id, Date.now());   // a pending approval is moot once stopped
     status('stopping…'); updateControls();
-    if (typeof SFX !== 'undefined' && SFX.press) SFX.press();
+    if (typeof SFX !== 'undefined') (SFX.close || SFX.press)();   // STOP winds a run down: the docks' close() cue
     // runs only once the stop is CONFIRMED (or there was no run id to kill): the run's open approval cards go dead with it
     const localAbort = () => { retireOpenConsents(id, (typeof Channels !== 'undefined' && Channels.runIdOf(id)) || ''); const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
     const rid = (typeof Channels !== 'undefined') ? Channels.runIdOf(id) : null;
