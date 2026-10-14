@@ -510,7 +510,8 @@ async function journeyTaskLifecycle(cdp, A, mock) {
   A.ok('J1/run-in-flight', !!busyId, busyId ? 'busy on ' + busyId : 'no run went in-flight (mock/provider?)');
   await waitCrewBusyProjection(cdp);
   await parityCheck(cdp, A, 'J1.2-run-live');
-  // Internal lane identity stays `active`; the customer-facing heading is IN PROGRESS / REVIEW.
+  // Internal lane identity stays `active`; the customer-facing heading is IN PROGRESS (org P11 dropped
+  // the old " / REVIEW" suffix, so a heading that still carries REVIEW fails here).
   // Check both authorities so a wording correction cannot conceal a misplaced or idle card.
   const activeLane = await evalJS(cdp, `(() => {
     const c=document.querySelector('.kb-card[data-id="${tid}"]');
@@ -519,7 +520,8 @@ async function journeyTaskLifecycle(cdp, A, mock) {
     return { lane:task&&task.lane, heading:h&&h.textContent.trim(), running:!!(c&&c.querySelector('.kb-state.running')), busy:!!Channels.isBusy(${J(tid)}) };
   })()`).catch(() => null);
   A.ok('J1/assigned-card-active', !!activeLane && activeLane.lane === 'active' &&
-    /^IN PROGRESS \/ REVIEW\b/.test(String(activeLane.heading)) && activeLane.running && activeLane.busy,
+    /^IN PROGRESS\b/.test(String(activeLane.heading)) && !/REVIEW/.test(String(activeLane.heading)) &&
+    activeLane.running && activeLane.busy,
     'assigned card state = ' + J(activeLane));
 
   // step 2b: A LIVE RUN OUTRANKS THE LANE (regression guard, 2026-08-14). ↩ QUEUE (and ✓ SHIP, and a

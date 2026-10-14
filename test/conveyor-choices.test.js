@@ -79,7 +79,7 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   const ot = build.slice(build.indexOf('  function openTest(e) {'), build.indexOf('  function sendTestBoxes(ev, auto, agentId) {'));
   A.ok(/WP\.showTest\('watch'\)/.test(ot) && /return sendTestBoxes\(e\);/.test(ot), 'TEST opens the TEST view AND plays the free walkthrough (one click, as before)');
   A.ok(/preview: \(\) => sendTestBoxes\(null\)/.test(build), 'WATCH IT drives the same walkthrough');
-  A.ok(/\['watch', 'WATCH IT · FREE'/.test(panel) && /\['step', 'STEP THROUGH · REAL'/.test(panel) && /\['real', 'RUN ONE REAL JOB'/.test(panel), 'three named modes');
+  A.ok(/\['watch', 'WATCH IT · FREE'/.test(panel) && /\['step', 'STEP THROUGH · REAL'/.test(panel) && /\['real', 'SEND A REAL JOB'/.test(panel), 'three named modes');
   // Exercise the production decision AND its render entry point. A source spelling
   // check missed a correct fallback helper hidden behind a seam-only panel guard.
   const headers = ['function stepTestUnavailable()', 'function testModeNow()', 'function testPickerHTML(s)', 'function paintBodyInner(body, f)', 'function onwardNote()'];   // (onwardNote: RUN ONE REAL JOB's SEND TO line — conveyor-ui-01; these lines send nowhere, so it adds nothing)
@@ -150,13 +150,15 @@ const splitOf = plan => Object.keys(plan.junctions).find(k => plan.junctions[k].
   A.ok(/FOR YOUR GOAL/.test(build) && /addLineCell\(grid, goal\.bp, '“' \+ goal\.quote \+ '” — ' \+ goal\.why, true\)/.test(build) && /b\.dataset\.tip = name [^\n]*\(why \? '\\n' \+ why : ''\)/.test(build), 'the card quotes them and is the same line card (fit + MAKE ROOM included)');
 }
 
-/* ---------- 4b: save, and turn scheduling on ---------- */
+/* ---------- 4b: ONE ARM RULE (org P16, 2026-10-14): one SAVE SCHEDULE key; the server turns a never-set switch on ---------- */
 {
-  A.ok(/\(S\.cron && !S\.cron\.enabled && !S\.cron\.halted\)/.test(panel) && /id="trg-create" data-arm="1"/.test(panel) && /▸ SAVE · TURN SCHEDULING ON/.test(panel) && /id="trg-create-only"/.test(panel), 'scheduling off: the save button turns it on too, SAVE ONLY beside it');
-  A.ok(/Turning it on lets every saved schedule run at its time\./.test(panel), '…and says the switch is station-wide');
-  A.ok(/if \(arm && !armedNow && !cur\.halted && saved\.enabled\) \{/.test(panel) && /api\('\/api\/cron\/arm', 'POST', \{ enabled: true \}\)/.test(panel), 'it arms on the same route the switch uses, never lifting an E-STOP');
-  A.ok(/'✓ schedule saved and scheduling is on — fires at '/.test(panel) && /could not be turned on: press TURN SCHEDULING ON above/.test(panel), 'the result is said as it happened');
-  A.ok(/\$\('#trg-create'\)\.onclick = \(\) => create\(!!\$\('#trg-create'\)\.dataset\.arm\);/.test(panel) && /createOnly\.onclick = \(\) => create\(false\)/.test(panel), 'both buttons share one save path');
+  A.ok(!/id="trg-create-only"/.test(panel) && !/SAVE ONLY/.test(panel) && !/SAVE · TURN SCHEDULING ON/.test(panel), 'the INBOX pair collapsed: no SAVE ONLY, no second save key');
+  A.ok(/id="trg-create"[^\n]*>▸ SAVE SCHEDULE<\/button>/.test(panel), 'one SAVE SCHEDULE key');
+  A.ok(/S\.cron\.armSet \? 'Scheduling is off — you turned it off\. Saving keeps it off; press ▶ TURN SCHEDULING ON when you want it to run\.'/.test(panel)
+    && /'Saving turns scheduling on for the whole station, so every saved schedule runs at its time\.'/.test(panel), 'the help line says what this save will do: on when never set, off kept after an explicit OFF');
+  A.ok(/runsLine: true, arm: true \}\)/.test(panel) && !/api\('\/api\/cron\/arm', 'POST', \{ enabled: true \}\)\.catch/.test(panel), 'the save asks the server (arm:true, the SCHEDULES form\'s rule) — no second arm call from the form');
+  A.ok(/'✓ saved · scheduling is now on — fires at '/.test(panel) && /scheduling is off \(you turned it off\), so it will not run: press ▶ TURN SCHEDULING ON above/.test(panel), 'the result is said as it happened');
+  A.ok(/\$\('#trg-create'\)\.onclick = \(\) => create\(\);/.test(panel), 'one save path');
 }
 
 /* ---------- 2026-09-28: the shelf by kind of work, plain names, and SET UP BEFORE YOU PLACE ---------- */

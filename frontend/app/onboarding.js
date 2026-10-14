@@ -925,7 +925,7 @@ const Onboarding = (() => {
     const ask = 'last question: which station should i build for you? '
       + (rec ? 'from what you told me, i’d start with the ' + rec.name.toLowerCase() + ': ' + rec.pitch + '.'
              : 'pick the kind of work you’ll do most, or start with one room and build it yourself.')
-      + ' you can change it any time in BUILD › Presets.';
+      + ' you can change it any time in BUILD MODE › ▦ Presets.';
     const res = await Dialogue.node({
       lines: [seg(ask, 46, 0)],
       // each choice names its kind of work in the purpose question's own words ("Software Studio — Code & build")
@@ -935,13 +935,13 @@ const Onboarding = (() => {
     if (!running) return;
     const id = res && !res.skip ? String(res.value || '') : '';
     const pick = works.find(c => c.id === id);
-    if (!pick) { await Dialogue.say([seg('one room it is. you can pick a station any time in BUILD › Presets.', 44, 360)]); return; }
+    if (!pick) { await Dialogue.say([seg('one room it is. you can pick a station any time in BUILD MODE › ▦ Presets.', 44, 360)]); return; }
     let r = null;
     try { r = S.apply(pick.id); } catch (_) { r = null; }
     if (!running) return;
     await Dialogue.say([seg(r && r.ok
       ? 'done. the ' + pick.name.toLowerCase() + ' is built, and its line is waiting for a crew: WORK › AUTOMATE › WORKFLOWS walks you through who works each step.'
-      : 'i couldn’t build that station here, so we’ll keep one room. you can try again in BUILD › Presets.', 44, 360)]);
+      : 'i couldn’t build that station here, so we’ll keep one room. you can try again in BUILD MODE › ▦ Presets.', 44, 360)]);
   }
 
   // DAWN — the pull-back reveals its whole world, the light blooms, and it speaks its first WHOLE sentences

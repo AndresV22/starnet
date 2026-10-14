@@ -66,8 +66,9 @@ A.eq(C.elapsedOf('w', 9000), 0, 'end zeroes the honest elapsed');
    re-become the old hard gate: no disabled composer, no preflight refusal.) */
 A.ok(/function\s+busyPeerFor\s*\(ws\)[\s\S]{0,700}Workstreams\.list[\s\S]{0,1200}Channels\.isBusy/.test(src),
   'COMMS still resolves a same-agent peer run (the soft indicator\'s source of truth)');
-A.ok(/ALSO RUNNING IN/.test(src) && /VIEW ACTIVE RUN/.test(src),
-  'a session with a busy peer names it and offers a route to the active run');
+// org P25 (2026-10-14): the row reads '<NAME> IS BUSY IN <SESSION>' (who and where) — was 'ALSO RUNNING IN <SESSION>'
+A.ok(/' IS BUSY IN ' \+ streamLabel\(peer\)\.toUpperCase\(\)/.test(src) && /VIEW ACTIVE RUN/.test(src),
+  'a session with a busy peer names who is busy and where, and offers a route to the active run');
 A.ok(/function\s+maybeEmptyState[\s\S]{0,300}busyPeerFor\(activeWs\)/.test(src),
   'an empty busy-peer session shows the peer row, not competing starter chips');
 // the OLD hard gate must stay dead: nothing may disable the composer off a peer run…

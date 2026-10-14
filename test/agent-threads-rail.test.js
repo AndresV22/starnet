@@ -75,7 +75,11 @@ A.ok(/if \(present\.length > 1 && typeof App !== 'undefined' && App\.filterRailB
   'a crew row narrows the rail; a one-agent station keeps crew-click = dossier');
 A.ok(/li\.addEventListener\('contextmenu', ev => \{ ev\.preventDefault\(\); sfx\('click'\); openAgent\(\+li\.dataset\.i\); \}\);/.test(ui),
   'right-click (and Shift+F10) on a crew row opens the dossier');
-A.ok(/present\.length > 1 \? '<button type="button" class="crew-dossier"/.test(ui), 'the DOSSIER key shows only when the click is a filter');
+// org P20 (2026-10-14): the DOSSIER key is the same door at EVERY crew size (always rendered, never hover-only)
+A.ok(!/present\.length > 1 \? '<button type="button" class="crew-dossier"/.test(ui) && /\n\s*'<button type="button" class="crew-dossier"/.test(ui),
+  'the DOSSIER key renders on every crew row, one agent or many');
+A.ok(/aria-label="' \+ \(present\.length > 1 \? 'Show sessions with ' \+ esc\(a\.name \|\| a\.id\) \+ '; Shift\+F10 for the dossier' : 'Open dossier for ' \+ esc\(a\.name \|\| a\.id\)\) \+ '" aria-keyshortcuts="Shift\+F10"/.test(ui),
+  'the row names what its click does (sessions with 2+, the dossier with one) and advertises Shift+F10 at every size');
 A.ok(/row\.classList\.toggle\('filtering', !!railFilter && a\.id === railFilter\)/.test(ui), 'the narrowed agent\'s row is marked');
 
 // sweep 2026-10-01

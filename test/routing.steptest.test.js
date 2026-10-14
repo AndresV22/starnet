@@ -104,7 +104,7 @@ const settle = async (R, id) => { for (let i = 0; i < 50; i++) { await R.st.sett
     floor = station.projectGeometry(); rr = rig(floor, {});
     A.ok(/parallel/.test(P.stepTestRefusal(rr.plan, rr.lineId)), 'compiled COPY topology reports its limitation');
     const refused = rr.st.start({ line: rr.lineId, text: 'test all branches', pause: 'none' });
-    A.ok(!refused.ok && /RUN ONE REAL JOB/.test(refused.error), 'whole-line test points to the existing action');
+    A.ok(!refused.ok && /SEND A REAL JOB/.test(refused.error), 'whole-line test points to the existing action (SEND A REAL JOB, org P17)');
     A.eq(rr.calls.length, 0, 'no paid stage starts before refusing parallel step-through');
     A.eq(rr.st.get().session, null, 'a refusal creates no session');
     const legacy = JSON.parse(JSON.stringify(rr.plan)); for (const l of legacy.lines) delete l.stepTestBarrier;

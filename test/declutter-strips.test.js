@@ -45,7 +45,13 @@ A.ok(/<details class="dlv-clean-list">/.test(dlv) && /dl-clean-cancel/.test(dlv)
 A.ok(/FOLD_KEY = 'starnet\.dlv\.review\.open', FEW = 3/.test(outbox), 'TO REVIEW folds (remembered) and shows the first 3 rows');
 A.ok(/r\.hidden = !showAll && i >= FEW/.test(outbox), 'rows past the first few wait behind SHOW ALL');
 A.ok(/RS\.resolveAll\(ids\)/.test(outbox) && /ArmConfirm\.wire\(clearAll,/.test(outbox), 'CLEAR ALL arms, then collects every crate in one go');
+// org pass 10-14 (P12): the key says what it does (files them unrated), and the dim line says what the list holds
+A.ok(/class="bb sm ob-clearall" data-tip="Files every one without a rating[^"]*">MARK ALL REVIEWED ' \+ rows\.length/.test(outbox), 'the clear key reads MARK ALL REVIEWED N, a glass key with a data-tip (no title=)');
+A.ok(/armedLabel: 'MARK ALL REVIEWED — SURE\?'/.test(outbox) && /'Marked ' \+ ids\.length \+ ' reviewed\. The work stays in your library\.'/.test(outbox), 'its armed label and toast say mark reviewed');
+A.ok(/away runs and workflow jobs waiting for your rating/.test(outbox) && /Chats are rated in COMMS/.test(outbox) && !/waiting for your verdict \(/.test(outbox), 'the TO REVIEW dim line names what it holds');
+A.ok(!/CLEAR ALL ' \+ (rows|live)\.length/.test(outbox), 'no second CLEAR ALL label sits above the library’s own CLEAR ALL');
 const rstore = read('frontend/app/returnstore.js');
+A.ok(/function outboxLine\(\) \{ return 'they wait in TO REVIEW until you rate them\.'; \}/.test(rstore), 'the away digest points at TO REVIEW, not a floor crate (OUTBOX LAW)');
 A.ok(/function resolveAll\(runIds\)[\s\S]{0,300}save\(\);[\s\S]{0,200}OutboxView\.refresh\(\)/.test(rstore), 'resolveAll is one save + one refresh');
 A.ok(/\bresolveAll\b/.test(rstore.slice(rstore.lastIndexOf('return {'))), 'ReturnStore exports resolveAll');
 
@@ -78,4 +84,27 @@ const voice = read('frontend/app/voice.js');
 A.ok(/el\.addEventListener\('click', \(\) => showInterruption\(''\)\)/.test(voice) && /muteStopSpeaking\(\); if \(interruptionMessage\) showInterruption\(''\);/.test(voice),
   'the speech-interrupted note can be dismissed and clears when the speaker goes off');
 
+/* ---- DELIVERABLES toolbar + drawer (org pass 10-14, P13): upkeep folds, filters stay, chips read plainly ---- */
+{
+  const bar = dlv.slice(dlv.indexOf('<div class="deliverables-toolbar">'), dlv.indexOf('<div id="dl-kinds"'));
+  const fold = bar.indexOf('<details class="dlv-tools"');
+  A.ok(fold > 0, 'the toolbar carries one MORE fold');
+  A.ok(bar.indexOf('id="dl-query"') < fold && bar.indexOf('id="dl-status"') < fold && bar.indexOf('id="dl-clear-shown"') < fold, 'search, the status filter and CLEAR ALL/THESE stay in view, outside the fold');
+  A.ok(bar.indexOf('id="dl-refresh"') > fold && bar.indexOf('id="dl-clean"') > fold, 'only REFRESH and the cleanup key fold behind MORE');
+  A.ok(/<summary class="bb sm"[^>]*>MORE /.test(bar), 'MORE is a glass key (.bb sm), not an OS-painted control');
+  A.ok(/id="dl-clean" data-tip="[^"]+">DELETE FAILED &amp; DISCARDED RECORDS</.test(bar) && !/CLEAN OLD RECORDS<\/button>/.test(dlv), 'the cleanup key names what it removes (its preview + UNDO stay)');
+  A.ok(/\/api\/deliverables\/cleanup-preview', \{ statuses: \['discarded', 'failed'\] \}/.test(dlv) && /id="dl-undo">UNDO/.test(dlv), 'the cleanup still previews failed + discarded and offers UNDO');
+  A.ok(/kinds\.map\(k => chip\(k\.kind, kindLabel\(k\.kind\), k\.count\)\)/.test(dlv) && /workflow: 'WORKFLOW JOBS'/.test(dlv) && /files: 'FILES'/.test(dlv), 'KIND chips read a plain label; the raw kind stays the filter value');
+  A.ok(/class="dlv-bclear" data-bucket=/.test(dlv), 'per-bucket CLEAR stays a visible key');
+  A.ok(!/data-act="clear" title=/.test(dlv) && /data-act="clear" data-tip="Takes it out of this library\. The files stay on disk\.">✓ DONE · CLEAR</.test(dlv), 'DONE · CLEAR carries a data-tip, not a native title');
+  const css = read('frontend/css/deliverables-glass.css');
+  A.ok(/\.dlv-tools > summary \{ list-style: none;/.test(css) && /\.dlv-tools-keys \{ display: inline-flex;/.test(css), 'the fold opens inline in the toolbar row (no popover)');
+  // run the REAL drawer: the main file's OPEN leads, data-file indices still point at each file, DONE · CLEAR comes last
+  const src = dlv.slice(dlv.indexOf('    function detailHtml(r) {'), dlv.indexOf('    function cardHtml('));
+  const detailHtml = new Function('esc', 'fileHref', 'fmtSize', 'safeMarkdown', src + '; return detailHtml;')(v => String(v), f => f.openUrl, n => n + 'B', v => v);
+  const html = detailHtml({ status: 'produced', main: 'out/report.md', files: [{ path: 'notes.txt', openUrl: 'u0', bytes: 1 }, { path: 'out/report.md', openUrl: 'u1', bytes: 2 }, { path: 'gone.csv', bytes: 3 }], actions: { keep: true } });
+  A.ok(html.indexOf('report.md') < html.indexOf('notes.txt') && html.indexOf('notes.txt') < html.indexOf('gone.csv'), 'the main file is listed first, the rest keep their order');
+  A.ok(/class="bb sm dlv-hero" data-file="1"/.test(html) && /data-file="0"[^>]*>OPEN<\/a>(<span class="dlv-floc" data-floc="0"><\/span>)?<span class="dlv-fname">notes\.txt/.test(html), 'each OPEN keeps its original backend index');
+  A.ok(html.lastIndexOf('data-act="clear"') > html.lastIndexOf('data-act="keep"'), '✓ DONE · CLEAR is the last key');
+}
 A.report('declutter-strips.test');

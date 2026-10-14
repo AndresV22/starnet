@@ -88,7 +88,7 @@ const Build = (() => {
   }
 
   const SEEN_KEY = 'starnet.refit.seen';
-  const PREVIEW_LABEL = '▶ TEST';   // 2026-09-28: ONE test control (the name kept: the guide and Field Manual quote it) — it opens the line's TEST view (WATCH IT free · STEP THROUGH · RUN ONE REAL JOB) and plays the free walkthrough   // the top-bar preview button — the guide and Field Manual name it by this constant
+  const PREVIEW_LABEL = '▶ TEST';   // 2026-09-28: ONE test control (the name kept: the guide and Field Manual quote it) — it opens the line's TEST view (WATCH IT free · STEP THROUGH · SEND A REAL JOB) and plays the free walkthrough   // the top-bar preview button — the guide and Field Manual name it by this constant
   // machines the BELT tool connects with two clicks (mirrors worldmodel CONNECTABLE)
   const CONNECT_TYPES = { intake: 1, bay: 1, outbox: 1, filter: 1, splitter: 1, merger: 1, joiner: 1, loop: 1 };
 
@@ -435,7 +435,7 @@ const Build = (() => {
           <button class="bb sm" id="refit-redo" title="redo (Ctrl+Shift+Z)">↷ REDO</button>
         </span>
         <button class="bb sm" id="refit-fit" title="frame the station">⊹ FIT</button>
-        <button class="bb sm" id="refit-test" title="Test this line: WATCH IT is free (a crate rides the belts, no agent runs); STEP THROUGH and RUN ONE REAL JOB run it for real.">${esc(PREVIEW_LABEL)}</button>
+        <button class="bb sm" id="refit-test" data-tip="Test this line: WATCH IT is free (a crate rides the belts, no agent runs); STEP THROUGH and SEND A REAL JOB run it for real.">${esc(PREVIEW_LABEL)}</button>
         <button class="bb sm" id="refit-help" title="how to build">? HELP</button>
         <button class="bb sm refit-primary" id="refit-done" title="finish + save (or press Esc twice)">SAVE & EXIT</button>
       </div>
@@ -1570,8 +1570,9 @@ const Build = (() => {
         for (const bp of blueprints()) { const k = LINE_WORK_GROUPS.some(g => g.id === LINE_WORK[bp.id]) ? LINE_WORK[bp.id] : lastWork; (groups[k] = groups[k] || []).push(bp); }
         for (const g of LINE_WORK_GROUPS) {
           if (!groups[g.id] || !groups[g.id].length) continue;
-          grid.appendChild(lineGroupHd(g.label));
-          for (const bp of groups[g.id]) addLineCell(grid, bp);
+          const open = lineShelfShown(g.id, groups[g.id]);
+          grid.appendChild(g.id === LINE_SHELF_OPEN ? lineGroupHd(g.label) : lineShelfToggle(g, groups[g.id].length, open));
+          if (open) for (const bp of groups[g.id]) addLineCell(grid, bp);
         }
         pal.appendChild(grid);
       }
@@ -1644,8 +1645,8 @@ const Build = (() => {
   const machineDiagramSVG = id => MACHINE_DIAGRAM[id] ? '<svg class="refit-machinediagram" viewBox="0 0 40 24" aria-hidden="true" focusable="false">' + MACHINE_DIAGRAM[id] + '</svg>' : '';
   // the shelf in the order work meets them, in three plain groups (a junction goes ON a belt)
   const MACHINE_GROUPS = [
-    ['THE LINE', 'work comes in, agents do the steps, the result comes out', ['intake', 'bay', 'outbox']],
-    ['BRANCH & COMBINE', 'drop these ON a belt', ['splitter', 'joiner', 'merger', 'filter']],
+    ['THE LINE', 'work comes in, agents do the steps, the result comes out', ['bay', 'intake', 'outbox']],
+    ['BRANCH & COMBINE', 'drop these ON a belt', ['splitter', 'merger', 'joiner', 'filter']],
     ['REPEAT', 'a reviewer can send work back', ['loop']]
   ];
   /* THE MACHINES SHELF (2026-09-23 playtest fix). The Conveyors tab offered whole LINES and the BELT tool,
@@ -1657,7 +1658,7 @@ const Build = (() => {
   const MACHINES_LABEL = 'MACHINES';   // the Conveyors tab's single-machine shelf — the guide + Field Manual name it by this
   const LINES_LABEL = 'LINES';         // …and its ready-made lines, the section key beside it
   let convSection = 'lines';           // the Conveyors section up now: 'lines' (BUILD YOUR OWN + the ready-made shelf) or 'machines'
-  const MACHINE_ORDER = ['intake', 'bay', 'outbox', 'splitter', 'joiner', 'merger', 'filter', 'loop'];   // JOINER beside MERGER: the pair people confuse
+  const MACHINE_ORDER = ['bay', 'intake', 'outbox', 'splitter', 'merger', 'joiner', 'filter', 'loop'];   // (org P18) the HOTBAR's order (keys 1–8), so the shelf and the hand agree; JOINER still beside MERGER
   function workflowMachines() {
     const all = catalog().filter(c => c && c.cat === 'workflow');
     const rank = id => { const i = MACHINE_ORDER.indexOf(id); return i < 0 ? MACHINE_ORDER.length : i; };
@@ -2438,6 +2439,22 @@ const Build = (() => {
     }
     return null;
   }
+  /* THE CONVEYORS TAB OPENS CALM (org P18, FINDINGS #32 — "the builder opens on a wall"): LINES shows FOR YOUR GOAL and ANY JOB;
+     every other shelf is its name and count, folded, one click from open. A shelf opened or folded stays so for the session; until
+     the Commander folds it, the shelf holding the ARMED line opens (its card and SET UP row show). Nothing is removed: every line
+     is one click away. */
+  const LINE_SHELF_OPEN = 'any';
+  const lineShelfOpen = new Map();   // shelf id -> true (opened) / false (folded), by the Commander's own click
+  const lineShelfShown = (id, bps) => id === LINE_SHELF_OPEN || (lineShelfOpen.has(id) ? lineShelfOpen.get(id) : (tool === 'line' && bps.some(bp => bp.id === lineType)));
+  function lineShelfToggle(g, n, open) {
+    const b = document.createElement('button'); b.type = 'button';
+    b.className = 'refit-linegroup refit-lineshelf-tog' + (open ? ' open' : '');
+    b.dataset.shelf = g.id; b.setAttribute('aria-expanded', String(open));
+    b.innerHTML = '<span class="refit-lineshelf-caret" aria-hidden="true">' + (open ? '▾' : '▸') + '</span> ' + esc(g.label) + ' <small>' + n + '</small>';
+    b.dataset.tip = g.blurb;
+    b.onclick = () => { lineShelfOpen.set(g.id, !open); sfx('click'); renderPalette(); };
+    return b;
+  }
   /* a shelf section's name, across its grid row — the Props tab's "FURNITURE / 128 ITEMS" voice: a name, never a blurb */
   function lineGroupHd(label, cls) {
     const hd = document.createElement('div'); hd.className = 'refit-linegroup' + (cls ? ' ' + cls : '');
@@ -2987,16 +3004,16 @@ const Build = (() => {
         '<h4>Choose who works each step</h4><div class="example-roles">'+e.roles.map((r,i)=>'<div class="example-role"><b>'+(i+1)+'. '+esc(r.name)+'</b><span>'+esc(r.description)+'</span>'+
           '<div class="example-role-pick"><select class="refit-input" aria-label="'+esc(r.name)+' agent" data-example-agent="'+esc(r.propId)+'"'+(pending?' disabled':'')+'><option value="">Choose an agent</option>'+agents.map(a=>'<option value="'+esc(a.id)+'"'+(a.id===r.agentId?' selected':'')+'>'+esc(a.name||a.id)+'</option>').join('')+'</select>'+
           (canSummon && r.role ? '<button type="button" class="bb sm" data-example-recruit="'+esc(r.propId)+'"'+(pending?' disabled':'')+'>+ RECRUIT</button>' : '')+'</div>'+
-          (needsPc(r) ? '<div class="example-role-fix"><span>This agent has no workstation of its own here.</span><button type="button" class="bb sm" data-example-pc="'+esc(r.propId)+'"'+(pending?' disabled':'')+'>+ ADD A WORKSTATION</button></div>' : '')+'</div>').join('')+'</div>'+
-        (offerAll ? '<button type="button" class="bb sm example-all" data-example-all'+(pending?' disabled':'')+'>USE '+esc(String(agentLabelFor(firstAid)).toUpperCase())+' FOR EVERY STEP</button>' : '')+
+          (needsPc(r) ? '<div class="example-role-fix"><span>This agent has no workstation of its own here.</span><button type="button" class="bb sm" data-example-pc="'+esc(r.propId)+'"'+(pending?' disabled':'')+'>GIVE '+esc(String(agentLabelFor(r.agentId)).toUpperCase())+' A DESK</button></div>' : '')+'</div>').join('')+'</div>'+
+        (offerAll ? '<button type="button" class="bb sm example-all" data-example-all'+(pending?' disabled':'')+'>'+esc(String(agentLabelFor(firstAid)).toUpperCase())+' DOES EVERY STEP</button>' : '')+
         '<p class="example-note">'+(agents.length ? 'One agent can work every step. ' : 'You have no agents yet. ')+(canSummon ? 'RECRUIT adds that step\'s specialist to your crew; it costs nothing until it works.' : '')+'</p>'+
         '<p class="example-note">Assignments save when selected. Each step\'s instructions live on its Bay; click the Bay to edit them.</p>'+
-        '<section class="example-sample"><h4>Try the sample job</h4><p>'+esc(e.sample.replace(/^SAMPLE JOB: /,''))+'</p><p class="example-note">This is one real job: the agents you chose run it on their own models, and normal model costs apply.</p><button class="bb refit-primary" data-example-run'+(!ready||pending?' disabled':'')+'>'+(pending?'SAMPLE IN PROGRESS…':sr?.view?.ok?'RUN THE SAMPLE AGAIN':'RUN THE SAMPLE JOB')+'</button></section>'+
+        '<section class="example-sample"><h4>Try the sample job</h4><p>'+esc(e.sample.replace(/^SAMPLE JOB: /,''))+'</p><p class="example-note">This is one real job: the agents you chose run it on their own models, and normal model costs apply.</p><button class="bb refit-primary" data-example-run'+(!ready||pending?' disabled':'')+'>'+(pending?'SAMPLE IN PROGRESS…':sr?.view?.ok?'↻ SEND IT AGAIN':'▶ SEND A REAL JOB · costs a run')+'</button></section>'+
         '<p class="example-status" role="status">'+esc(status)+'</p>'+
         (sr?.view ? '<div class="example-result">'+finSampleHTML(sr.view)+finOnwardHTML(sr)+(sr.output?'<details><summary>Read the finished result</summary><pre>'+esc(sr.output)+'</pre></details>':'')+'</div>' : '')+
         /* NEXT: USE IT FOR REAL — one click to the Inbox's own settings in the Workflow panel (what starts it; the working
            folder a software line builds in), instead of a sentence about where to click */
-        '<section class="example-next"><h4>Use it for real</h4><p>'+(software ? 'Choose the project folder the Builder works in, and when the line runs: on a schedule or from a chat app.' : 'Choose when the line runs: on a schedule or from a chat app.')+' Finished work lands in the Outbox and opens in the Logbook.</p>'+
+        '<section class="example-next"><h4>Use it for real</h4><p>'+(software ? 'Choose the project folder the Builder works in, and when the line runs: on a schedule or from a chat app.' : 'Choose when the line runs: on a schedule or from a chat app.')+' Finished work lands in its OUTBOX and in DELIVERABLES.</p>'+
         (e.inboxId ? '<button type="button" class="bb" data-example-inbox'+(pending?' disabled':'')+'>'+(software ? 'OPEN THE INBOX: FOLDER + START' : 'OPEN THE INBOX: HOW IT STARTS')+'</button>' : '')+'</section>';
       body.querySelectorAll('[data-example-agent]').forEach(select => { select.onchange = () => {
         const propId = select.dataset.exampleAgent;
@@ -4448,7 +4465,7 @@ const Build = (() => {
     // fragment's hand-off feeds nothing), so it always has a floor name (wave 2 repair: an INBOX-less sender read FED BY ANOTHER LINE)
     const senders = [...new Set(((typeof Pipeline !== 'undefined' && Pipeline.lineSenders) ? Pipeline.lineSenders(valPlan, c.key) : [])
       .map(id => station && station.lineName && station.lineName(id)).filter(Boolean))];
-    // ③ posts the same paid job as the panel's RUN ONE REAL JOB: it says the same about a SEND TO (finOnwardPromise) — in the sig, so
+    // ③ posts the same paid job as the panel's SEND A REAL JOB: it says the same about a SEND TO (finOnwardPromise) — in the sig, so
     // setting a SEND TO, or its target losing its crew or spending its limit, repaints the card
     const onward = st.crewLeft === 0 ? finOnwardPromise(c) : '';
     const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, st.autoStart, st.feedDone, st.schedOff, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : '', senders.join(','), onward].join('|');
@@ -4468,9 +4485,9 @@ const Build = (() => {
     const sr = (finSampleRes && finSampleRes.key === c.key) ? finSampleRes : null;
     const sampleOn = finSample === true && crewDone && !(sr && sr.pending);
     const sampleTip = finSample !== true ? 'coming online soon' : (crewDone ? 'run ONE real job through the whole line (your INBOX test job, if you wrote one)' + (onward ? '. ' + onward : '') : 'Assign each step an agent first');
-    const sampleTxt = (sr && sr.pending) ? (sr.phase === 'post' ? '③ POSTING LINE…' : '③ RUNNING — THE JOB IS RIDING THE LINE…') : (sr && sr.view && sr.view.ok) ? '✓ JOB DELIVERED — RUN ANOTHER' : '③ RUN ONE REAL JOB';
+    const sampleTxt = (sr && sr.pending) ? (sr.phase === 'post' ? '③ POSTING LINE…' : '③ RUNNING — THE JOB IS RIDING THE LINE…') : (sr && sr.view && sr.view.ok) ? '✓ JOB DELIVERED — SEND ANOTHER' : '③ SEND A REAL JOB';
     finCardEl.innerHTML = `
-      <div class="fl-head"><span class="fl-title">▸ ${lname ? 'FINISH ' + esc(lname.toUpperCase()) : 'FINISH THE LINE'}</span><button type="button" class="bb sm fl-x" title="dismiss for this line">✕</button></div>
+      <div class="fl-head"><span class="fl-title">▸ FINISH SETUP${lname ? ' · ' + esc(lname.toUpperCase()) : ''}</span><button type="button" class="bb sm fl-x" title="dismiss for this line">✕</button></div>
       <div class="fl-overview">${esc(overview.compact)}</div>
       <button type="button" class="bb fl-step" data-act="overview">EDIT STEPS & RESULT</button>
       <button type="button" class="bb fl-step${crewDone ? ' done' : ''}" data-act="crew"${crewDone ? ' disabled' : ''}>${esc(crewTxt)}</button>
@@ -9635,6 +9652,8 @@ const Build = (() => {
   const api = { init, open, openWorkflows, editLine, testJobForProp, close, toggle, isOpen, requisition, refitNames: guideNames, openAssign, placeDeskFor, noteLineShipped, markLineShipped, lineShipSpent, lineOfAgentInfo, summonForRole, nagLabel: code => VAL_LABEL[code] || code,
     // the WORKFLOWS window speaks the shelf's own words and shows the shelf's own art (one name per line, never a second one)
     lineWords: () => ({ plain: LINE_PLAIN, purpose: LINE_PURPOSE }), lineSchematic: bp => lineSchematic(bp), machineStill: t => machineStill(t),
+    // (org P18) the shelf's FOR YOUR GOAL line, for WORKFLOWS › NEW WORKFLOW to lead with (null when no belief names a shape)
+    goalLine: () => { const g = goalLine(); return g ? { id: g.bp.id, why: g.why, quote: g.quote } : null; },
     nagWhy: valWhy };   // nagLabel: the floor's own nag copy for a compiler code (ROUTINES RUN NOW refusal reads it); nagWhy: the full fix sentence the hover card + Workflow panel say (station.layout reads it)
   if (typeof window !== 'undefined' && window.__STARNET_DEV__) api.__test__ = __test__;
   return api;

@@ -2193,7 +2193,7 @@
     }
     if (!barrier) return null;
     return 'STEP THROUGH carries one crate at a time and cannot finish this ' + (barrier === 'fanout' ? 'parallel' : 'joined')
-      + ' line. Use RUN ONE REAL JOB to test the whole line, or TEST THIS STEP on a single BAY.';   // (the BAY card's key reads TEST THIS STEP)
+      + ' line. Use SEND A REAL JOB to test the whole line, or TEST THIS STEP on a single BAY.';   // (the BAY card's key reads TEST THIS STEP)
   }
   /* THE HAND's ALT VIEW (build mode, 2026-10-10): how many stages one job on a line can run, and its ceiling — the same count
      LINE_TOO_LONG makes (jobStages from every INBOX feed mouth of the line), for a line that is NOT over budget too, so the

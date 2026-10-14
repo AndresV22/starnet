@@ -205,7 +205,7 @@
     if (opts.preempt) {
       pause(s, 'you took over — /goal resume to continue');
       return { shouldContinue: false, continuation: null, verdict: 'preempted', reason: 'user message preempted the loop',
-        message: 'goal loop paused — you took over. /goal resume to continue.' };
+        message: '⏸ session goal paused — you took over. /goal resume to continue.' };
     }
     const j = judged || { verdict: 'continue', reason: 'no verdict', parseFailed: true };
     s.turnsUsed += 1;
@@ -217,36 +217,36 @@
     if (j.verdict === 'done') {
       s.status = 'done';
       return { shouldContinue: false, continuation: null, verdict: 'done', reason: j.reason,
-        message: '✓ goal loop: judge says done — ' + j.reason };
+        message: '✓ session goal: judge says done — ' + j.reason };
     }
     // weak-judge guard: N unparseable replies in a row → auto-pause (don't burn the budget on garbage).
     if (s.parseFails >= MAX_PARSE_FAILS) {
       s.status = 'paused';
       s.pausedReason = 'the judge model returned unparseable output ' + s.parseFails + ' turns in a row';
       return { shouldContinue: false, continuation: null, verdict: 'paused', reason: s.pausedReason,
-        message: '⏸ goal loop paused — the judge isn\'t returning a JSON verdict (' + s.parseFails + ' turns). Try a stronger model, then /goal resume.' };
+        message: '⏸ session goal paused — the judge isn\'t returning a JSON verdict (' + s.parseFails + ' turns). Try a stronger model, then /goal resume.' };
     }
     // budget backstop: spent the continuation budget → auto-pause (resumable).
     if (s.turnsUsed >= s.maxTurns) {
       s.status = 'paused';
       s.pausedReason = 'turn budget exhausted (' + s.turnsUsed + '/' + s.maxTurns + ')';
       return { shouldContinue: false, continuation: null, verdict: 'paused', reason: s.pausedReason,
-        message: '⏸ goal loop paused — ' + s.turnsUsed + '/' + s.maxTurns + ' turns used. /goal resume to keep going, /goal clear to stop.' };
+        message: '⏸ session goal paused — ' + s.turnsUsed + '/' + s.maxTurns + ' turns used. /goal resume to keep going, /goal clear to stop.' };
     }
     // not done, budget + judge healthy → fire the next continuation.
     return { shouldContinue: true, continuation: continuationPrompt(s), verdict: 'continue', reason: j.reason,
-      message: 'goal loop: turn ' + s.turnsUsed + '/' + s.maxTurns + ' — judge: not yet, ' + j.reason };
+      message: 'session goal: turn ' + s.turnsUsed + '/' + s.maxTurns + ' — judge: not yet, ' + j.reason };
   }
 
   /* ============================ STATUS LINE ============================ */
   function statusLine(s) {
-    if (!s || s.status === 'cleared') return 'No goal loop is running. Set one with /goal <text>.';
+    if (!s || s.status === 'cleared') return 'No session goal is set. Set one with /goal <text>.';
     const turns = s.turnsUsed + '/' + s.maxTurns + ' turns';
     const sub = s.subgoals.length ? (', ' + s.subgoals.length + ' subgoal' + (s.subgoals.length === 1 ? '' : 's')) : '';
-    if (s.status === 'active') return '⊙ goal loop (active, ' + turns + sub + '): ' + s.goal;
-    if (s.status === 'paused') return '⏸ goal loop (paused' + (s.pausedReason ? ' — ' + s.pausedReason : '') + ', ' + turns + sub + '): ' + s.goal;
-    if (s.status === 'done') return '✓ goal loop done (' + turns + sub + '): ' + s.goal;
-    return 'goal loop (' + s.status + ', ' + turns + sub + '): ' + s.goal;
+    if (s.status === 'active') return '⊙ session goal (active, ' + turns + sub + '): ' + s.goal;
+    if (s.status === 'paused') return '⏸ session goal (paused' + (s.pausedReason ? ' — ' + s.pausedReason : '') + ', ' + turns + sub + '): ' + s.goal;
+    if (s.status === 'done') return '✓ session goal done (' + turns + sub + '): ' + s.goal;
+    return 'session goal (' + s.status + ', ' + turns + sub + '): ' + s.goal;
   }
 
   return {

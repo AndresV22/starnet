@@ -134,7 +134,7 @@ const BUILTIN_COMMANDS = Object.freeze([
   Object.freeze({
     name: 'subgoal',
     category: 'Session',
-    desc: 'add a criterion the goal loop must also satisfy',
+    desc: 'add a criterion the session goal must also satisfy',
     argsHint: '[text|remove N|clear]',
     action: 'subgoal'
   }),

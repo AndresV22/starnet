@@ -33,6 +33,7 @@ const World = (() => {
   let routeTagCache = null;                      // tileKey -> {text, ok} composed hover route tag (invalidated on recompile)
   let hoverBeltTile = null;                      // belt tile under the cursor (hover-glance route tag), or null
   let hoverOutbox = null;                        // stacked OUTBOX under the cursor (hover-glance "N TO REVIEW" tag), or null
+  let hoverCap = null;                           // ORG P33: a capability prop under the cursor ({ p, text }) — its GLANCE nameplate, or null
   let routingNags = null;                        // [{x,y,w,h,label,warn}] in-world callouts mirroring the compiler's errors
   let firstShipPulse = null;
   let feedState = { known: false, fed: true };   // server-proven "something feeds the intake" truth (channels/cron); fed=true until proven otherwise
@@ -1088,7 +1089,7 @@ const World = (() => {
       if (!g) return false;
       if (old.parentNode) old.parentNode.replaceChild(fresh, old);
       cv = fresh; ctx = g;
-      drag = null; hoverAgent = null; hoverBeltTile = null; hoverOutbox = null; hoverCrate = null; hoverBay = null; hoverPlate = null;   // pointer state died with the old node
+      drag = null; hoverAgent = null; hoverBeltTile = null; hoverOutbox = null; hoverCrate = null; hoverBay = null; hoverPlate = null; hoverCap = null;   // pointer state died with the old node
       wireStageInput();
       try { if (ro) { ro.disconnect(); ro.observe(cv.parentElement || cv); } } catch (_) {}
       resize();
@@ -1600,7 +1601,7 @@ const World = (() => {
         cv.style.cursor = 'grabbing'; return;
       }
       const wp = toWorld(ev);
-      if (!wp) { hoverAgent = null; hoverBeltTile = null; hoverOutbox = null; hoverCrate = null; hoverBay = null; hoverPlate = null; cv.style.cursor = 'default'; return; }
+      if (!wp) { hoverAgent = null; hoverBeltTile = null; hoverOutbox = null; hoverCrate = null; hoverBay = null; hoverPlate = null; hoverCap = null; cv.style.cursor = 'default'; return; }
       const nowMs = performance.now();
       // D4: stamp cursorMoveT only on a REAL displacement (> ~half a tile) — a parked-but-jittering cursor is
       // presence (feeds gaze), not "moving" (which lures THE CHASE). Compared against the PREVIOUS lastCursor.
@@ -1619,6 +1620,7 @@ const World = (() => {
       hoverBay = (hit || hoverOutbox || hoverCrate) ? null : boundBayAt(wp);   // LINE WATCH: a bound bay's lamp glance
       if (hoverCrate) hoverBeltTile = null;   // one voice: the crate's glance replaces the belt's route tag under it
       hoverPlate = (hit || hoverOutbox || hoverCrate || hoverBay) ? null : lwPlateAt(wp);   // LINE WATCH: an INBOX's whole reading
+      hoverCap = (hit || hoverOutbox || hoverCrate || hoverBay || hoverPlate) ? null : capPropAt(wp);   // ORG P33: a capability prop's GLANCE nameplate — no pointer: its click does nothing until Andrew picks one, and a pointer would promise it
       cv.style.cursor = (hit || hoverOutbox || hoverCrate || (hoverBay && failedBayAt(wp)) || arcadeAt(wp) || missionBoardAt(wp) || trophyCaseAt(wp) || pluginTerminalAt(wp) || unboundBayAt(wp) || intakeSampleAt(wp) || intakeFeedAt(wp) || (onDesk && deskAt(wp))) ? 'pointer' : 'default';   // arcade cabinets + a stacked OUTBOX + the MISSION BOARD + the TROPHY CASE + an unbound BAY + a complete-line INBOX + a starved INTAKE are clickable too
     });
     cv.addEventListener('mouseup', ev => {
@@ -1674,7 +1676,7 @@ const World = (() => {
       const inf = intakeFeedAt(wp);
       if (inf && onIntakeFeed) onIntakeFeed(inf.id);
     });
-    cv.addEventListener('mouseleave', () => { if (kindleArmed) kindleHolding = false; hoverAgent = null; hoverBeltTile = null; hoverOutbox = null; hoverCrate = null; hoverBay = null; hoverPlate = null; if (!drag) cv.style.cursor = 'default'; });
+    cv.addEventListener('mouseleave', () => { if (kindleArmed) kindleHolding = false; hoverAgent = null; hoverBeltTile = null; hoverOutbox = null; hoverCrate = null; hoverBay = null; hoverPlate = null; hoverCap = null; if (!drag) cv.style.cursor = 'default'; });
   }
 
   function resize() {
@@ -7039,6 +7041,7 @@ const World = (() => {
     reviewMark('lineWatch');
     drawBeltHoverTag(now);// BELT LEGIBILITY: hover a belt tile → where does this line flow (a glance, never a window)
     drawOutboxHoverTag(now);// OUTBOX LEGIBILITY: hover the stacked chute → what the crates are + what a click does
+    drawCapHoverTag(now);   // ORG P33: hover a capability prop → 'INTEL CAB · FILES' (a glance, never a window)
     drawDockFlashes(now); // LONE-BAY dock arrival: the bay visibly catches work when no belt line exists
     drawPinFlourish(now); // G4.2: the amber pin-burst at the board the instant a proposal is pinned
     if (agent && !agent.unplaced) drawBubble(now);
@@ -8616,6 +8619,37 @@ const World = (() => {
     ctx.shadowBlur = 3; ctx.shadowColor = n > 0 ? '#ffd88a' : '#62ff9e';
     ctx.fillStyle = n > 0 ? '#ffe9bd' : '#9adcb0';
     ctx.fillText(text, (hoverOutbox.x + (hoverOutbox.w || 1) / 2) * T, hoverOutbox.y * T - 40);
+    ctx.restore();
+  }
+  /* ORG P33 — STARTER-ROOM MACHINES SHOW WHAT THEY ARE. On a station where every object is a capability, the first room's
+     INTEL CAB / SERVER CART / DISH / WORKBENCH / STUDIO were silent to the cursor. Hovering any capability prop now raises a
+     GLANCE nameplate — its catalog label and the one power word it grants (WorldModel.grantLabelForProp, the same owned
+     source the BUILD palette and placement toast read), e.g. 'INTEL CAB · FILES'. A glance only: no window, no new click
+     (what a click does is Andrew's open pick). Workstations and plugin terminals keep their own click + glance. */
+  function capPropAt(wp) {
+    if (!geo || !geo.props || typeof WorldModel === 'undefined' || !WorldModel.grantLabelForProp) return null;
+    for (const p of geo.props) {
+      const cap = station && station.capForProp ? station.capForProp(p.t) : null;
+      if (!cap || cap === 'computer' || cap === 'plugin') continue;   // a desk opens its DESK SCREEN; a plugin terminal its window
+      const x0 = p.x * T, y0 = p.y * T - 6;
+      const x1 = (p.x + (p.w || 1)) * T, y1 = (p.y + (p.h || 1)) * T + 4;
+      if (!(wp.x >= x0 && wp.x < x1 && wp.y >= y0 && wp.y < y1)) continue;
+      const spec = (typeof PropSprites !== 'undefined' && PropSprites.spec) ? PropSprites.spec(p.t) : null;
+      const label = spec && spec.label ? String(spec.label) : '';
+      const grant = WorldModel.grantLabelForProp(p.t);
+      if (!label || !grant) continue;   // never a hardcoded name: no catalog label = no plate
+      return { p, text: label.toUpperCase() + ' · ' + String(grant).toUpperCase() };
+    }
+    return null;
+  }
+  function drawCapHoverTag(now) {
+    if (!hoverCap || hoverAgent) return;
+    const p = hoverCap.p;
+    ctx.save();
+    ctx.font = NAG_FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.shadowBlur = 3; ctx.shadowColor = '#62ff9e';
+    ctx.fillStyle = '#9adcb0';
+    ctx.fillText(hoverCap.text, (p.x + (p.w || 1) / 2) * T, p.y * T - 8);
     ctx.restore();
   }
   // the hover-glance route tag over the belt tile under the cursor (green = flows to a bound bay, amber = doesn't)

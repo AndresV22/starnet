@@ -130,7 +130,7 @@ const ReturnStore = (() => {
   // the copy a digest-dismiss should show (item #3): dismissing the beat is NOT discarding the work — every listed
   // run's crate is already pending in the OUTBOX and stays collectable there. One honest sentence the render site
   // (chat.js awayDigest, Lane B) drops next to the dismiss control so "dismiss" never reads as "lose it".
-  function outboxLine() { return 'the crate on the floor holds these until you review them.'; }
+  function outboxLine() { return 'they wait in TO REVIEW until you rate them.'; }
 
   // ---- the OUTBOX crate surface (world.js renders from these; clicking the chute reviews) ----
   function pendingCount() { return ready() ? Returns.pendingCount(state) : 0; }

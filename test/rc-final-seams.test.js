@@ -38,12 +38,25 @@ function load(src, headers, globals, extra) {
   const runs = [{ runId: 'r1', agentId: 'agent', reason: 'done', usd: 0.04 }];
   const card = (shipped, shippedWhy) => fns.jobResultHTML({ view: { ok: true, usd: 0.0405 }, runs, output: '**TEASER 1:** hi', stamp: 1, folded: true, shipped, shippedWhy }, null);
   const talk = card(false, 'no-proven-work');
-  A.ok(/✓ DELIVERED · 1 step · \$0\.0405 · in the OUTBOX · a text answer: not counted in SHIPPED/.test(strip(talk)), 'a job the server PROVED did no tool work says "a text answer" beside DELIVERED: ' + strip(talk).slice(0, 120));
+  A.ok(/✓ DELIVERED · 1 step · \$0\.0405 · waiting in DELIVERABLES › TO REVIEW · a text answer: not counted in SHIPPED/.test(strip(talk)), 'a job the server PROVED did no tool work says "a text answer" beside DELIVERED: ' + strip(talk).slice(0, 120));
   A.ok(/class="wf-noship" data-tip="NOT IN SHIPPED/.test(talk) && /No step of this job had a tool succeed or saved a file/.test(talk), '…with the SHIPPED rule and the proven reason as its tip');
   // (review of #30) shipped:false alone proves only "no receipt": an empty final text or an unmatched run row is not a text answer
   const bare = card(false, null);
-  A.ok(/· in the OUTBOX · not counted in SHIPPED/.test(strip(bare)) && !/text answer/.test(strip(bare)), 'no proven reason: the card says only "not counted in SHIPPED": ' + strip(bare).slice(0, 120));
+  A.ok(/· waiting in DELIVERABLES › TO REVIEW · not counted in SHIPPED/.test(strip(bare)) && !/text answer/.test(strip(bare)), 'no proven reason: the card says only "not counted in SHIPPED": ' + strip(bare).slice(0, 120));
   A.ok(/The station holds no SHIPPED receipt for this job/.test(bare) && !/answered in text/.test(bare), '…and its tip claims no reason the server did not send');
+  // (org P14) the folded job's place is a door into DELIVERABLES › TO REVIEW — never "in the OUTBOX" — and only while it still waits
+  A.ok(/<button type="button" class="wf-link" data-to-review[^>]*>waiting in DELIVERABLES › TO REVIEW<\/button>/.test(talk) && !/in the OUTBOX/.test(strip(talk)), 'the folded job names where it waits, as a door: ' + strip(talk).slice(0, 120));
+  {
+    const led = load(panel, ['function jobResultHTML(mine, f)', 'function loopNotes(text)', 'function notShippedNote(mine)'], {
+      prop: () => null, nameOf: a => String(a).toUpperCase(), stepText: () => 'reply', stepOut: {}, H: { sampleHTML: () => '', plan: () => ({}) }, WL: () => null,
+      S: {}, exampleKept: () => false, notRightHTML: () => '', Pipeline: undefined, runEnd: r => r, ReturnStore: { pendingRows: () => [{ runId: 'r9' }] }
+    }, "const LOOP_NOTE = /^\\[LOOP — (exhausted|escalated): (\\d+) pass(?:es)? round the gate[^\\n]*\\]\\s*/gm;" + tipLine);
+    const on = (rs, folded) => strip(led.jobResultHTML({ view: { ok: true, usd: 0.01 }, runs: rs, output: 'x', stamp: 3, folded, shipped: true }, null));
+    A.ok(!/TO REVIEW/.test(on(runs, true)), 'a job already rated (its run is no longer pending) says nothing about TO REVIEW');
+    A.ok(/waiting in DELIVERABLES › TO REVIEW/.test(on([{ runId: 'r9', agentId: 'agent', reason: 'done', usd: 0.01 }], true)), '…one whose run is still pending says it waits there');
+    A.ok(!/TO REVIEW/.test(on([{ runId: 'r9', agentId: 'agent', reason: 'done', usd: 0.01 }], false)), '…and a job never folded never claims it');
+  }
+  A.ok(/\$\$\('\[data-to-review\]'\)[^\n]*H\.openTerm\('outbox'\)/.test(panel), 'the door opens the TO REVIEW deep link (the outbox key)');
   A.ok(!/text answer/.test(strip(card(false, 'something-else'))), 'an unknown reason word is never read as a text answer');
   A.ok(!/not counted/.test(strip(card(true))), 'a shipped job adds nothing (DELIVERED and SHIPPED already agree)');
   A.ok(!/not counted/.test(strip(card(null))) && !/not counted/.test(strip(card(undefined))), 'an unknown answer is never said as "not counted"');

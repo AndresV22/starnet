@@ -27,7 +27,7 @@ function fn(src,name){const m=new RegExp('^( {0,4})(?:async )?function '+name+'\
   A.eq(scrollState(true,9000,false),{stick:false,top:20},'holding scrollbar beyond gesture timeout keeps reader position');A.eq(scrollState(false,9000,false),{stick:true,top:900},'unprompted layout movement still follows bottom');
   const live=[{dataset:{runId:'already',collected:'1'}},{dataset:{runId:'left'}}];let resolved=[],notice='';
   const clear=out.match(/    const clearEvery = \(\) => \{([^]*?)\n    \};/)[1];new Function('list','RS','notify','renderEmpty',clear)({children:live},{resolveAll:ids=>{resolved=ids}},t=>{notice=t},()=>{});
-  A.eq(resolved,['left'],'TO REVIEW clear acts only on still-live rows');A.ok(/Cleared 1 /.test(notice),'clear toast counts only remaining reminder');
+  A.eq(resolved,['left'],'TO REVIEW clear acts only on still-live rows');A.ok(/Marked 1 reviewed/.test(notice),'clear toast counts only remaining reminder');
   {// leaving a group releases its inline shared images (review comms-threads-ui-12)
     const revoked=[],bad=Promise.reject(new Error('missing shared'));bad.catch(()=>{});
     const shared=new Map([['art-1',Promise.resolve('blob:one')],['art-2',bad]]);

@@ -1,5 +1,6 @@
 'use strict';
 const A = require('./_assert.js');
+const fs = require('fs');
 const D = require('../frontend/app/deliverables.js');
 const Tickets = require('../sidecar/apitickets.js');
 
@@ -45,4 +46,33 @@ const runRows = [{runId:'run-1',title:'First draft'}, {runId:'run-10',title:'Fir
 A.eq(D.rowsForRun(runRows, 'run-1', '').length, 2, 'step output filtering requires exact run identity, never prefix or text matches');
 A.eq(D.rowsForRun(runRows, 'run-1', 'FEEDBACK')[0].ask, 'Review feedback', 'search within a step retains exact provenance');
 A.eq(D.rowsForRun(runRows, 'missing', '').length, 0, 'a missing run never falls back to unrelated output');
+/* ---- FILES rows can find their file on disk (org pass 10-14, P24): the path comes off the backend's own openUrl ---- */
+{
+  const loc = (url, project, extra) => D.savedLocation(Object.assign({ agentId: 'agent' }, extra || {}), { path: 'shown.md', openUrl: url }, project);
+  const ws = loc('/api/file?agent=ultron&path=' + encodeURIComponent('out/report.md'), 'C:\\work\\acme');
+  A.eq([ws.agentId, ws.path, ws.inProject], ['ultron', 'out/report.md', false], 'a workspace file of a project item is proven OUTSIDE that project (relative = the agent workspace)');
+  const pr = loc('/api/file?agent=ultron&path=' + encodeURIComponent('src/a.js') + '&project=' + encodeURIComponent('C:\\work\\acme'), 'C:\\work\\acme');
+  A.eq([pr.path, pr.inProject], ['C:\\work\\acme\\src\\a.js', true], 'a project-scoped file resolves inside the project folder');
+  const nop = loc('/api/file?agent=a&path=x.md', '');
+  A.eq(nop.inProject, null, 'an item with no project makes no outside/inside claim');
+  const wsr = loc('/workshop-run/cypher/run-7/site/index.html', '');
+  A.eq([wsr.agentId, wsr.path], ['cypher', 'workshop/run-7/site/index.html'], 'a sandboxed workshop page maps to its real workshop folder, not the bare display path');
+  const abs = loc('/api/file?agent=a&path=' + encodeURIComponent('D:/elsewhere/out.txt'), 'C:\\work\\acme');
+  A.eq([abs.path, abs.inProject], ['D:/elsewhere/out.txt', false], 'an absolute path outside the project is proven outside');
+  A.eq(D.savedLocation({ agentId: 'a' }, { path: '', openUrl: '' }, ''), null, 'no path = no key');
+  const src = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'app', 'deliverables.js'), 'utf8');
+  A.ok(/OPEN<\/a><span class="dlv-floc" data-floc="' \+ fi \+ '"><\/span><span class="dlv-fname">/.test(src), 'every openable FILES row carries a key slot beside OPEN');
+  A.ok(/Chat\.folderButton\(loc\.agentId, loc\.path\)/.test(src) && /if \(tauriCore\(\)\) keys\.push\(Chat\.copyPathButton\(loc\.agentId, loc\.path\)\)/.test(src), 'the slot gets the COMMS folder key, plus copy path on desktop');
+  A.ok(/k\.removeAttribute\('title'\); k\.setAttribute\('data-tip', lead \+ p\)/.test(src) && /'saved in ' \+ agentLabel\(loc\.agentId\) \+ ' workspace, not in ' \+ projLeaf\(r\.project\)/.test(src), 'the full path rides a data-tip (not title=), led by the outside-the-project note');
+  A.ok(/if \(folderKey && folderKey\.click\) \{ folderKey\.click\(\);/.test(src), 'a failed desktop OPEN runs the folder key instead of the old hunt-for-it sentence');
+  // a TO REVIEW FILES row (outbox.js) shares this OPEN seam but has no key slot: its fallback must name the library row
+  // that really carries the key, never a folder key that is not on that surface
+  A.ok(/slot \? slot\.querySelector\('\.deliverable-folder'\) : null, !!slot\)/.test(src) &&
+    /else if \(say && !inLibrary\) say\('Could not open that file — open its run in the library below; the folder key on its file row shows where it is saved\.'/.test(src) &&
+    !/its folder key shows where it is saved/.test(src), 'a keyless TO REVIEW row points at the library row that has the folder key');
+  const ob = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'app', 'windows', 'outbox.js'), 'utf8');
+  A.ok(/DLV\.handleOpenClick\(/.test(ob) && !/dlv-floc/.test(ob), 'TO REVIEW rows still route OPEN through the library seam without their own key slot');
+  const chat = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'app', 'chat.js'), 'utf8');
+  A.ok(/folderButton, copyPathButton, fullSavedPath: absoluteArtifactPath \};\n\}\)\(\);\s*$/.test(chat), 'Chat exports the shared keys and their resolver');
+}
 A.report('deliverables-ui.test');

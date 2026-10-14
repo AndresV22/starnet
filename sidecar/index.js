@@ -6321,6 +6321,19 @@ function saveCronArmed(armed) {   // durable like the jobs file; throws on a rea
   const intended = { version: 1, armed: armed === true };
   const r = saveJsonVerified({ save: () => saveResilient(CRON_ARMED_FILE, intended), load: () => loadResilient(CRON_ARMED_FILE, 'cron-armed'), proof: got => JSON.stringify(got) === JSON.stringify(intended) });
   if (!r.ok) throw new Error('cron arm durable read-back failed: ' + r.error);
+  cronArmSet = true;
+}
+/* ONE ARM RULE FOR EVERY SAVE (org P16, 2026-10-14): a scheduling switch nobody ever set (no cron.armed.json, no
+   SKYNET_CRON_ENABLED) is turned ON by the first saved schedule; a switch the Commander turned OFF (armed:false on disk)
+   stays off — a save never overrides an explicit OFF, it says so and offers the switch. An E-STOP is never lifted here:
+   the intent is recorded and the timer stays down, exactly as before. Used by POST /api/cron (arm:true — the SCHEDULES
+   form and the INBOX form) and station.start_line's schedule. Returns true when THIS save turned the switch on. */
+let cronArmSet = (() => { try { return CRON_ENABLED || fs.existsSync(CRON_ARMED_FILE); } catch (_) { return false; } })();
+function armOnSaveIfUnset() {
+  if (cronArmed || cronArmSet) return false;
+  saveCronArmed(true); cronArmed = true;
+  if (!cronHalted) armCron();
+  return true;
 }
 // ---- Lane 4D: the durable cron E-STOP halt (the routines equivalent of nightshift.engageHalt). ----
 // POST /api/halt used to abort in-flight cron leases but left the TIMER armed, so due routines re-fired
@@ -13027,7 +13040,7 @@ async function startLineFor(spec) {
     const b = out.body || {};
     if (b.duplicate) return { ok: false, error: 'a similar routine already exists ("' + ((b.job && b.job.name) || '') + '"): nothing new was made' };
     if (!((out.status || 200) === 200 && b.ok && b.job && b.job.id)) return { ok: false, error: b.error || b.message || 'the schedule was not saved' };
-    try { if (!cronArmed) { saveCronArmed(true); cronArmed = true; if (!cronHalted) armCron(); } } catch (e) { console.warn('[cron] arm-on-create failed:', (e && e.message) || e); }
+    try { armOnSaveIfUnset(); } catch (e) { console.warn('[cron] arm-on-create failed:', (e && e.message) || e); }   // the one arm rule (org P16)
     const asked = String(s.schedule || '').replace(/\s+/g, ' ').trim(), shown = String(b.job.scheduleDisplay || '');
     return { ok: true, kind: 'schedule', id: b.job.id, when: asked + (shown && shown !== asked ? ' (' + shown + ')' : ''), armed: !!cronArmed && !cronHalted, halted: !!cronHalted };
   }
@@ -15400,7 +15413,9 @@ function cronStateSnapshot(now) {
     const lease = cronDriver.leases.get(j.id);
     return (lease && !lease.settlement) ? Object.assign({}, j, { inFlight: true }) : j;
   });
-  return { jobs: jobs, enabled: cronArmed, halted: cronHalted, tickMs: CRON_TICK_MS, health: health,
+  // `armSet` (additive, org P16): the Commander has set the switch at least once — enabled:false + armSet:true is an explicit
+  // OFF (a save keeps it off); armSet:false is a switch never set (the first save turns it on)
+  return { jobs: jobs, enabled: cronArmed, halted: cronHalted, armSet: !!cronArmSet, tickMs: CRON_TICK_MS, health: health,
     degraded: cronDegraded ? { quarantinePath: cronDegraded.quarantinePath, since: cronDegraded.since } : null,
     maxConsecutiveFailures: CRON_MAX_CONSECUTIVE_FAILURES,
     // the delivery backlog ceiling the driver defers new runs at (cron-store) — the panel quotes it, never a copy
@@ -15727,11 +15742,14 @@ function handleCronCreate(req, res) {
        way a routine "doesn't work". body.arm:true (sent by the CREATE form, same default as routine.create's
        arm) records the arm intent and starts the timer. A durable E-STOP is respected exactly as the tool path
        does: intent recorded, timer left down, and the reply says so. */
+    /* ONE ARM RULE (org P16): arm:true turns on a switch nobody ever set; an explicit OFF stays off (armOnSaveIfUnset). */
+    let armedNow = false;
     if (body.arm === true && out.body && out.body.ok && out.body.job && !out.body.duplicate && out.body.job.enabled !== false) {
-      try { if (!cronArmed) { saveCronArmed(true); cronArmed = true; if (!cronHalted) armCron(); } }
+      try { armedNow = armOnSaveIfUnset() && !cronHalted; }
       catch (e) { console.warn('[cron] arm-on-create failed:', (e && e.message) || e); }
     }
-    if (out.body && out.body.ok) out.body.scheduler = { armed: !!cronArmed && !cronHalted, halted: !!cronHalted };
+    // armedNow: THIS save turned scheduling on · offByChoice: the Commander turned it off, so the save kept it off
+    if (out.body && out.body.ok) out.body.scheduler = { armed: !!cronArmed && !cronHalted, halted: !!cronHalted, armedNow: armedNow, offByChoice: !cronArmed && !!cronArmSet };
     return json(out.status || 200, out.body);
   }).catch(() => { try { json(400, { error: 'bad request' }); } catch (_) {} });
 }

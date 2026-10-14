@@ -49,4 +49,27 @@ A.ok(/maxPendingDeliveries = (j && Number(j.maxPendingDeliveries)) || 0;/.test(s
 A.ok(/data-edit-prompt rows="5" maxlength="' \+ EDIT_PROMPT_MAX \+ '"/.test(src) && /EDIT_BODY_MAX = 1 << 16/.test(src), 'EDIT TASK is capped under the 64 KB update body');
 const idx = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
 A.ok(/maxPendingDeliveries: cronStore.MAX_PENDING_DELIVERIES/.test(idx), 'GET /api/cron exposes the backlog ceiling');
+
+/* ---------- org P16 (2026-10-14): one arm rule, a true status line, one switch name, RUN BY ---------- */
+{
+  // the create-state line tells the truth for each of the four states (never "will not run until you enable" while saving arms)
+  A.ok(src.includes("'Saving turns scheduling on unless you turned it off.'"), 'a never-set switch: saving turns it on (the line says so)');
+  A.ok(src.includes("(j && j.armSet) ? 'Scheduling is off — you turned it off. Saving keeps it off"), 'an explicit OFF: saving keeps it off (armSet from GET /api/cron)');
+  A.ok(!src.includes('it will not run automatically until you enable scheduling'), 'the old line that contradicted arm-on-save is gone');
+  // one switch name: ▶ TURN SCHEDULING ON / ⏸ TURN SCHEDULING OFF
+  A.ok(!/ENABLE SCHEDULING<|RESUME SCHEDULING<|DISABLE SCHEDULING</.test(src), 'no ENABLE / RESUME / DISABLE SCHEDULING keys remain');
+  A.eq((src.match(/>▶ TURN SCHEDULING ON</g) || []).length >= 3, true, 'E-STOP, OFF and the save note all offer ▶ TURN SCHEDULING ON');
+  A.ok(src.includes('>⏸ TURN SCHEDULING OFF</button>'), 'the armed state offers ⏸ TURN SCHEDULING OFF');
+  // the save says what it did: armedNow → "scheduling is now on"; offByChoice → the switch, never a silent override
+  A.ok(src.includes("msgEl.textContent = '✓ saved · scheduling is now on'") && src.includes('r.scheduler.offByChoice') && src.includes('id="rt-msg-arm"'), 'the save confirm follows the server verdict');
+  // RUN BY: agents, then workflows; a workflow posts its first step's agent + BAY + runsLine:true
+  A.ok(src.includes("'<label class=\"sn-menu-field\">RUN BY<select id=\"rt-agent-select\"") && /optgroup label="AGENTS"[\s\S]*optgroup label="WORKFLOWS"/.test(src), 'RUN BY lists agents, then workflows');
+  A.ok(src.includes("dockId: line ? line.dockId : undefined, runsLine: line ? true : undefined,"), 'a workflow choice posts dockId + runsLine:true (the line-schedule path)');
+  const wfw = fs.readFileSync(path.join(__dirname, '../frontend/app/windows/workflows.js'), 'utf8');
+  A.ok(/function startLines\(\)[\s\S]*Wl\.entryDocksOf/.test(wfw) && /showJob, startLines,/.test(wfw), 'WORKFLOWS exports each line\'s schedule entry (its first routed step) for RUN BY');
+  // the server: one rule for the form, the INBOX form and station.start_line
+  A.ok(/function armOnSaveIfUnset\(\) \{\n  if \(cronArmed \|\| cronArmSet\) return false;/.test(idx), 'arm on save only when the switch was never set');
+  A.ok((idx.match(/armOnSaveIfUnset\(\)/g) || []).length === 3, 'handleCronCreate and startLineFor both use the one rule (definition + 2 callers)');
+  A.ok(/armSet: !!cronArmSet/.test(idx) && /armedNow: armedNow, offByChoice: !cronArmed && !!cronArmSet/.test(idx), 'GET /api/cron and the create reply carry armSet / armedNow / offByChoice');
+}
 A.report('autojobs-ui.test');

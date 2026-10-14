@@ -34,7 +34,7 @@ A.ok(/H\.planGate\(c\)\.then/.test(panel), 'every test run posts THIS floor firs
 
 // the trigger — no provider: the routine inherits its agent's model AND provider together (freezing the dock's current
 // wire paired one provider with another's model, #24 class)
-A.ok(/api\('\/api\/cron', 'POST', \{ name, prompt, schedule, agentId, dockId, tz, runsLine: true \}\)/.test(panel), 'a schedule made here runs the line (runsLine), FIRES AT the chosen bay (dockId), carries no unattended grants and no frozen provider');
+A.ok(/api\('\/api\/cron', 'POST', \{ name, prompt, schedule, agentId, dockId, tz, runsLine: true, arm: true \}\)/.test(panel), 'a schedule made here runs the line (runsLine), asks the one arm rule (arm:true, org P16), FIRES AT the chosen bay (dockId), carries no unattended grants and no frozen provider');
 // SAVE SCHEDULE once threw a ReferenceError: the create handler called paintTrigger's local trgAgent(). The agent is
 // resolved inside wireScheduleForm from its OWN docks (the general scope law lives in test/sibling-scope.test.js)
 const wsf = (code.match(/function wireScheduleForm\(p, docks, dockHint\) \{[\s\S]*?\n  \}/) || [''])[0];

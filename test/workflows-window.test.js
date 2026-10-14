@@ -287,5 +287,92 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.eq(WW._lineWord({ line: key, jobId: 'j1', name: 'Research' }), 'LINE DIGEST', 'a renamed line reads its new floor name, never the name the job recorded');
   }
 
+  /* ---------- org P15 (2026-10-14): the line page says how it starts, and opens the one place starts are made ---------- */
+  {
+    const l0 = WW._floor().lines.find(x => x.key === line.key);
+    const entry = WL.entryDocksOf(l0.flow)[0];
+    A.ok(!!entry, 'fixture: the line has an entry step');
+    A.eq(WW._startsText(l0), null, 'no start facts read yet: nothing claimed (the line says checking…)');
+    const job = { id: 'r1', name: 'Morning', agentId: 'nova', dockId: entry, runsLine: true, scheduleDisplay: 'every 6h', enabled: true };
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: false, jobs: [] }, lt: { triggers: [] }, chans: {} });
+    A.eq(WW._startsText(l0), 'by hand only', 'nothing automatic: by hand only');
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: false, jobs: [job] }, chans: {},
+      lt: { triggers: [{ id: 't1', lineId: l0.key, kind: 'folder', enabled: true, blockedBy: null, config: { path: 'C:/in' } }] } });
+    A.eq(WW._startsText(l0), 'by hand · every 6h · when a file lands in C:/in', 'a schedule and a folder trigger, composed by WorkflowLine.lineStarts');
+    ctx.World.startFacts = () => ({ cron: { enabled: false, halted: false, jobs: [job] }, lt: { triggers: [] }, chans: {} });
+    A.eq(WW._startsText(l0), 'by hand · every 6h (scheduling is off)', 'a schedule saved while scheduling is off is said as off, never as a start');
+    // an E-STOP is named as the E-STOP, never as the scheduling switch
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: true, jobs: [job] }, lt: { triggers: [] }, chans: {} });
+    A.eq(WW._startsText(l0), 'by hand · every 6h (stopped by E-STOP)', 'a schedule the E-STOP holds says stopped by E-STOP');
+    // a fact whose endpoint never answered is unknown: never 'by hand only'
+    ctx.World.startFacts = () => ({ cron: null, lt: { triggers: [] }, chans: {} });
+    A.eq(WW._startsText(l0), 'by hand · schedules could not be read', 'unread schedules are said unread, never as by hand only');
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: false, jobs: [job] }, lt: null, chans: null });
+    A.eq(WW._startsText(l0), 'by hand · every 6h · channels and folder/webhook triggers could not be read', 'a known start still shows beside the facts that were not read');
+    // org P16's RUN BY reads the same entry the INBOX form's schedule fires at
+    const sl = WW.startLines().find(x => x.key === l0.key);
+    A.ok(sl && sl.dockId === entry && sl.agentId === 'nova', 'startLines: the line\'s first routed step and its agent (SCHEDULES › RUN BY)');
+    // the page: STARTS sits between Send it a job and Last jobs; its key opens EDIT WORKFLOW at 'Or start it automatically'
+    A.ok(/\+ '<\/section>' \+ startsHTML\(l\) \+ '<section class="wfw-sec"><h3>Last jobs<\/h3>'/.test(src), 'STARTS: sits between the job box and LAST JOBS');
+    A.ok(/data-act="automatic" data-tip="[^"]+">⊕ MAKE IT AUTOMATIC<\/button>/.test(src) && /B\(\)\.editLine\(l\.intakeId\)\)\) return;\s*\n\s*if \(typeof WorkflowPanel !== 'undefined' && WorkflowPanel\.revealStarts\)/.test(src), '⊕ MAKE IT AUTOMATIC opens the editor on the INBOX and reveals its starts');
+    const panelSrc = rd('frontend/app/workflowpanel.js');
+    A.ok(/<section class="wf-sec" id="wf-starts"><h3>Or start it automatically<\/h3>/.test(panelSrc) && /selectFromFloor, revealStarts, showTest,/.test(panelSrc), 'the panel names that section and exports revealStarts');
+    A.ok(src.includes('scheduled and channel runs are filed in DELIVERABLES'), 'an empty LAST JOBS says where scheduled and channel runs are filed');
+  }
+
+  /* ---------- org P14 (2026-10-14): a delivered job waiting for its rating says where it waits, and can be rated right here ---------- */
+  {
+    const dj = { id: 'job-0123456789dd', line: line.key, name: line.name, text: 'three facts about the moon', status: 'delivered', runs: [{ runId: 'rp14', agentId: 'nova', reason: 'done', usd: 0.001 }], output: 'The moon…', usd: 0.001, notes: [], startedAt: 1, endedAt: 2 };
+    const was = ctx.ReturnStore.pendingRows;
+    ctx.ReturnStore.pendingRows = () => [{ runId: 'rp14', agentId: 'nova', title: 'three facts about the moon' }];
+    const waiting = WW._resultHTML(line, dj), plain = waiting.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    A.ok(/<button type="button" class="wf-link" data-act="toreview"[^>]*>waiting in DELIVERABLES › TO REVIEW<\/button>/.test(waiting) && !/in the OUTBOX/.test(plain), 'a job still in TO REVIEW names it, as a door — never "in the OUTBOX": ' + plain.slice(0, 160));
+    A.ok(/<div class="wfw-rate" data-rate-for="rp14"><\/div>/.test(waiting), '…and carries the rate host TO REVIEW mounts (Chat.awayRate) for its run');
+    ctx.ReturnStore.pendingRows = () => [];
+    const rated = WW._resultHTML(line, dj);
+    A.ok(!/TO REVIEW/.test(rated) && !/wfw-rate/.test(rated), 'a job already rated (no pending row) says nothing about TO REVIEW and offers no rating');
+    ctx.ReturnStore.pendingRows = was;
+    A.ok(/Chat\.awayRate\(host, rw, clear\)/.test(src) && /ReturnStore\.resolve\(rw\.runId\)/.test(src), 'rating here resolves the same crate TO REVIEW holds (the windows/outbox.js path)');
+    A.ok(/\[data-act="toreview"\]', \(\) => \{[^\n]*navigateWork\('workflows', 'outbox'\)/.test(src), 'the door is the TO REVIEW deep link (the outbox key), with a ‹ back to WORKFLOWS');
+  }
+
+  /* ---------- org P17 (2026-10-14): WORKFLOWS and the Workflow panel use ONE word set for the same line ---------- */
+  {
+    const panelSrc = rd('frontend/app/workflowpanel.js'), buildSrc = rd('frontend/app/build.js');
+    A.ok(src.includes('<span class="wfw-st ok">✓ DELIVERED</span>') && src.includes('<b class="ok">✓ DELIVERED</b>') && !src.includes('✓ DONE'), 'a finished job reads ✓ DELIVERED in LAST JOBS and on its result (the panel\'s ✓ DONE is its close key)');
+    A.ok(src.includes('>▶ SEND A JOB</button>') && panelSrc.includes("'▶ SEND A JOB')") && panelSrc.includes('id="wf-sendnow" hidden>▶ SEND A JOB</button>'), '▶ SEND A JOB in both editors');
+    A.ok(panelSrc.includes("'▶ SEND A REAL JOB · costs a run'") && panelSrc.includes("['real', 'SEND A REAL JOB',"), 'TEST says the real job costs a run');
+    A.ok(src.includes('>↻ SEND IT AGAIN</button>') && panelSrc.includes('id="wf-nr-again">↻ SEND IT AGAIN</button>') && !/RUN THE SAME JOB AGAIN</.test(src + panelSrc), '↻ SEND IT AGAIN after a fix, in both');
+    A.ok(panelSrc.includes('<span>✎ NEEDS CHANGES</span>') && panelSrc.includes("'SUGGEST CHANGES'") && panelSrc.includes('★ KEEP THIS STYLE</button>'), 'the panel says ✎ NEEDS CHANGES · SUGGEST CHANGES · ★ KEEP THIS STYLE, as WORKFLOWS does');
+    A.ok(src.includes("' DOES EVERY STEP</button>'") && buildSrc.includes("+' DOES EVERY STEP</button>'") && src.includes(' A DESK</button>') && buildSrc.includes(">GIVE '+esc(") && panelSrc.includes('id="wf-pc">GIVE \' + esc('), '<NAME> DOES EVERY STEP and GIVE <NAME> A DESK in WORKFLOWS, BUILD and the panel');
+    A.ok(buildSrc.includes("FINISH SETUP${lname ? ' · '") && !buildSrc.includes("'FINISH THE LINE'"), 'the FINISH card reads FINISH SETUP');
+    A.ok(!/Choose a workflow/.test(rd('frontend/app/windows/loops.js')) && /Choose a kind of loop/.test(rd('frontend/app/windows/loops.js')), 'GOAL LOOPS asks for a kind of loop, never "a workflow"');
+  }
+
+  /* ---------- org P18 (2026-10-14): NEW WORKFLOW leads with the Commander's FOR YOUR GOAL line when it is not one of the four ---------- */
+  {
+    const S0 = { pick: S.pick, drafting: S.drafting };
+    S.pick = null; S.drafting = null;
+    const tilesOf = html => (html.match(/data-starter="([a-z_]+)"/g) || []).map(m => m.slice(14, -1));
+    ctx.Build.goalLine = () => null;
+    A.eq(tilesOf(WW._newHTML(WW._floor())).join(), 'research_line,revision_loop,front_desk,build_test', 'no goal read: the four starters');
+    ctx.Build.goalLine = () => ({ id: 'mission_control', why: 'a crew plans it and checks it', quote: 'ship my app every week' });
+    const led = WW._newHTML(WW._floor());
+    A.eq(tilesOf(led).join(), 'mission_control,research_line,revision_loop,front_desk,build_test', 'a goal line off the four leads them');
+    const goalTile = (/<button type="button" class="wfw-tile wfw-goal"[^>]*>[\s\S]*?<\/button>/.exec(led) || [''])[0];
+    A.ok(/data-tip="“ship my app every week” — a crew plans it and checks it/.test(goalTile) && /<span class="wfw-tstat">for your goal<\/span>/.test(goalTile), '…its tip quotes their words, its one small line says why it leads (no sentence under the tile): ' + goalTile.slice(0, 200));
+    A.ok(!/<span class="wfw-tstat">[^<]{40,}/.test(led), 'every tile keeps one short stat line');
+    ctx.Build.goalLine = () => ({ id: 'research_line', why: 'w', quote: 'q' });
+    A.eq(tilesOf(WW._newHTML(WW._floor())).join(), 'research_line,revision_loop,front_desk,build_test', 'a goal line that IS one of the four is not shown twice');
+    ctx.Build.goalLine = () => ({ id: 'no_such_line', why: 'w', quote: 'q' });
+    A.eq(tilesOf(WW._newHTML(WW._floor())).length, 4, 'an unknown goal id adds nothing');
+    A.ok(/More ready-made lines are in the Build Library ›/.test(WW._newHTML(WW._floor())), 'the More ready-made lines link stays');
+    A.ok(/picks one of the 20 ready-made lines/.test(WW._newHTML(WW._floor())), 'SET IT UP FOR ME says it chooses from the whole shelf');
+    delete ctx.Build.goalLine;
+    S.pick = S0.pick; S.drafting = S0.drafting;
+    const buildSrc = rd('frontend/app/build.js');
+    A.ok(/goalLine: \(\) => \{ const g = goalLine\(\); return g \? \{ id: g\.bp\.id, why: g\.why, quote: g\.quote \} : null; \},/.test(buildSrc), 'Build exposes the shelf\'s own FOR YOUR GOAL pick');
+  }
+
   A.report('workflows-window.test');
 })().catch(e => { console.error(e); process.exit(1); });

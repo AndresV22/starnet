@@ -49,8 +49,9 @@ const NAV_HEAD =
   'section "actions" lists every change) — opening the window is not doing it. Never go around them to StarNet\'s own settings ' +
   'with the shell, the file system or a web request to the station: those tools are the only door:\n';
 const NAV_COMMS =
-  '- COMMS: the chat panel. The Commander types a request and hits Enter to task the focused agent. ' +
-  'Clicking an agent (or its crew-manifest row) focuses it, so messages and new work go to that agent.\n';
+  '- COMMS: the chat panel. The Commander types a request and hits Enter to task the agent ON THE LINE (the open session\'s agent). ' +
+  'With 2+ agents a crew-manifest row click shows that agent\'s sessions; its DOSSIER key, a right-click or its sprite opens its ' +
+  'dossier. None of these changes who COMMS talks to.\n';
 /* SESSIONS (2026-10-08): "pin this conversation" made Claude Haiku 4.5 AND Sonnet 4.5 write a notebook memory titled "Pinned
    conversation" and report it pinned — the only "pin" either could see was memory's. One line, inline like AUTOMATE, so no
    lookup is needed to know a conversation is a rail session (station.control session.* with no session = this one). */
@@ -64,7 +65,7 @@ const NAV_AUTOMATION =
 const NAV_REST =
   '- MY WORK (dock, in the WORK group): TASKS (the project board; cards are real workstreams, and assigning one opens ' +
   'COMMS and hands that work to an agent), DELIVERABLES (everything the crew finished, with TO REVIEW on top for ' +
-  'results waiting on the Commander\'s verdict), RECIPES (ready-made jobs).\n' +
+  'away runs and workflow jobs waiting for the Commander\'s rating — already filed in the library; chats are rated in COMMS), RECIPES (ready-made jobs).\n' +
   '- The DOCK (bottom bar) groups: WORK (MY WORK, AUTOMATE, QUESTS) · BUILD (BUILD MODE, CONNECT, NEW APP) · ' +
   'CREW (AGENTS, RECRUIT, YOU). RECRUIT opens the Recruitment Bay.\n' +
   '- CONNECT › ABILITIES (dock, in the BUILD group): **the one place external platforms get connected**, and the home ' +
@@ -167,7 +168,7 @@ const CONCEPTS =
   'webhook (or off). Trap: a line on a schedule is a routine, so it does not fire while scheduling is off or halted.\n' +
   '- OUTBOX vs DELIVERABLES vs TO REVIEW: a floor OUTBOX shows ONLY its own line\'s jobs (clicking it opens that line in ' +
   'WORKFLOWS). Every finished job — a line\'s included — is ALSO a row in MY WORK › DELIVERABLES [deliverables], with its files. ' +
-  'TO REVIEW [to-review] is the top of DELIVERABLES: finished work waiting for the Commander\'s verdict, hidden when empty. ' +
+  'TO REVIEW [to-review] is the top of DELIVERABLES: away runs and workflow jobs waiting for the Commander\'s rating (already filed in the library; chats are rated in COMMS, never here), hidden when empty. ' +
   'You: deliverable_note names your own work there; station.control deliverables.cleanup clears discarded/failed records (records only, ' +
   'deliverables.restore undoes it). Trap: never say an OUTBOX holds every result.\n' +
   '- RECIPES [recipes]: ready-made job templates; launching one opens a new session and sends the filled-in job to the current ' +
@@ -178,14 +179,15 @@ const CONCEPTS =
   'WORK [away-work] is an agent\'s consent to build from its own queue, inside its own workspace, while the Commander is away. ' +
   'You: routine.create/manage, loop.create/manage (if you have them); station.power agent.away_work on; station.control away.queue / ' +
   'away.remove fill and trim an agent\'s away queue. Trap: read ' +
-  'routine.create\'s scheduler note before saying "it will run" — scheduling can be off (▶ ENABLE SCHEDULING) or stopped by ' +
+  'routine.create\'s scheduler note before saying "it will run" — scheduling can be off (▶ TURN SCHEDULING ON) or stopped by ' +
   'an E-STOP, and you can never lift an E-STOP. A routine runs on the key the STATION holds: if a run says it has no key, the ' +
   'Commander saves it again in [settings-ai]. routine.create enabledToolsets takes toolset ids ([] = no limit).\n' +
   '- TASKS vs SESSIONS: the task board [tasks] holds planned work cards (todo / active / shipped; START sends one to its agent). ' +
   'Chats, routine runs and away runs are SESSIONS on the COMMS rail. You: task.list/create/manage; session.list/create/peek/' +
   'focus; station.status (if you have it) is a live snapshot of every session. Trap: call session.peek before saying what another ' +
   'session did — your thread does not contain it.\n' +
-  '- COMMS: the chat. Clicking an agent (or its crew row) focuses it, and messages go to the focused agent. GROUP CHAT: "+ Add ' +
+  '- COMMS: the chat. Messages go to the agent ON THE LINE (the open session\'s agent); a crew row click (2+ agents) only shows ' +
+  'that agent\'s sessions and DOSSIER / right-click / its sprite open its dossier. GROUP CHAT: "+ Add ' +
   'agents" in the COMMS bar (or @-mentioning an agent) turns a direct chat into a group; the lead answers anything unaddressed ' +
   'and cannot be removed. Enter while an agent is working QUEUES the message; /steer <text> steers the live run; /stop stops it. ' +
   'You: station.control session.rename|pin|archive|delete; group.add brings crew into this chat (a one-on-one chat becomes a group ' +
@@ -251,11 +253,11 @@ const TROUBLESHOOTING =
   'console in its room so it has its own PC.\n' +
   '- “An agent is stuck / waiting” → it may be waiting on an approval: its card is in COMMS, in the conversation ' +
   'where it paused (NEEDS YOU at the top of SESSIONS lists every one waiting; also NOTIFICATIONS › NEEDS YOU). Approve or Deny it there.\n' +
-  '- “I typed in COMMS but nothing happened” → make sure the intended agent is focused (click it) ' +
-  'before sending.\n' +
+  '- “I typed in COMMS but nothing happened” → make sure the intended agent is ON THE LINE (the picker at ' +
+  'the top of COMMS) before sending.\n' +
   '- “Where did my agent go?” → agents walk to their workstation to work and roam when idle; they ' +
-  'are still on the crew manifest — click the row to focus and find them.\n' +
-  '- “How do I get more agents?” → open the Recruitment Bay and SUMMON one (pick a class, or build ' +
+  'are still on the crew manifest — its DOSSIER key opens its file; with 2+ agents a row click shows its sessions.\n' +
+  '- “How do I get more agents?” → open the Recruitment Bay and RECRUIT one (pick a class, or build ' +
   'a custom class).\n';
 
 // ORDERED: `lead` is the blank line that preceded the section in the original single literal, so

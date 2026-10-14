@@ -127,6 +127,26 @@ A.ok(/stopActive\('esc'\)/.test(chat) && /■ STOPPED BY YOU \(ESC\)/.test(chat)
 // the stop reason rides the stopped turn and replays after a reload
 A.ok(/function noteStopReason\(/.test(chat) && /m\.stopped && m\.stopNote\) toolLine\('⏹ ' \+ m\.stopNote\)/.test(chat), 'a stopped turn keeps its ⏹ reason across a reload');
 
+// org pass 10-14 (P29): /goal is a SESSION goal — its set line says so and carries a real door key into AUTOMATE › GOAL LOOPS
+{
+  const src = A.fnBody(chat, 'function goalCommand(');
+  const lines = [], opened = [], kids = [];
+  const body = { appendChild: n => kids.push(n) };
+  const row = { querySelector: sel => sel === '.body' ? body : null };
+  const doc = { createElement: () => ({ type: '', className: '', textContent: '', onclick: null }), createTextNode: t => ({ text: t }) };
+  const GoalLoop = { create: (goal) => ({ goal, maxTurns: 8, status: 'active' }), statusLine: () => '' };
+  let kicked = 0;
+  const goal = new Function('GoalLoop', 'activeWs', 'goalOf', 'localLine', 'persistGoal', 'kickGoal', 'StationUI', 'document', src + '\nreturn goalCommand;')(
+    GoalLoop, { id: 'w' }, () => null, t => { lines.push(t); return row; }, () => {}, () => { kicked++; }, { openTerm: (k, sec) => opened.push(k + ':' + sec) }, doc);
+  goal('ship the landing page');
+  A.ok(/^⊙ goal set for this session only: ship the landing page/.test(lines[0]) && /lasting goal loops:$/.test(lines[0]), 'the /goal set line says session-only and points at lasting goal loops: ' + lines[0]);
+  A.ok(/It runs while StarNet is open \(it survives a reload\)\./.test(lines[0]), 'org P19: it says when it runs — while StarNet is open, across a reload');
+  const door = kids.find(k => k && k.className && /goal-loops-door/.test(k.className));
+  A.ok(door && door.type === 'button' && /consent-btn/.test(door.className) && door.textContent === '▸ AUTOMATE › GOAL LOOPS', 'a real door key rides the line (not a menu path)');
+  door.onclick(); A.eq(opened, ['automation:loops'], 'the door opens AUTOMATE › GOAL LOOPS');
+  A.eq(kicked, 1, 'the session goal still starts working');
+  A.ok(!/goal loop (paused|resumed|set)|No goal loop to|Cleared the goal loop|No paused goal loop/.test(src), 'every /goal control line says session goal');
+}
 // a goal-loop step that stopped pauses the loop WITH the reason, instead of leaving it "active" with nothing firing
 {
   const src = A.fnBody(chat, 'async function judgeGoalTurn(');
@@ -139,7 +159,7 @@ A.ok(/function noteStopReason\(/.test(chat) && /m\.stopped && m\.stopNote\) tool
     await judge({ id: 'w' }, null, true, 'the model sent back an empty reply, so nothing was done');
     A.eq(s.status, 'paused', 'a stopped continuation pauses the goal loop (no silent stall)');
     A.eq(paused, 'the model sent back an empty reply, so nothing was done', 'with the real reason');
-    A.ok(/⏸ goal loop paused: the model sent back an empty reply/.test(lines[0]) && /\/goal resume/.test(lines[0]), 'and says so with the existing resume control: ' + lines[0]);
+    A.ok(/⏸ session goal paused: the model sent back an empty reply/.test(lines[0]) && /\/goal resume/.test(lines[0]), 'and says so with the existing resume control: ' + lines[0]);
     A.report('stop-reason.test');
   })().catch(e => { console.error(e); process.exit(1); });
 }

@@ -1076,8 +1076,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      name — the name the manual, the agents and every error door already use. Never a merged card grid: each
      tab stays its own distinct surface (the August ABILITIES lesson). */
   const FAMILIES = {
-    mywork: { label: 'MY WORK', tabs: [
-      { id: 'tasks', k: 'tasks', label: 'TASKS', tip: 'Planned work on the task board — chats and routines live in COMMS' },
+    mywork: { label: 'MY WORK', first: 'deliverables', tabs: [
+      { id: 'tasks', k: 'tasks', label: 'TASKS', tip: 'Planned work you track — chats and routines live in COMMS' },
       { id: 'deliverables', k: 'deliverables', label: 'DELIVERABLES', tip: 'Everything your crew finished, with its files' },
       { id: 'recipes', k: 'marketplace', label: 'RECIPES', tip: 'Ready-made jobs to start',
         is: () => typeof Marketplace !== 'undefined' && Marketplace.currentTab && Marketplace.currentTab() === 'recipes',
@@ -1197,7 +1197,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (k && open[k] && termPos[fromKey]) { carry(k); placeTerm(open[k], k); }
     }
   }
-  // the dock button of a menu: open its last-used tab — or, like every dock button, raise / close what is showing
+  // the dock button of a menu: open its last-used tab — or, like every dock button, raise / close what is showing.
+  // A menu's FIRST open lands on its `first` tab when it names one (MY WORK opens on DELIVERABLES: the TASKS board
+  // stays empty after plain COMMS work, org pass 10-14 #45/#46); the tab ORDER, aliases and deep links never change.
   function toggleFamily(famId) {
     const fam = FAMILIES[famId]; if (!fam) return;
     const showing = Object.keys(open).filter(k => open[k] && !minimized[k] && familyOf(k) === famId);
@@ -1210,7 +1212,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const min = Object.keys(open).find(k => open[k] && minimized[k] && familyOf(k) === famId);
     if (min) { restoreTerm(min); return; }
     const last = store.famLast && store.famLast[famId];
-    openFamilyTab(famId, fam.tabs.find(t => t.id === last) || fam.tabs[0]);
+    openFamilyTab(famId, fam.tabs.find(t => t.id === last) || (fam.first && fam.tabs.find(t => t.id === fam.first)) || fam.tabs[0]);
   }
 
   function toggleTerm(key, title, builder, opts) {
@@ -1816,7 +1818,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       return;
     }
     ul.innerHTML = present.map((a, i) =>
-      '<li class="crew-row" role="button" tabindex="0" aria-label="' + (present.length > 1 ? 'Show sessions with ' + esc(a.name || a.id) + '; Shift+F10 for the dossier" aria-keyshortcuts="Shift+F10' : 'Open dossier for ' + esc(a.name || a.id)) + '" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      '<li class="crew-row" role="button" tabindex="0" aria-label="' + (present.length > 1 ? 'Show sessions with ' + esc(a.name || a.id) + '; Shift+F10 for the dossier' : 'Open dossier for ' + esc(a.name || a.id)) + '" aria-keyshortcuts="Shift+F10" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
       crewPortrait(a) +
       '<span class="dot on"></span>' +
       '<div class="crew-main">' +
@@ -1828,15 +1830,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // The shimmer (.bar-active) reads as live activity; it's an indeterminate sweep, not a % readout.
       '<div class="crew-prog bar-active" id="cp-' + esc(a.id) + '" aria-hidden="true"><div></div></div>' +
       '</div>' +
-      // the dossier stays one step away: this key (or a right-click) opens it; the row itself shows the sessions
-      (present.length > 1 ? '<button type="button" class="crew-dossier" tabindex="-1" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-tip="Open ' + esc(a.name || a.id) + '&#39;s dossier">DOSSIER</button>' : '') +
+      // ORG P20: the dossier door is the SAME key at every crew size — always shown, never hover-only (touch can't hover),
+      // so the door learned on day one doesn't move after the first recruit. With 2+ agents the row itself shows the
+      // sessions; with one, the row and this key both open the dossier. Right-click / Shift+F10 / the sprite stay.
+      '<button type="button" class="crew-dossier" tabindex="-1" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-tip="Open ' + esc(a.name || a.id) + '&#39;s dossier">DOSSIER</button>' +
       '</li>').join('');
     // (the head's roster count moved out — #crew-sum below the list already totals the same crew)
     ul.querySelectorAll('.crew-row').forEach(li => {
       if (typeof AgentPortraits !== 'undefined') AgentPortraits.paint(li.querySelector('.crew-portrait img'), present[+li.dataset.i]);
       // PER-AGENT THREADS: a row click narrows the SESSIONS rail to this agent's sessions (again = all of them).
       // A one-agent station has nothing to narrow — every session is already that agent's — so there the
-      // row keeps opening the dossier, as it always has.
+      // row keeps opening the dossier, as it always has (its DOSSIER key opens the same file).
       li.addEventListener('click', () => {
         sfx('click');
         // "needs your OK" (the gold card): one click lands where it is waiting — the approval or the question
@@ -1963,13 +1967,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       desc: 'The system prompt sent to the model on every run — the heart of who your agent is.',
       ph: 'You are …' },
     { key: 'purpose', file: 'purpose.md', badge: 'YOU WRITE THIS',
-      desc: 'What your agent is for. Folded into the prompt so it colours everything it does.',
+      // P23 REACH: the purpose and house rules are THIS agent's only; rules for every agent are YOU › PREFERENCES'
+      // standing orders (DossierStore.composeBlock rides every agent's prompt + cron's withDossier). Name the reach.
+      desc: n => 'What your agent is for. Folded into the prompt so it colours everything it does. Only ' + n + ' · a workflow step’s DOES can add to it.',
       ph: 'e.g. Track AI-policy news and brief me each morning.' },
     { key: 'context', file: 'context.md', badge: 'YOU WRITE THIS',
       desc: 'About you and your world — your project, domain, and what "good" looks like. Grounds every run.',
       ph: 'e.g. I build TypeScript web apps solo; "good" = tested, minimal diffs, no hand-waving.' },
     { key: 'manual', file: 'operating-manual.md', badge: 'YOU WRITE THIS',
-      desc: 'House rules appended to every run — tone, format, the do-nots. Always obeyed.',
+      desc: n => 'Only ' + n + ' follows these house rules — tone, format, the do-nots · rules for every agent live in YOU › PREFERENCES.',
       ph: '- Cite your sources.\n- Keep it terse.\n- Never message anyone without asking first.' }
   ];
 
@@ -2063,16 +2069,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // stating this plainly. (test/permissions-ui.test.js greps the SOURCE for the index form — so this comment
     // must not spell it out either; a locked grep is a contract on the text, not just on the behaviour.)
     const prof = executionProfileOf(executionProfileId(a));
+    // ORG P21: VOICE and SKILLS are per-agent settings that live OUTSIDE the dossier (SETTINGS › LOOK & SOUND's VOICE FOR,
+    // ABILITIES › AGENT SKILLS) — the strip is the index, so it names them too. Each row's tip says where its click lands.
+    let voice = '';
+    try { voice = (typeof Voice !== 'undefined' && Voice.voiceChoice && a && a.id) ? Voice.voiceChoice(a.id) : ''; } catch (_) { voice = ''; }
     const rows = [
-      { lbl: 'MODEL',     val: pin || 'station default', dim: !pin,                 go: 'ag-model-card' },
-      { lbl: 'PERSONALITY',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card' },
-      { lbl: 'ACCESS',    val: 'checking effective access…', dim: false, go: 'ag-approval-card' },
-      { lbl: 'PROFILE',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card' },
-      { lbl: 'AWAY WORK', val: (a && a.workshop) ? 'on'  : 'off', dim: !(a && a.workshop), go: 'ag-workshop-card' }
+      { lbl: 'MODEL',     val: pin || 'station default', dim: !pin,                 go: 'ag-model-card',     tip: 'change it in CONFIG › MODEL' },
+      { lbl: 'PERSONALITY',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card',   tip: 'change it in CONFIG › PERSONALITY' },
+      { lbl: 'ACCESS',    val: 'checking effective access…', dim: false, go: 'ag-approval-card',  tip: 'change it in CONFIG › ACCESS' },
+      { lbl: 'PROFILE',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card', tip: 'change it in CONFIG › ACCESS' },
+      { lbl: 'VOICE',     val: voice || 'station default', dim: !voice,             go: 'ag-voice',          tip: 'opens SETTINGS › LOOK & SOUND › VOICE FOR this agent' },
+      { lbl: 'SKILLS',    val: 'its own procedures',       dim: true,               go: 'ag-skills',         tip: 'opens ABILITIES › AGENT SKILLS for this agent' },
+      { lbl: 'AWAY WORK', val: (a && a.workshop) ? 'on'  : 'off', dim: !(a && a.workshop), go: 'ag-workshop-card',  tip: 'opens AUTOMATE › AWAY WORK' }
     ];
     return '<div class="ag-setup" role="group" aria-label="How this agent is set up">' +
       rows.map(r =>
-        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" title="change this in CONFIG">' +
+        '<button type="button" class="ag-setup-row" data-goconfig="' + r.go + '" data-tip="' + esc(r.tip) + '">' +
           '<span class="ag-setup-lbl">' + r.lbl + '</span>' +
           '<span class="ag-setup-val' + (r.dim ? ' dim' : '') + '">' + esc(r.val) + '</span>' +
           '<span class="ag-setup-go" aria-hidden="true">›</span></button>').join('') +
@@ -2156,14 +2168,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const nAg = present.length || 1;
     return s ? (
       '<div class="gx-station" style="margin-top:18px;">' +
-      '<div class="hd"><span class="badge">●</span><span class="ttl">Station prestige</span><span class="agents">&Sigma; ' + nAg + ' AGENT' + (nAg === 1 ? '' : 'S') + '</span></div>' +
+      '<div class="hd"><span class="badge">●</span><span class="ttl">STATION XP</span><span class="agents">&Sigma; ' + nAg + ' AGENT' + (nAg === 1 ? '' : 'S') + '</span></div>' +
       '<div class="body">' +
         '<div class="lv"><div class="gx-lbl" style="font-size:9px;">STATION</div><div class="n">' + s.level + '</div><div class="gx-lbl" style="font-size:9px;">LEVEL</div></div>' +
         '<div style="flex:1;">' +
           '<div class="gx-row" style="margin-bottom:6px;"><span class="gx-val" style="font-size:13px;">' + s.xp.toLocaleString() + ' <span class="gx-dim">/</span> ' + Xp.xpForLevel(s.level + 1).toLocaleString() + ' <span class="gx-dim" style="font-size:11px;">XP</span></span><span class="gx-val" style="color:var(--gold);font-size:13px;">' + s.pct + '%</span></div>' +
           '<div class="gx-trk"><div class="gx-gfill" style="width:' + s.pct + '%;"></div></div>' +
           '<div class="gx-row" style="margin-top:7px;"><span class="gx-val gx-dim" style="font-size:11px;">' + s.toNext.toLocaleString() + ' XP TO LV ' + (s.level + 1) + '</span>' +
-            '<span class="gx-mono" style="font-size:10px;color:var(--ph-dim);">' + s.positiveFeedback + ' APPROVALS &middot; <span style="color:var(--ph);">' + (s.known ? s.band.toUpperCase() : 'CALIBRATING') + '</span></span></div>' +
+            '<span class="gx-mono" style="font-size:10px;color:var(--ph-dim);">' + s.positiveFeedback + ' THUMBS-UP &middot; <span style="color:var(--ph);">' + (s.known ? s.band.toUpperCase() : 'CALIBRATING') + '</span></span></div>' +
         '</div>' +
       '</div></div>'
     ) : '';
@@ -2328,7 +2340,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (!view || !view.authority || !Array.isArray(view.toolsets)) throw Error('Access unavailable');
         const authority = view.authority;
         const summary = body.querySelector('[data-goconfig="ag-approval-card"] .ag-setup-val');
-        if (summary) summary.textContent = authority.unrestricted ? 'Full Power · no prompts' : 'ASK · standing grants apply';
+        // ORG P21: the summary speaks the ONE ACCESS posture words. FULL POWER only when the live authority is unrestricted;
+        // otherwise the agent's saved posture if it is an asking one, else custom — never a posture the live answer contradicts.
+        const askingPosture = () => { const AP = agentPostureOf(a); return (AP && AP.approval === 'ask') ? AP.label : 'custom'; };
+        if (summary) summary.textContent = authority.unrestricted ? 'FULL POWER · no prompts' : askingPosture() + ' · standing grants apply';
         const reach = body.querySelector('#ag-execution-plain');
         if (reach) reach.textContent = authority.filesystemLabel + (authority.unrestricted ? '. Full Power overrides the saved profile below.' : '. The selected profile and standing grants apply.');
         const html = '<p><b>' + esc(authority.approvalLabel) + '</b><br>' + esc(authority.filesystemLabel) + ' · ' + esc(authority.profileLabel) + '</p>' +
@@ -2369,7 +2384,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<span class="cf-badge you">' + f.badge + '</span>' +
       '<span class="cf-bytes">' + (val || '').length + ' chars</span>' +
       (editing ? '' : '<button class="bb sm cf-edit" data-edit="' + f.key + '">✎ EDIT</button>') +
-      '</div><div class="cf-desc">' + f.desc + '</div>';
+      '</div><div class="cf-desc">' + (typeof f.desc === 'function' ? f.desc(esc((a && a.name) || 'this agent')) : f.desc) + '</div>';
     if (editing) {
       return '<div class="cf cf-on">' + head +
         '<textarea class="cf-ta" id="cf-ta-' + f.key + '" aria-label="' + esc(f.file) + '" spellcheck="false" placeholder="' + esc(f.ph) + '">' + esc(val) + '</textarea>' +
@@ -2399,7 +2414,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // sidecar (station-wide, not per-agent — the reflect loop is a station engine). Plus a plain scope note.
       '<div class="gx-sec"><span class="gx-ref">◈</span><span class="gx-title">Reflection</span></div>' +
       '<div class="mc-note" id="mc-scope">How the station learns from finished work.</div>' +
-      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION ON <span class="dim">— propose memories after a completed task</span></label>' +
+      '<label class="set-row"><input type="checkbox" id="mc-reflect-on"> REFLECTION (all agents) <span class="dim">— propose memories after a completed task</span></label>' +
       '<div class="set-row"><label for="mc-cooldown">TIME BETWEEN SUGGESTIONS (MINUTES)</label><input id="mc-cooldown" class="key-input" type="number" min="0" max="60" step="1" style="max-width:90px" title="minimum gap between turn-in beats per agent"></div>' +
       '<div class="mc-acts"><button class="bb sm" id="mc-reflect-save">SAVE</button><span class="msg" id="mc-reflect-msg"></span></div></div>' +
       // AWAITING A VERDICT — the durable high-stakes deck. Runs that finish while nobody is watching (a routine, a
@@ -2658,7 +2673,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     U.bus.on('deliverable', p => {
       if (!p || p.kind !== 'skill') return;
       if (!open['connectors'] || !$('#sk-agent')) return;             // the AGENT SKILLS host lives in the ABILITIES console (skills lane)
-      const a = present[sel]; const shownId = (a && a.id) || 'agent';
+      const shownId = skillsAgentId();
       if ((p.agentId || 'agent') !== shownId) return;                 // only refresh the agent the panel is actually showing
       clearTimeout(skillsRefreshTimer);
       skillsRefreshTimer = setTimeout(() => { if (open['connectors'] && $('#sk-agent')) loadAgentSkills(shownId); }, 400);
@@ -2702,7 +2717,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       CF_GROUPS.map((g, i) => {
         const key = a.id + ':' + g.id;
         return '<details class="cf-group" id="' + g.id + '" data-cf-group="' + esc(key) + '"' + (cfOpen.get(key) ? ' open' : '') + '><summary><span class="cf-group-title">' + g.label + '</span><span class="cf-group-summary">' + esc(summaries[i]) + '</span></summary><div class="cf-group-body">' + content[i] + '</div></details>';
-      }).join('') + '<div class="cf-card" id="ag-away-link"><button class="bb sm" data-away-open>WHILE I’M AWAY → AUTOMATE</button></div>' +
+      }).join('') + '<div class="cf-card" id="ag-away-link"><button class="bb sm" data-away-open data-tip="opens AUTOMATE › AWAY WORK">AWAY WORK ▸</button></div>' +
       agDeleteRow(a);
   }
 
@@ -2722,7 +2737,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '</label>' +
       '<div id="ag-workshop-msg" class="msg"></div>' +
       '<div id="ag-ws-live"><div class="dim" style="font-size:11px;">reading the build list…</div></div>' +
-      '<p class="ws-queue-help">Add work from a quest’s <b>Build while away</b> action, or type <code>/build-away</code> in COMMS.</p>' +
+      '<p class="ws-queue-help">Add work from a quest’s <b>Build while away</b> action, or type <code>/away</code> in COMMS.</p>' +
     '</div>';
   }
 
@@ -3291,6 +3306,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        scrolled the minimum distance leaves the card you asked for hugging the bottom edge. */
     const jumpToConfig = (anchor) => {
       if (anchor === 'ag-workshop-card' && window.AutomationWindow) { window.AutomationWindow.openAway(a.id); return; }
+      // ORG P21: VOICE lands on SETTINGS › LOOK & SOUND with VOICE FOR already on this agent; SKILLS on ABILITIES ›
+      // AGENT SKILLS showing this agent. Both are the existing editors — the strip only routes.
+      if (anchor === 'ag-voice') { sfx('click'); openVoiceFor(a.id); return; }
+      if (anchor === 'ag-skills') { sfx('click'); skillsPick = a.id; openTerm('connectors', 'agent'); return; }
       consoleSection['agents'] = 'config'; sfx('click'); rerender('agents');
       if (!anchor || anchor === '1') return;
       requestAnimationFrame(() => {
@@ -3732,15 +3751,27 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      owns the whole "what agents can do" axis. Same two-part lane shape as windows/automation.js
      ({sections, wire}); wire() runs after the shared mountConsole call. */
   function abilitySkillsLane(body) {
-    const a = present[sel];
+    // ORG P21: the skills lane shows ONE agent — the one sent from its dossier's SKILLS row (a one-shot request,
+    // consumed here so a later open from anywhere else follows the dossier again), or the one picked in this same
+    // open window (kept across its own rerenders), else the dossier's selected agent, as before.
+    const sentFrom = skillsPick; skillsPick = null;
+    const keptHere = (skillsShown && skillsShown.win === open.connectors) ? skillsShown.id : null;
+    const picked = present.find(x => x && x.id === (sentFrom || keptHere));
+    const a = picked || present[sel];
     const agentId = (a && a.id) || 'agent';
+    skillsShown = { id: agentId, win: open.connectors };
+    const agentPicker = present.length
+      ? '<label class="mc-hint" for="sk-agent-pick">Skills of</label><select id="sk-agent-pick" class="ab-agent-pick" aria-label="Show the skills of agent">' +
+        present.map(x => '<option value="' + esc(x.id) + '"' + (x.id === agentId ? ' selected' : '') + '>' + esc(x.name || x.id) + '</option>').join('') + '</select>'
+      : '';
     const secLibrary =
       // "recipes" here collided with the ❒ RECIPES dock feature (audit finding 2) — these are PROCEDURES: how-to
       // guides an agent follows mid-task, not launchable jobs.
       '<p class="sk-note sk-lib-intro">Enable skills for the whole station. Agents use them when relevant, with the tools and service access they already have.</p>' +
       '<div id="sk-lib" class="sk-lib"><div class="sk-loading"><span class="loading pulse">loading the skill library…</span></div></div>';
     const secAgent =
-      '<p class="sk-note sk-lib-intro">Reusable procedures this agent created or learned. These appear as a compact index in future runs; the agent loads the full body only when a task matches.</p>' +
+      agentPicker +
+      '<p class="sk-note sk-lib-intro" id="sk-agent-intro">' + skillsIntro(a) + '</p>' +
       '<div id="sk-agent" class="sk-lib"><div class="sk-loading">loading agent skills…</div></div>';
     const secExchange =
       '<p class="sk-note sk-lib-intro">Install a complete open skill package from a public HTTPS or GitHub <b>SKILL.md</b>. StarNet freezes the instructions and support files under one SHA-256 before review. Missing, oversized, unsafe, or partial packages are refused.</p>' +
@@ -3786,7 +3817,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       loadSkillMarket(agentId);
       loadSkillLibrary(agentId);
       loadAgentSkills(agentId);
-      wireSkillExchange(agentId);
+      const pick = document.getElementById('sk-agent-pick');
+      if (pick) pick.addEventListener('change', () => {
+        skillsShown = { id: pick.value, win: open.connectors }; sfx('click');
+        const shown = present.find(x => x && x.id === pick.value);
+        const intro = document.getElementById('sk-agent-intro'); if (intro) intro.innerHTML = skillsIntro(shown);
+        // one agent per lane: the library's "active for <agent>" readout, the market's gear check and an exchange
+        // install all follow the pick, not the agent the window first opened on
+        loadAgentSkills(pick.value); loadSkillLibrary(pick.value); loadSkillMarket(pick.value);
+      });
+      wireSkillExchange(skillsAgentId);
       wireSkillsLive();   // A3: keep the AGENT SKILLS list live while the panel is open (registers once)
     }
     return { sections, wire };
@@ -3955,10 +3995,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const f = $('#skm-filters');
       if (f) f.querySelectorAll('[data-skm-filter]').forEach(x => { const on = x.dataset.skmFilter === 'all'; x.classList.toggle('active', on); x.setAttribute('aria-pressed', on ? 'true' : 'false'); });
     }
+    host.dataset.agent = agentId;   // ORG P21: the once-wired handler below acts for the agent of the LATEST load
+    const load = ++skillMarketLoad;  // …and only the latest load may land (the picker can reload for another agent mid-fetch)
     skillPlacedTypes(agentId)
       .then(placed => Harness.api.get('/api/skill-market?placed=' + encodeURIComponent(placed.join(',')) + (refresh ? '&refresh=1' : '')))
-      .then(d => { if ($('#skm-list') === host) { renderSkillMarket(host, d, agentId); const search = host.closest('.term-body')?.querySelector('.con-search-in'); if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles: true })); } })
-      .catch(e => { if ($('#skm-list') === host) renderSkillMarket(host, { ok: false, error: e && e.message }, agentId); });
+      .then(d => { if ($('#skm-list') === host && load === skillMarketLoad) { renderSkillMarket(host, d, agentId); const search = host.closest('.term-body')?.querySelector('.con-search-in'); if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles: true })); } })
+      .catch(e => { if ($('#skm-list') === host && load === skillMarketLoad) renderSkillMarket(host, { ok: false, error: e && e.message }, agentId); });
     if (host.dataset.wired) return;
     host.dataset.wired = '1';
     const filters = $('#skm-filters');
@@ -3970,10 +4012,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     });
     host.addEventListener('click', async ev => {
       const place = ev.target.closest('[data-place]');
-      if (place) { sfx('click'); placeGearForSkill(place.dataset.place, (typeof App !== 'undefined' && App.agentName) ? App.agentName(agentId) : ''); return; }
+      const shownId = host.dataset.agent || agentId;
+      if (place) { sfx('click'); placeGearForSkill(place.dataset.place, (typeof App !== 'undefined' && App.agentName) ? App.agentName(shownId) : ''); return; }
       const b = ev.target.closest('[data-skm-act]'); if (!b || b.disabled) return;
       const act = b.dataset.skmAct, slug = b.dataset.slug;
-      if (act === 'retry') { host.innerHTML = '<span class="loading pulse">loading the skill market…</span>'; loadSkillMarket(agentId, true); return; }
+      if (act === 'retry') { host.innerHTML = '<span class="loading pulse">loading the skill market…</span>'; loadSkillMarket(shownId, true); return; }
       if (skmBusy.has(slug)) return;
       const msg = $('#skm-msg');
       const card = b.closest('[data-skm]');
@@ -3999,7 +4042,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // always re-read: even a timed-out request may have finished on the station
         skmBusy.delete(slug);
         skmFocus = slug;
-        loadSkillMarket(agentId); loadSkillLibrary(agentId);
+        loadSkillMarket(shownId); loadSkillLibrary(shownId);
       }
     });
   }
@@ -4009,6 +4052,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // that was closed mid-fetch is a safe no-op. The global fetch wrapper (harness.js) attaches the API token.
   function loadSkillLibrary(agentId) {
     const host = $('#sk-lib'); if (!host) return;
+    const load = ++skillLibLoad;   // ORG P21: the picker can reload for another agent mid-fetch — only the latest load may land
     let placed = [];
     try { placed = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(agentId).map(c => c.objectType) : []; } catch (e) {}
     Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(agentId) + '&placed=' + encodeURIComponent(placed.join(',')))
@@ -4023,7 +4067,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       .then(r => { if (!r.ok) throw Error('Skill library unavailable'); return r.json(); })
       .then(d => {
         const h = $('#sk-lib');
-        if (h === host) {
+        if (h === host && load === skillLibLoad) {
           renderSkillLibrary(h, (d && d.skills) || [], agentId, placed);
           const search = h.closest('.term-body')?.querySelector('.con-search-in');
           if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles:true }));
@@ -4032,7 +4076,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       })
       .catch(() => {
         const h = $('#sk-lib');
-        if (h) {
+        if (h && load === skillLibLoad) {
           h.innerHTML = '<div class="sk-loading">Could not load the skill library — is the sidecar running?</div>';
           requestAnimationFrame(() => fitTermInViewport(open.connectors));
         }
@@ -4114,7 +4158,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const placedSet = {}; (placed || []).forEach(p => placedSet[p] = true);
     const objLabel = (r) => SK_OBJ_NAME[r] || String(r).toUpperCase();
     const active = skills.filter(s => s.enabled && s.available).length;
-    const agentName = (present[sel] && present[sel].name) || agentId;
+    const agentName = ((present.find(x => x && x.id === agentId) || {}).name) || agentId;   // ORG P21: the agent this list was loaded for
     const groups = groupSkillsByState(skills);
     let html = '<div class="sk-lib-sum">' + skills.length + ' skill' + (skills.length === 1 ? '' : 's') +
       ' · <b>' + active + '</b> active for ' + esc(agentName) + '</div>';
@@ -4249,7 +4293,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     });
   }
 
-  function wireSkillExchange(agentId) {
+  function wireSkillExchange(agentOf) {
+    const shownAgent = () => (typeof agentOf === 'function' ? agentOf() : agentOf);   // ORG P21: the lane's picker can change the agent after wiring
     const input = $('#sk-exchange-url'), button = $('#sk-exchange-inspect'), importer = $('#sk-exchange-import'), host = $('#sk-exchange-preview');
     if (!input || !button || !host || !Harness.skillExchangeInspect) return;
     const inspect = async () => {
@@ -4259,7 +4304,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       host.innerHTML = '<div class="sk-loading"><span class="loading pulse">fetching and scanning exact source bytes…</span></div>';
       const r = await Harness.skillExchangeInspect(url);
       button.classList.remove('busy'); button.textContent = 'INSPECT';
-      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, agentId);
+      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, shownAgent());
       else host.innerHTML = '<div class="sk-exchange-note bad">' + esc((r && r.error) || 'That source could not be inspected.') + '</div>';
     };
     button.addEventListener('click', inspect);
@@ -4270,7 +4315,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       let envelope = ''; try { envelope = await file.text(); } catch (_) {}
       const r = envelope ? await Harness.skillExchangeImport(envelope) : { ok: false, error: 'That file could not be read.' };
       importer.value = '';
-      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, agentId);
+      if (r && r.ok && r.preview) renderSkillExchangePreview(host, r.preview, shownAgent());
       else host.innerHTML = '<div class="sk-exchange-note bad">' + esc((r && r.error) || 'That package could not be inspected.') + '</div>';
     });
     const registryUrl = $('#sk-registry-url'), registryQuery = $('#sk-registry-query'), registryButton = $('#sk-registry-search'), registryResults = $('#sk-registry-results');
@@ -4311,6 +4356,33 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   let skillPanelLoad = 0;
+  // ORG P21: skillsPick = a ONE-SHOT request from a dossier's SKILLS row (consumed when the lane builds);
+  // skillsShown = the agent the open ABILITIES skills lane shows, tied to that window instance so a fresh open never
+  // inherits an old pick. skillsAgentId() is what every skills action reads at click time.
+  let skillsPick = null;
+  let skillsShown = null;
+  let skillLibLoad = 0, skillMarketLoad = 0;
+  function skillsAgentId() {
+    const id = skillsShown && skillsShown.win === open.connectors && present.some(x => x && x.id === skillsShown.id) ? skillsShown.id : null;
+    return id || (present[sel] && present[sel].id) || 'agent';
+  }
+  function skillsIntro(a) {
+    const n = '<b>' + esc((a && (a.name || a.id)) || 'this agent') + '</b>';
+    return 'Reusable procedures ' + n + ' created or learned. These appear as a compact index in ' + n + '’s future runs; it loads the full body only when a task matches.';
+  }
+  // ORG P21: open SETTINGS › LOOK & SOUND with VOICE FOR already on this agent (the existing picker, preselected)
+  function openVoiceFor(agentId) {
+    openTerm('settings', 'appearance');
+    const land = () => {
+      const w = open.settings; const pick = w && w.querySelector('#set-lv-agent');
+      if (!pick) return false;
+      if (Array.from(pick.options).some(o => o.value === agentId)) { pick.value = agentId; if (typeof pick.onchange === 'function') pick.onchange(); }
+      try { pick.scrollIntoView({ block: 'center' }); } catch (_) { /* older engines: the section is already showing */ }
+      pick.focus({ preventScroll: true });
+      return true;
+    };
+    requestAnimationFrame(() => { if (!land()) setTimeout(land, 120); });
+  }
   async function skillReviewPost(action, body, opts) {
     const r = await Harness.api.post('/api/agent-skills/' + action, body, { timeoutMs: (opts && opts.timeoutMs > 0) ? opts.timeoutMs : action === 'evaluate-candidate' ? 180000 : 60000 });
     if (!r.ok || !r.j || !r.j.ok) throw new Error((r.j && r.j.error) || 'The station refused this change.');
@@ -4666,7 +4738,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      TO DO -> IN PROGRESS the instant a real run fires (Workstreams.appendRun); SHIPPED is only ever a
      deliberate human turn-in (the ✓ SHIP button). The General chat home isn't a project, so it shows
      in the rail but never on this board. App owns persistence + the rail; we drive both via sync(). */
-  const COLS = [['todo', 'TO DO'], ['active', 'IN PROGRESS / REVIEW'], ['shipped', 'COMPLETED']];
+  const COLS = [['todo', 'TO DO'], ['active', 'IN PROGRESS'], ['shipped', 'COMPLETED']];
   const WS = () => (typeof Workstreams === 'object' && Workstreams) ? Workstreams : null;
   function boardStreams() {
     const w = WS(); if (!w) return [];
@@ -4800,7 +4872,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // chat.js's in-band error branch. null (no outcome recorded — legacy save / delegated run) keeps
       // the DONE chip: we only claim FAILED when the failure is provable, never by inference.
       if (s.lastRunOk === false) return '<div class="kb-state failed">✗ RUN FAILED — REVIEW</div>';
-      return '<div class="kb-state done">FINISHED — REVIEW RESULT</div>';
+      return '<div class="kb-state done">FINISHED — RESULT READY</div>';
     }
     return '';
   }
@@ -4814,7 +4886,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const parts = [];
     if (running) parts.push(running + ' RUNNING');
     if (failed) parts.push(failed + ' FAILED');
-    if (ready) parts.push(ready + ' READY TO REVIEW');
+    if (ready) parts.push(ready + ' READY');
     return parts.length ? '<small class="kb-col-state">' + parts.join(' · ') + '</small>' : '';
   }
   // the card's bound-agent chip: the workstream's OWN agent (s.agentId) resolved to a name + color from the live
@@ -4888,7 +4960,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const streams = boardStreams();
     const openMenus = live ? Array.from(body.querySelectorAll('.kb-more[open]')).map(d => d.closest('.kb-card').dataset.id) : [];
     body.innerHTML =
-      '<div class="kb-heading"><header class="kb-header"><h2>Your tasks</h2><p>Plan, start, and review your work.</p></header></div>' +   // OUTBOX / DELIVERABLES are this window's MY WORK tabs now (FAMILIES) — no second pair of doors here
+      '<div class="kb-heading"><header class="kb-header"><h2>TASKS</h2><p>Plan, start, and review your work.</p></header></div>' +   // OUTBOX / DELIVERABLES are this window's MY WORK tabs now (FAMILIES) — no second pair of doors here
       '<div class="kb-add"><input id="kb-in" data-draft aria-label="New task" maxlength="80" placeholder="What would you like to get done?" autocomplete="off">' +
       '<button class="bb sm" id="kb-add">ADD TASK</button></div><p class="kb-add-note">Adding saves your plan. Start sends the task to its agent.</p>' +
       '<div class="kb-cols">' +
@@ -4896,7 +4968,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const items = streams.filter(s => s.lane === lane);
         return '<div class="kb-col"><h4>' + label + ' <i>' + items.length + '</i>' +
           (lane === 'active' ? activeAggregate(items) : '') + '</h4>' +
-          '<p class="kb-lane-note">' + ({todo:'Planned tasks, ready when you are.',active:'Ongoing work and results to review.',shipped:'Tasks you marked complete.'}[lane]) + '</p>' +
+          '<p class="kb-lane-note">' + ({todo:'Planned tasks, ready when you are.',active:'Ongoing work and results to open.',shipped:'Tasks you marked complete.'}[lane]) + '</p>' +
           (items.length ? items.map(card).join('') : kbEmpty(lane)) + '</div>';
       }).join('') +
       '</div>' +
@@ -9992,7 +10064,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         door.appendChild(go); el.appendChild(door);
         addCards(['goals', 'pain', 'ambition'])(el);
       } },
-      { id: 'preferences', label: 'PREFERENCES', glyph: '≡', desc: 'How you like to work, your standing instructions, and your schedule.', build: addCards(['style', 'standing_orders', 'schedule']) },
+      { id: 'preferences', label: 'PREFERENCES', glyph: '≡', desc: 'How you like to work, your standing orders (every agent follows these), and your schedule.', build: addCards(['style', 'standing_orders', 'schedule']) },
       { id: 'briefing', label: 'AGENT BRIEFING', glyph: '▤', desc: 'See the exact profile text included in your agents’ briefing.', build: el => {
         el.appendChild(mkEl('p', 'cd-privacy', 'Your profile is stored locally. Its briefing is sent to each agent’s configured model when it works; relevant summaries may also be used for suggestions.'));
         el.appendChild(cdBriefing(ds));
@@ -10629,7 +10701,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   // The three progression tracks stay deliberately separate:
-  //   AGENT GROWTH = explicit feedback XP (the existing meter below)
+  //   STATION XP = explicit feedback XP, station-wide (stationPrestigeHtml; each agent's own share lives in its dossier's GROWTH)
   //   COMMANDER JOURNEY = real-world goal metrics + verified outcomes
   //   STATION EVOLUTION = expressive history of distinct goals reached, never a capability gate
   function journeyHtml() {
@@ -10856,7 +10928,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (QSS && QSS.sync) { try { QSS.sync(); } catch (_) {} }   // never render a stale diff — the log always reflects the memory it just folded
     const v = (typeof QuestStore !== 'undefined' && QuestStore.view) ? QuestStore.view() : null;
     if (!v) { body.innerHTML = '<p class="dim">Quest log unavailable.</p>'; return; }
-    const m = v.meter, all = Array.isArray(v.quests) ? v.quests : [];
+    const all = Array.isArray(v.quests) ? v.quests : [];
     const qs = (QSS && QSS.visible) ? QSS.visible(all) : all;   // dismissed = gone forever (degrades to the raw list if the store is absent)
     /* THE GOAL ARC IS RENDERED AS A TRACK, NOT AS CARDS. Its header + milestone steps are pulled out of the
        card grid here and drawn by questTrackHtml as one continuous path at the top of the panel. They are
@@ -10968,9 +11040,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         + '<div class="sub">' + esc(q.status === 'done' ? ('▸ ' + q.reward) : q.desc) + '</div>'
         + cwHtml + (q.status === 'done' ? '' : rewardHtml) + attestHtml + declineHtml + actionRow + lifeActions + '</div>';
     };
-    const meterHtml = m
-      ? '<div class="gx-sec"><span class="gx-title">AGENT GROWTH</span> <span class="gx-tag">Lv ' + m.level + ' &middot; ' + m.pct + '% to next</span> <button type="button" class="bb xs" data-open-growth>OPEN IN THE DOSSIER</button></div>'
-      : '';
+    // (org pass 10-14, P28: the 'AGENT GROWTH Lv N' meter that sat here was Xp.compute(stationStats) — the SAME number as
+    // STATION XP above it, under a second, false name. It is gone; each agent's own growth stays in its dossier's GROWTH.)
     // G4 feature 2 — PROPOSALS: pending autojob proposals the agent pinned to the MISSION BOARD. A distinct
     // amber card with APPROVE (→ the real POST /api/cron) / DECLINE (→ dropped forever). Rendered above OPEN so
     // the "the agent wants to run this for you" ask reads first. Only shown when the ledger has cards.
@@ -10989,9 +11060,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       : '';
     const milestoneDone = milestones.filter(q => q.status === 'done').length;
     const milestonesHtml = milestones.length
-      ? '<details class="q-milestones q-progress-section"><summary><span>Station milestones</span><span class="q-section-count">' + milestoneDone + ' / ' + milestones.length + '</span></summary>'
-        + '<div class="q-section-body"><div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div>'
-        + '<p class="q-trophy-door"><button type="button" class="bb xs" data-open-trophies>OPEN THE TROPHY CASE</button></p></div></details>'
+      // folded, with the TROPHY CASE door on the summary row itself so it is reachable without unfolding (org pass 10-14, P28)
+      ? '<details class="q-milestones q-progress-section"><summary><span>MILESTONES</span><span class="q-section-count">' + milestoneDone + ' / ' + milestones.length + '</span>'
+        + '<button type="button" class="bb xs q-trophy-door" data-open-trophies>OPEN THE TROPHY CASE ▸</button></summary>'
+        + '<div class="q-section-body"><div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div></div></details>'
       : '';
     // Selection is presentation state only. Keep it on the stable window body across background data pokes;
     // if a selected quest completes/disappears, fall back to the first remaining quest in this category.
@@ -11025,10 +11097,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         + (open.length ? 'Choose another category to find your next action.' : 'Set a direction or refresh your quests when you are ready for what comes next.') + '</p></div>')
       + '</section></div>';
     const questViews = [
-      ['available', 'Now', 'Your next move, open work, and station quests.'],
-      ['goals', 'Goals', 'Define what you want to achieve long term, then choose a goal to focus on. Its plan breaks the goal into smaller steps.'],
-      ['progress', 'Progress', 'Your recorded progress across all goals: planned steps, tracked metrics, and earned achievements.'],
-      ['completed', 'History', 'Your goals, results, reflections, and changes of direction.']
+      ['available', 'NOW', 'Your next move, open work, and station quests.'],
+      ['goals', 'GOALS', 'Define what you want to achieve long term, then choose a goal to focus on. Its plan breaks the goal into smaller steps.'],
+      ['progress', 'PROGRESS', 'Your recorded progress across all goals: planned steps, tracked metrics, and earned achievements.'],
+      ['completed', 'HISTORY', 'Your goals, results, reflections, and changes of direction.']
     ];
     body.classList.add('quests-content');
     body.innerHTML = '<div class="gx gx-quests">'
@@ -11045,7 +11117,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       + '</section><section id="q-view-goals" class="q-view-panel q-journal-planning" role="tabpanel" aria-labelledby="q-tab-goals">'
       + questTrackHtml(arcs) + lifeGoalsHtml() + '<details class="q-refresh-options"><summary>Quest suggestions <span class="q-section-note">Direction &amp; refresh</span></summary>' + questRefreshHtml() + '</details>'
       + '</section><section id="q-view-progress" class="q-view-panel q-journal-progress" role="tabpanel" aria-labelledby="q-tab-progress">'
-      + systemsHtml() + journeyHtml() + stationPrestigeHtml() + milestonesHtml + meterHtml
+      + systemsHtml() + journeyHtml() + stationPrestigeHtml() + milestonesHtml
       + '</section><section id="q-view-completed" class="q-view-panel q-journal-history" role="tabpanel" aria-labelledby="q-tab-completed">'
       + journeyChaptersHtml() + '<div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<div class="q-journal-empty"><h3>No completed quests yet</h3><p>Finished quests and their results will appear here.</p></div>') + '</div></section></div>';
     // Stable field identities keep a background refresh from transplanting a draft into another chapter.
@@ -11595,6 +11667,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // live core state (read-only views — never reassign through these)
     get present() { return present; },
     get sel() { return sel; },
+    skillsAgentId,   // ORG P21: the agent the ABILITIES skills lane shows — the BUILT-IN ABILITIES picker opens on the same one
     get deskAgentId() { return deskAgentId; },
     get store() { return store; }
   };
@@ -11623,14 +11696,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const k = b.dataset.term, def = BUILDERS[k];
         if (def) toggleTerm(k, def[0], def[1], def[2]);
       }));
-    // ONE PROGRESS HOME doors: an agent's GROWTH points at the station's progress, the station's progress at an agent's
-    // GROWTH and at the TROPHY CASE (until now reachable only by clicking its prop on the floor)
+    // ONE PROGRESS HOME doors: an agent's GROWTH points at the station's progress, the station's progress at the TROPHY CASE
+    // (until now reachable only by clicking its prop on the floor). The TROPHY CASE door rides a <summary>: its click must
+    // not also fold the milestones.
     document.addEventListener('click', ev => {
-      const b = ev.target && ev.target.closest && ev.target.closest('[data-open-progress],[data-open-growth],[data-open-trophies]');
+      const b = ev.target && ev.target.closest && ev.target.closest('[data-open-progress],[data-open-trophies]');
       if (!b || !b.closest('#terms')) return;
+      if (b.closest('summary')) ev.preventDefault();
       sfx('click');
       if (b.hasAttribute('data-open-progress')) openTerm('quests', 'progress');
-      else if (b.hasAttribute('data-open-growth')) openTerm('agents', 'growth');
       else openTerm('trophies');
     });
     // ONE MENU dock buttons (MY WORK / AUTOMATE / CONNECT): open the menu's last-used tab

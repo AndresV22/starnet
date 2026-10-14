@@ -139,10 +139,12 @@ body {
 /* the row whose sessions the rail is showing: a solid edge bar (an edge, never a glow) */
 #crew:has(.crew-row.filtering) .crew-row.selected:not(.filtering):not(:hover) { border-color: transparent; border-bottom-color: rgba(var(--ph-rgb), .08); background: none; box-shadow: none; }
 #crew .crew-row.filtering { border-color: var(--ph-dim); background: var(--ui-face); box-shadow: inset 3px 0 0 var(--ph), inset 0 1px 0 var(--ui-highlight); }
-/* the dossier key: one step from every row, out of the way until the row is pointed at */
-#crew .crew-dossier { position: absolute; bottom: 8px; right: 7px; padding: 2px 6px; font: 12px 'VT323',monospace; letter-spacing: .8px; color: var(--ph-dim); background: rgba(0,0,0,.28); border: 1px solid var(--ui-edge); border-radius: 3px; cursor: pointer; opacity: 0; transition: opacity var(--t-fast) var(--ease-soft); }
-#crew .crew-row:is(:hover,:focus-within,.filtering) .crew-dossier { opacity: 1; }
+/* the dossier key: one step from every row at every crew size, ALWAYS shown (org P20 — a hover-only key is out of reach
+   on touch, and the day-one door must not vanish after the first recruit). A real key, not a faint chip. */
+#crew .crew-dossier { position: absolute; bottom: 8px; right: 7px; padding: 3px 7px; font: 14px/1 'VT323',monospace; letter-spacing: .8px; color: var(--ph); background: rgba(0,0,0,.32); border: 1px solid var(--ui-edge); border-radius: 4px; cursor: pointer; transition: color var(--t-fast) var(--ease-soft), border-color var(--t-fast) var(--ease-soft); }
 #crew .crew-dossier:is(:hover,:focus-visible) { color: var(--ph-bright); border-color: var(--ph); }
+/* the status line never runs under the key */
+#crew .crew-row:has(.crew-dossier) :is(.crew-status, .crew-step) { padding-right: 66px; }
 #crew .crew-portrait { width: 35px; height: 43px; }
 #crew .crew-portrait img { width: 27px; height: 33px; object-fit: contain; image-rendering: pixelated; }
 /* SKIN THUMB (AgentPortraits.thumbHTML) — an agent shown by its body wherever a letter used to stand in. The image is
@@ -226,6 +228,16 @@ body:not(.rows-inbox) #workstreams .ws-row.attn > .ws-kebab { grid-area: menu; }
 .ab-router { padding: 0; border-color: var(--ui-edge); background: var(--ui-face); }
 .ab-router-grid { padding: 0 12px 12px; }
 .ab-router-grid .ab-route { padding: 12px; }
+/* ORG P21: the agent pickers on ABILITIES (BUILT-IN ABILITIES' #ts-agent, AGENT SKILLS' #sk-agent-pick) are glass fields,
+   the settings-console field recipe — never the OS select or the old key-input strip */
+select.ab-agent-pick {
+  box-sizing: border-box; display: block; width: 100%; max-width: 360px; margin: 4px 0 10px; appearance: none; -webkit-appearance: none;
+  border: 1px solid rgba(var(--ph-rgb), .25); border-radius: 8px; padding: 9px 32px 9px 12px; font: inherit; font-size: 15px; color: var(--text);
+  background-color: rgba(0,0,0,.2); box-shadow: inset 0 1px 0 rgba(var(--ph-rgb), .04); cursor: pointer;
+  background-image: linear-gradient(45deg,transparent 50%,var(--ph) 50%),linear-gradient(135deg,var(--ph) 50%,transparent 50%);
+  background-position: calc(100% - 17px) 50%,calc(100% - 12px) 50%; background-size: 5px 5px; background-repeat: no-repeat;
+}
+select.ab-agent-pick:is(:hover,:focus-visible) { border-color: rgba(var(--ph-rgb), .55); outline: none; }
 .ability-readout { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin: 12px 0 8px; }
 .ability-readout > div { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid var(--ui-edge); background: var(--panel); box-shadow: var(--ui-well); }
 .ability-readout b { color: var(--ph-bright); font: 29px 'VT323', monospace; }
