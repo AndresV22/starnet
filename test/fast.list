@@ -624,6 +624,7 @@ test/away-briefing.test.js
 test/briefing-frontend.test.js
 test/briefing-presence.test.js
 test/nav-coach-dismiss.test.js
+test/credits-read-once.test.js
 test/outbox-window.test.js
 test/declutter-strips.test.js
 test/declutter-recovery.test.js
