@@ -2887,9 +2887,9 @@ const Chat = (() => {
     // disclosure state from the thing it can activate.
     const btn = chip.querySelector('.tc-head'); if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
-  // render a tool CALL as a chip; returns the chip element. ev: { callId, name, argsSummary }
-  function toolChip(ev) {
-    const rail = ensureToolRail();
+  // the chip's DOM for one tool CALL: head (glyph · name · short args · stat · chevron) + its expandable detail. Shared by the
+  // live one-on-one rail (toolChip) and a transcript this file does not own (toolRailOf — the group chat).
+  function chipNode(ev) {
     const flav = skillFlavor(ev);   // A1: skill.* tools re-labelled in the agent's voice
     const chip = document.createElement('div'); chip.className = 'tool-chip pending' + (flav ? ' skill' : '');
     const head = document.createElement('button'); head.type = 'button'; head.className = 'tc-head';
@@ -2900,19 +2900,6 @@ const Chat = (() => {
     // expand detail only (kept below) — the chip head is clean.
     const args = document.createElement('span'); args.className = 'tc-args'; args.textContent = flav ? '' : argDigest(ev.argsSummary);
     const stat = document.createElement('span'); stat.className = 'tc-stat'; stat.textContent = '';   // filled by resolveChip
-    if (/^browser\./.test(ev.name || '') && ev.runId) {
-      stat.setAttribute('aria-live', 'polite');
-      const checkWait = async () => {
-        if (!chip.isConnected || !chip.classList.contains('pending')) return;
-        try {
-          const j = await Harness.api.get('/api/connectors');
-          if (!chip.isConnected || !chip.classList.contains('pending')) return;
-          stat.textContent = (j.browserSession?.waitingRunIds || []).includes(ev.runId) ? 'Waiting for browser session…' : '';
-        } catch (_) { if (chip.classList.contains('pending')) stat.textContent = ''; }
-        if (chip.isConnected && chip.classList.contains('pending')) setTimeout(checkWait, 1000);
-      };
-      setTimeout(checkWait, 500);
-    }
     const exp = document.createElement('span'); exp.className = 'tc-exp'; exp.setAttribute('aria-hidden', 'true'); exp.textContent = '▸';   // disclosure chevron (rotates when open)
     head.appendChild(glyph); head.appendChild(nm); if (args.textContent) head.appendChild(args); head.appendChild(stat); head.appendChild(exp);
     const detail = document.createElement('div'); detail.className = 'tc-detail';
@@ -2926,19 +2913,33 @@ const Chat = (() => {
       : '(no arguments)';
     detail.appendChild(dArgs);
     chip.appendChild(head); chip.appendChild(detail);
+    return chip;
+  }
+  // render a tool CALL as a chip; returns the chip element. ev: { callId, name, argsSummary }
+  function toolChip(ev) {
+    const rail = ensureToolRail();
+    const chip = chipNode(ev);
+    const stat = chip.querySelector('.tc-stat');
+    if (/^browser\./.test(ev.name || '') && ev.runId) {
+      stat.setAttribute('aria-live', 'polite');
+      const checkWait = async () => {
+        if (!chip.isConnected || !chip.classList.contains('pending')) return;
+        try {
+          const j = await Harness.api.get('/api/connectors');
+          if (!chip.isConnected || !chip.classList.contains('pending')) return;
+          stat.textContent = (j.browserSession?.waitingRunIds || []).includes(ev.runId) ? 'Waiting for browser session…' : '';
+        } catch (_) { if (chip.classList.contains('pending')) stat.textContent = ''; }
+        if (chip.isConnected && chip.classList.contains('pending')) setTimeout(checkWait, 1000);
+      };
+      setTimeout(checkWait, 500);
+    }
     rail.appendChild(chip);
     if (ev.callId != null) { pendingChips.set(ev.callId, chip); if (pendingChips.size > 200) pendingChips.delete(pendingChips.keys().next().value); }
     autoscroll();
     return chip;
   }
-  // fold a tool RESULT into its paired chip (✓/✗ + duration + result summary). ev: { callId, summary, isError, ms }
-  function resolveChip(ev, fallbackName) {
-    let chip = (ev.callId != null) ? pendingChips.get(ev.callId) : null;
-    if (chip) pendingChips.delete(ev.callId);
-    if (!chip) {
-      // ORPHAN result (no paired call — e.g. switched-to mid-run): render a standalone resolved chip
-      chip = toolChip({ callId: null, name: fallbackName || 'tool', argsSummary: '' });
-    }
+  // fold a tool RESULT into a chip (✓/✗ + duration + result summary). ev: { summary, isError, ms }
+  function foldChipResult(chip, ev) {
     chip.classList.remove('pending');
     // A call the Task Brief gate HELD did not run and did not fail: the model settles the brief and makes it again (a new
     // chip). Neutral, never the red ✗ "failed" an error draws (rc walk 2026-10-14) — and never a ✓ either.
@@ -2953,8 +2954,33 @@ const Chat = (() => {
       dRes.textContent = heldCall ? cap(ev.summary) : (ev.isError ? '✗ ' : '✓ ') + cap(ev.summary || (ev.isError ? 'error' : 'ok'));
       detail.appendChild(dRes);
     }
+    return chip;
+  }
+  // fold a tool RESULT into its paired chip. ev: { callId, summary, isError, ms }
+  function resolveChip(ev, fallbackName) {
+    let chip = (ev.callId != null) ? pendingChips.get(ev.callId) : null;
+    if (chip) pendingChips.delete(ev.callId);
+    if (!chip) {
+      // ORPHAN result (no paired call — e.g. switched-to mid-run): render a standalone resolved chip
+      chip = toolChip({ callId: null, name: fallbackName || 'tool', argsSummary: '' });
+    }
+    foldChipResult(chip, ev);
     autoscroll();
     return chip;
+  }
+  /* THE SAME CHIPS IN THE GROUP CHAT (rc walk 2026-10-14: a group transcript showed none of the lead's calls). One rail of
+     a reply's tool calls — steps: [{ name, args, done, isError, summary, ms }] — built exactly like the one-on-one rail.
+     #gc-log has no delegated chip handler, so each head toggles its own detail. */
+  function toolRailOf(steps) {
+    const rail = document.createElement('div'); rail.className = 'tool-rail';
+    for (const s of (Array.isArray(steps) ? steps : [])) {
+      const chip = chipNode({ name: s && s.name, argsSummary: (s && s.args) || '' });
+      if (s && s.done) foldChipResult(chip, { isError: !!s.isError, summary: s.summary || '', ms: s.ms || 0 });
+      const head = chip.querySelector('.tc-head');
+      if (head) head.addEventListener('click', () => toggleChip(head));
+      rail.appendChild(chip);
+    }
+    return rail;
   }
   // a clickable COMMS row for a file the agent produced — opens it via the sidecar's jailed /api/file route
   function fileBlobUrl(title, agentId) {
@@ -10741,5 +10767,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
+  return { init, load, deliverTurns, send, consentInspect, appendConsentDetails, revealHistory, revealAsk, copyText, continuityDiagnostics, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, toolRailOf, openFile, answerConsent, consentPhrase: actionPhrase, reconcileBackgroundAsks, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, isComposerEngaged, canFocusSession, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk, clockLabel: fmtClock, breakLabel: fmtBreak, workspaceFileRefs, imageBlobUrl };
 })();

@@ -35,8 +35,9 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   A.ok(gate && /isError: true/.test(gate[0]), 'the result stays an error for the model (the call really did not run)');
 
   const chat = read('frontend/app/chat.js');
-  const rc = /function resolveChip\(ev, fallbackName\) \{[\s\S]*?\n  \}/.exec(chat);
-  A.ok(rc && /TaskIntent\.isGateHeld\(ev\)/.test(rc[0]), 'resolveChip reads the held stamp');
+  const rc = /function foldChipResult\(chip, ev\) \{[\s\S]*?\n  \}/.exec(chat);
+  A.ok(rc && /TaskIntent\.isGateHeld\(ev\)/.test(rc[0]), 'the chip result fold (live rail and group rail) reads the held stamp');
+  A.ok(/function resolveChip\(ev, fallbackName\) \{[\s\S]{0,500}foldChipResult\(chip, ev\);/.test(chat), 'the live rail folds results through it');
   A.ok(rc && /classList\.add\(heldCall \? 'held' : ev\.isError \? 'err' : 'ok'\)/.test(rc[0]), 'a held call draws the neutral .held chip, never .err');
   A.ok(rc && /heldCall \? 'not run yet'/.test(rc[0]) && !/heldCall \? '✗'/.test(rc[0]), 'its stat reads "not run yet", never ✗ failed');
   A.ok(/U\.bus\.emit\('agent\.tool_result', \{[^\n]*held: !!\(typeof TaskIntent !== 'undefined' && TaskIntent\.isGateHeld && TaskIntent\.isGateHeld\(ev\)\)/.test(chat), 'the bus copy carries held for the world');
@@ -98,4 +99,56 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
   A.ok(/num\.textContent = '✎';/.test(read('frontend/app/dialogue.js')), 'Dialogue draws the ✎ for every custom key');
 }
 
-A.report('comms-render-seams.test');
+/* ---------- D. the group transcript keeps the spaces between streamed turns and shows the lead's tool chips ---------- */
+(async () => {
+  const os = require('os');
+  const { makeGroupSessions } = require('../sidecar/group-sessions.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'group-flow-'));
+  let seq = 0, gate = null, snapshot = null;
+  const api = makeGroupSessions({ fs, path, root, now: () => ++seq, id: () => 'id' + (++seq), log: () => {},
+    roster: () => [{ id: 'agent', name: 'Lead' }, { id: 'copy', name: 'Copy' }],
+    readFile: async () => null, decodeFile: () => null, uploadFile: (n, c) => ({ name: n, content: c, hash: 'h' }),
+    execute: async o => {
+      o.emit('agent.run.start', { runId: o.runId });
+      o.emit('agent.token', { runId: o.runId, delta: 'Let me configure it:' });
+      o.emit('agent.tool_call', { runId: o.runId, callId: 'c1', name: 'loop.create', argsSummary: '{"title":"draft then review"}' });
+      o.emit('agent.tool_result', { runId: o.runId, callId: 'c1', ok: false, isError: true, summary: TaskIntent.GATE_HELD, ms: 0 });
+      o.emit('agent.token', { runId: o.runId, delta: 'The steps are locked.' });
+      o.emit('agent.tool_call', { runId: o.runId, callId: 'c2', name: 'loop.create', argsSummary: '{"title":"draft then review"}' });
+      await new Promise(r => { gate = r; });   // hold mid-run so the DRAFT can be read
+      o.emit('agent.tool_result', { runId: o.runId, callId: 'c2', ok: true, isError: false, summary: 'created', ms: 120 });
+      o.emit('agent.token', { runId: o.runId, delta: 'Done — the line is set.' });
+      return { reason: 'done', messages: [{ role: 'assistant', content: 'Done — the line is set.' }] };
+    } });
+  try {
+    await api.ready;
+    const g = await api.create({ members: ['agent', 'copy'] });
+    await api.send(g.id, { key: 'k1', text: 'set up a conveyor line' });
+    for (let n = 0; n < 200 && !gate; n++) await new Promise(r => setTimeout(r, 5));
+    snapshot = await api.get(g.id);
+    const dt = snapshot.turns.find(t => t.draft);
+    A.ok(dt, 'a running reply exposes its draft');
+    A.eq(dt.draft, 'Let me configure it:\n\nThe steps are locked.', 'the draft breaks the paragraph where a tool call cut it (no "it:The")');
+    A.eq(dt.draftSteps.map(s => [s.at, s.name, s.done]), [[20, 'loop.create', true], [43, 'loop.create', false]], 'the draft carries each call at its place in the prose');
+    gate();
+    await api.idle(g.id);
+    const done = await api.get(g.id);
+    const m = done.messages.find(x => x.author === 'agent');
+    A.eq(m.content, 'Done — the line is set.', 'the message content stays the final answer (what peers read and copy)');
+    A.ok(m.flow && m.flow.text === 'Let me configure it:\n\nThe steps are locked.\n\nDone — the line is set.', 'the saved flow keeps every streamed sentence, spaced: ' + JSON.stringify(m.flow && m.flow.text));
+    A.eq(m.flow.steps.map(s => [s.at, s.done, s.isError, s.summary]), [[20, true, true, TaskIntent.GATE_HELD], [43, true, false, 'created']], 'and every call with its outcome (the held one stays recognisable as held)');
+  } finally { try { await api.close && api.close(); } catch (_) {} }
+
+  const gc = read('frontend/app/group-chat.js');
+  A.ok(/function renderFlow\(body, text, steps, files, clean, live\)/.test(gc), 'the group transcript draws a reply flow');
+  A.ok(/body\.append\(Chat\.toolRailOf\(batch\)\)/.test(gc), 'with the one-on-one chips (Chat.toolRailOf)');
+  A.ok(/m\.flow && Array\.isArray\(m\.flow\.steps\) && m\.flow\.steps\.length[\s\S]{0,120}renderFlow\(body, m\.flow\.text, m\.flow\.steps/.test(gc), 'a finished reply with calls renders its flow');
+  A.ok(/renderFlow\(n\._gcBody, t\.draft \|\| '', t\.draftSteps \|\| \[\]/.test(gc) && !/n\._gcBody\.textContent = t\.draft/.test(gc), 'a streaming draft renders its flow (markdown + chips), never raw textContent');
+  A.ok(/Fork\.liveText\(s\)/.test(gc), 'a draft never shows a choice marker being typed');
+  const chat = read('frontend/app/chat.js');
+  A.ok(/function toolRailOf\(steps\)[\s\S]{0,700}chipNode\([\s\S]{0,300}foldChipResult\(chip/.test(chat), 'toolRailOf builds the same chip DOM and folds the same result (held stays neutral)');
+  A.ok(/head\.addEventListener\('click', \(\) => toggleChip\(head\)\)/.test(chat), 'a group chip toggles its own detail (#gc-log has no delegated handler)');
+  A.ok(/renderProse, toolRailOf, openFile/.test(chat), 'Chat exports toolRailOf');
+
+  A.report('comms-render-seams.test');
+})().catch(e => { console.error(e); process.exit(1); });
