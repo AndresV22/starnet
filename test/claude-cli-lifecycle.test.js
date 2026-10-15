@@ -249,9 +249,12 @@ const msgs = () => [{ role: 'system', content: 'Lifecycle fixture' }, { role: 'u
       'const p = makeClaudeCliProvider({ spawn, bin: "mock-cli", env: { PATH: "" }, platform: "linux", persistEndGraceMs: 30 });',
       'const tools = [{ type: "function", function: { name: "read", parameters: { type: "object", properties: { path: { type: "string" } } } } }];',
       '(async () => {',
-      '  for await (const e of p.stream({ model: "sonnet", tools, runId: "exit-run", messages: [{ role: "system", content: "EXIT_HOOK_PROMPT" }, { role: "user", content: "go" }] })) void e;',
       '  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");',
-      '  const files = fs.readdirSync(os.tmpdir()).filter(f => f.startsWith("starnet-claude-cli-" + process.pid + "-s"));',
+      // a hard-killed process that once had this pid can have left a file with the same prefix: only this run's count
+      '  const mine = () => fs.readdirSync(os.tmpdir()).filter(f => f.startsWith("starnet-claude-cli-" + process.pid + "-s"));',
+      '  const before = new Set(mine());',
+      '  for await (const e of p.stream({ model: "sonnet", tools, runId: "exit-run", messages: [{ role: "system", content: "EXIT_HOOK_PROMPT" }, { role: "user", content: "go" }] })) void e;',
+      '  const files = mine().filter(f => !before.has(f));',
       '  console.log("PARKED " + JSON.stringify(files) + " " + p.persistStats().reusable);',
       '  process.exit(0);',
       '})();'
