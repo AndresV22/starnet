@@ -11843,30 +11843,47 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      prov-oauth-signin flow a click starts; on a card that shows no such key (a sign-in still listed as connected) it
      starts that same card flow itself (startCardSignin), so a RECONNECT door always reconnects.
      The section can paint a beat after openTerm, so the card is looked up again for up to ~3s; a repaint that replaces
-     the landed card re-lands on the new one until the Commander takes over the window (or ~20s). */
+     the landed card re-lands on the new one until the Commander takes over the window (or ~20s).
+     ONE LIVE LANDING (org P03 review): a newer door ends the older landing before it opens anything. The newer door's
+     openTerm repaints Settings, which replaces the older card, and the older stay() loop read that as "a repaint took my
+     card" and landed the pane back on the card the Commander had NOT just asked for (two cards marked). */
+  let provLanding = null;   // the landing in flight ({ end }); focusProvider ends it before starting its own
   function focusProvider(pid, opts) {
     const o = opts || {};
     const id = String(pid || '').replace(/[^a-z0-9_-]/gi, '');
+    if (provLanding) { const prev = provLanding; provLanding = null; prev.end(); }
     openTerm('settings', 'providers');
     if (!id) return;
     // the landing holds until the Commander takes over the window (pointer, wheel, key) or ~20s pass: a first-open probe
     // can repaint Settings up to its 15s credential check + the model-list fetch after the door opened it (org P03 wiring;
     // a 4s window let a slow probe drop the view off the card). scheduleSettingsRepaint keeps the scroll; this re-marks.
-    let tries = 0, pressed = false, touched = false, watched = null;
+    let tries = 0, pressed = false, touched = false, watched = null, marked = null;
     const until = Date.now() + 20000;
     const TAKE_OVER = ['pointerdown', 'wheel', 'keydown'];
-    const touch = () => { touched = true; if (watched) TAKE_OVER.forEach(t => watched.removeEventListener(t, touch, true)); watched = null; };
+    const me = {};
+    const touch = () => { touched = true; if (watched) TAKE_OVER.forEach(t => watched.removeEventListener(t, touch, true)); watched = null; if (provLanding === me) provLanding = null; };
+    // superseded by a newer door: stop, and take this landing's mark off its card (one marked card, the newest)
+    me.end = () => { touch(); if (marked) marked.classList.remove('prov-landed'); marked = null; };
+    provLanding = me;
+    // a click/scroll/key in Settings ends the landing from the moment the door opens it, even before the card has painted
+    const watch = w => {
+      if (touched || !w || watched === w) return;
+      if (watched) TAKE_OVER.forEach(t => watched.removeEventListener(t, touch, true));
+      watched = w; TAKE_OVER.forEach(t => w.addEventListener(t, touch, true));
+    };
+    watch(open.settings);
     const land = () => {
+      if (touched) return;   // a pending retry of a landing that was taken over or superseded never lands
       const w = open.settings;
       const card = w && w.querySelector('.prov-card[data-provider="' + id + '"]');
       if (!card) { if (++tries < 12) setTimeout(land, 250); return; }
-      if (!watched && !touched) { watched = w; TAKE_OVER.forEach(t => w.addEventListener(t, touch, true)); }
+      watch(w);
       const pane = card.closest('.con-pane');
       // a quarter-pane lift, not flush to the top: the cards above stay in view, so the landing reads as a place in
       // AI & MODELS rather than a lone card with no context
       if (pane) pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - Math.min(120, Math.round(pane.clientHeight * 0.25)));
       // the mark stays until the Commander touches the window (or ~8s): a 2.4s flash was gone before the card was read
-      card.classList.add('prov-landed');
+      card.classList.add('prov-landed'); marked = card;
       const unmark = () => { card.classList.remove('prov-landed'); w.removeEventListener('pointerdown', unmark, true); };
       w.addEventListener('pointerdown', unmark, true);
       setTimeout(unmark, 8000);

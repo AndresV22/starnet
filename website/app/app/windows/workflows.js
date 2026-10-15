@@ -1007,8 +1007,17 @@ const WorkflowsWindow = (() => {
       return { key: l.key, name: l.name, dockId: d && d.agentId ? entry : null, agentId: d && d.agentId ? d.agentId : null, ready: !!(l.ready && l.ready.ready) };
     });
   }
-  // ReturnStore's nudge when a crate this window may be showing a rate control for is rated elsewhere (no-op while closed)
-  const refresh = () => { if (alive()) schedule(); };
+  // ReturnStore's nudge when a crate this window may be showing a rate control for is rated elsewhere (no-op while closed). Given the
+  // rated run ids it repaints ONLY when the delivered result shows the rate control for one of them (org P14 review): paint() rebuilds
+  // the body, which shuts every open <details> drawer, and alive() stays true while the window is minimized.
+  const refresh = runIds => {
+    if (!alive()) return;
+    if (runIds != null) {
+      const host = body.querySelector('.wfw-rate[data-rate-for]'), ids = [].concat(runIds).map(String);
+      if (!host || ids.indexOf(String(host.getAttribute('data-rate-for'))) < 0) return;
+    }
+    schedule();
+  };
   return { open, refresh, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob, startLines,
     _state: S, _floor: floor, _lineWord: lineWord, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, _resultHTML: resultHTML, _startsText: startsText, _newHTML: newHTML, EX_HEAD };   // (the _ seams are test/eval reads)
 })();
