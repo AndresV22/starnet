@@ -7,8 +7,8 @@
    parked the station in a degraded hold.
 
    This module reads the OS's own record of when a PID's CURRENT process was created:
-     win32  — [System.Diagnostics.Process]::GetProcessById(pid).StartTime.ToFileTimeUtc(): the kernel creation
-              FILETIME, fixed at creation. .NET's local-time round trip keeps the DST-ambiguous hour exact.
+     win32  — (Get-Process -Id pid).StartTime.ToFileTimeUtc(): the kernel creation FILETIME, fixed at creation.
+              .NET's local-time round trip keeps the DST-ambiguous hour exact (checked on Windows PowerShell 5.1).
      darwin — `ps -o lstart= -o comm= -p <pid>` under TZ=UTC / LC_ALL=C: XNU's p_start, a wall-clock time set at
               fork and never re-derived. Second precision (truncated, so it can only read EARLIER, never later).
      linux  — /proc/<pid>/stat field 22: start time in clock ticks since boot. Linux re-derives wall-clock start
@@ -91,9 +91,12 @@ function makeProcessIdentity(deps) {
   function probeWin32(pid) {
     const root = String(env.SystemRoot || env.SYSTEMROOT || 'C:\\Windows');
     const exe = root + '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
-    // pid is a validated integer, the only value interpolated into the script.
-    const script = "$ErrorActionPreference='Stop'; $p = [System.Diagnostics.Process]::GetProcessById(" + pid + "); "
-      + "$e = ''; try { $e = [string]$p.MainModule.FileName } catch { $e = '' }; "
+    // pid is a validated integer, the only value interpolated into the script. Get-Process (not a static .NET
+    // call) so the probe also runs under PowerShell's Constrained Language Mode; StartTime is null when the
+    // process is not ours to query (protected/elevated), which is an unknown identity, never a guess.
+    const script = "$ErrorActionPreference='Stop'; $p = Get-Process -Id " + pid + "; "
+      + "if ($null -eq $p.StartTime) { throw 'start time unavailable' }; "
+      + "$e = ''; try { $e = [string]$p.Path } catch { $e = '' }; "
       + "[string]$p.StartTime.ToFileTimeUtc() + '|' + $e";
     const out = run(exe, ['-NoProfile', '-NonInteractive', '-Command', script]);
     if (!out.ok) return out;
@@ -102,7 +105,7 @@ function makeProcessIdentity(deps) {
   }
 
   function probeDarwin(pid) {
-    const out = run('ps', ['-o', 'lstart=', '-o', 'comm=', '-p', String(pid)],
+    const out = run('/bin/ps', ['-o', 'lstart=', '-o', 'comm=', '-p', String(pid)],
       { env: require('./child-env.js').stationChildEnv(env, { TZ: 'UTC', LC_ALL: 'C', LANG: 'C' }) });
     if (!out.ok) return out;
     const parsed = parseLstart(out.stdout);

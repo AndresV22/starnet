@@ -275,23 +275,23 @@ try {
   const fakeWin = makeProcessIdentity({ platform: 'win32', env: { SystemRoot: 'C:\\Windows' },
     spawnSync: (file, args, opts) => { winCalls.push({ file, args, opts }); return { status: 0, stdout: '134365335305662822|C:\\Windows\\system32\\cmd.exe\r\n', stderr: '' }; } });
   A.eq(fakeWin.probe(43136), { ok: true, startedAt: 1792059930566, executable: 'C:\\Windows\\system32\\cmd.exe' }, 'win32 probe returns the creation time');
-  A.ok(winCalls[0] && /powershell\.exe$/i.test(winCalls[0].file) && winCalls[0].args.join(' ').includes('GetProcessById(43136)'),
+  A.ok(winCalls[0] && /powershell\.exe$/i.test(winCalls[0].file) && winCalls[0].args.join(' ').includes('Get-Process -Id 43136;'),
     'win32 probe asks Windows PowerShell for exactly that PID');
   A.ok(winCalls[0] && winCalls[0].opts.windowsHide === true && winCalls[0].opts.timeout > 0, 'win32 probe is hidden and time-bounded');
   A.eq(fakeWin.probe('1); Remove-Item C:\\ -Recurse; ('), { ok: false, reason: 'invalid pid' }, 'a non-integer pid is refused before any spawn');
   A.eq(winCalls.length, 1, 'no probe process for a non-integer pid');
   A.eq(fakeWin.self(), null, 'win32 stamps no extra identity (the wall-clock stamp is compared)');
   const failedWin = makeProcessIdentity({ platform: 'win32', env: {},
-    spawnSync: () => ({ status: 1, stdout: '', stderr: 'Exception calling "GetProcessById": Process with an Id of 43136 is not running.\r\nAt line:1' }) });
+    spawnSync: () => ({ status: 1, stdout: '', stderr: 'Get-Process : Cannot find a process with the process identifier 43136.\r\nAt line:1' }) });
   A.eq(failedWin.probe(43136).ok, false, 'a failed win32 probe is unknown, never evidence');
-  A.ok(/not running/.test(failedWin.probe(43136).reason), 'and it carries the first stderr line as the reason');
+  A.ok(/Cannot find a process/.test(failedWin.probe(43136).reason), 'and it carries the first stderr line as the reason');
   const missingPs = makeProcessIdentity({ platform: 'win32', env: {}, spawnSync: () => ({ error: Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }) }) });
   A.eq(missingPs.probe(43136), { ok: false, reason: 'ENOENT' }, 'a missing PowerShell is unknown');
   const macCalls = [];
   const fakeMac = makeProcessIdentity({ platform: 'darwin', env: { PATH: '/usr/bin', STARNET_API_TOKEN: 'secret-token-value' },
     spawnSync: (file, args, opts) => { macCalls.push({ file, args, opts }); return { status: 0, stdout: 'Wed Oct 15 09:01:52 2026 /bin/zsh\n', stderr: '' }; } });
   A.eq(fakeMac.probe(43136), { ok: true, startedAt: Date.UTC(2026, 9, 15, 9, 1, 52), executable: '/bin/zsh' }, 'darwin probe returns the creation time');
-  A.ok(macCalls[0] && macCalls[0].file === 'ps' && macCalls[0].args.join(' ') === '-o lstart= -o comm= -p 43136', 'darwin probe runs ps for exactly that PID');
+  A.ok(macCalls[0] && macCalls[0].file === '/bin/ps' && macCalls[0].args.join(' ') === '-o lstart= -o comm= -p 43136', 'darwin probe runs ps for exactly that PID');
   A.ok(macCalls[0] && macCalls[0].opts.env.TZ === 'UTC' && macCalls[0].opts.env.LC_ALL === 'C', 'darwin probe pins TZ=UTC and the C locale');
   A.ok(macCalls[0] && !('STARNET_API_TOKEN' in macCalls[0].opts.env), 'darwin probe does not hand station secrets to ps');
   const procFiles = { '/proc/43136/stat': '43136 (bash) S ' + Array.from({ length: 18 }, () => '0').join(' ') + ' 912345 1',
