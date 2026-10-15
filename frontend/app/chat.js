@@ -684,13 +684,13 @@ const Chat = (() => {
       return review ? 'review' : 'none';
     }
     recoveryClaims.add(safe.runId);
-    if (announce && isActiveWs(ws)) toolLine('connection restored — safely continuing from the last durable step.');
     let recovery;
     try { recovery = await Harness.prepareAutomaticRecovery(safe); }
     catch (_) { recoveryClaims.delete(safe.runId); return 'unavailable'; }
     // Preparation is durable and idempotent. If focus changed while it was in flight, leave it ready for the
     // next load instead of crossing conversations.
     if (!isActiveWs(ws) || Channels.isBusy(ws.id)) { recoveryClaims.delete(safe.runId); return 'deferred'; }
+    if (announce) toolLine('recovery prepared — requesting continuation from the last durable step.');
     await send(String(safe.userTitle || 'Continue the interrupted task.'), {
       retry: true, recoveryResume: true, recovery
     });
