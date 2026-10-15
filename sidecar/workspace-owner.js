@@ -12,7 +12,20 @@
    the kill(0) probe alone reported "busy" forever — every sidecar spawn exited before listening and the
    desktop sat on STATION DATA UNREACHABLE with no way out (2026-08-22 macOS report). A malformed lock (a
    crash mid-write leaves an empty/torn file) is reclaimable by the same rule when its mtime predates boot.
-   Within one boot, PID reuse can still cause a safe false-busy, never an unsafe double-writer.
+
+   PID REUSE WITHIN ONE BOOT (soak 2026-10-15). kill(0) alone also wedged a same-boot crash: hard-killed holder
+   43136 stamped 08:30:50Z, Windows gave its PID to cmd.exe at 09:01:52Z, and every boot after that exited 73
+   WORKSPACE_BUSY until the crash-loop breaker parked the station degraded. With an injected processIdentity
+   (sidecar/process-identity.js; the host passes it, the factory default stays inert like bootedAt), a live
+   stamped PID is probed for the OS's record of its CURRENT process: a process CREATED more than
+   REUSE_SLACK_MS after the claim was stamped cannot be the process that stamped it (a holder always exists
+   before it writes its claim). A start between REUSE_EXE_SLACK_MS and REUSE_SLACK_MS after the stamp counts
+   only when the executable differs too. On Linux the holder stamps its exact /proc start ticks and the probe
+   compares them for equality. An unreadable identity, an older start, or a start inside the slack stays BUSY:
+   uncertainty is a safe false-busy, never a second writer. The slack absorbs clock adjustment between a
+   holder's creation and its stamp. The residual false-reclaim needs the wall clock stepped BACKWARD by more
+   than the slack inside the second or two between a holder's creation and its own stamp, the same
+   clock-step class the boot rule above already accepts over a far longer window.
 
    Immutable, atomically published generation tickets serialize claims and crash recovery.
    The compatibility claim retains O_EXCL creation and read-back verification; only the elected
@@ -73,12 +86,62 @@ function makeWorkspaceOwner(deps) {
   function lockMtime(lockfile) {
     try { return Number(fs.statSync(lockfile).mtimeMs) || 0; } catch (_) { return 0; }
   }
-  // provably dead: the stamped process predates this boot, or (for a valid stamp) its PID is gone.
-  // A malformed stamp is dead only when the FILE predates boot — otherwise it is unprovable, i.e. busy.
+  // processIdentity: { probe(pid), self() } from sidecar/process-identity.js. OPT-IN exactly like bootedAt: the
+  // factory default is inert, so a test's fake clock is never compared with a real process's creation time.
+  const identity = d.processIdentity && typeof d.processIdentity.probe === 'function' ? d.processIdentity : null;
+  const REUSE_SLACK_MS = 60 * 1000;
+  const REUSE_EXE_SLACK_MS = 2 * 1000;
+  let probed = null;   // pid -> probe result, scoped to one acquire() so a holder is probed at most once per boot
+  let lastIdentity = null;
+  function ownExecutable() {
+    return (typeof process !== 'undefined' && process.execPath) ? String(process.execPath) : '';
+  }
+  function identityStamp() {
+    if (!identity || typeof identity.self !== 'function') return {};
+    const own = identity.self();
+    return own && typeof own.startTicks === 'string' && /^\d+$/.test(own.startTicks) ? { startTicks: own.startTicks } : {};
+  }
+  function exeName(file) {
+    const s = String(file || '').trim().replace(/\\/g, '/');
+    return s.slice(s.lastIndexOf('/') + 1).toLowerCase().replace(/\.exe$/, '');
+  }
+  // The stamped PID is alive. Is its CURRENT process the one that wrote the claim? true only on proof of reuse.
+  function pidReused(holder) {
+    if (!identity) return false;
+    let seen = probed && probed.get(holder.pid);
+    if (!seen) {
+      // a throwing probe is an unknown identity (busy), never an aborted boot
+      try { seen = identity.probe(holder.pid) || { ok: false, reason: 'no probe result' }; }
+      catch (error) { seen = { ok: false, reason: String((error && (error.code || error.message)) || 'probe failed') }; }
+      if (probed) probed.set(holder.pid, seen);
+    }
+    const verdict = { pid: holder.pid, stampedAt: Number(holder.startedAt) || 0, verdict: 'unknown' };
+    lastIdentity = verdict;
+    if (!seen.ok) { verdict.reason = String(seen.reason || 'unknown'); return false; }
+    if (seen.startedAt) verdict.processStartedAt = Number(seen.startedAt) || 0;
+    if (seen.executable) verdict.executable = String(seen.executable);
+    let reused = false;
+    if (holder.startTicks && seen.startTicks) {
+      reused = holder.startTicks !== String(seen.startTicks);
+    } else {
+      const born = Number(seen.startedAt) || 0;
+      const stamped = Number(holder.startedAt) || 0;
+      if (!(born > 0) || !(stamped > 0)) { verdict.reason = 'no comparable start time'; return false; }
+      const a = exeName(holder.executable), b = exeName(seen.executable);
+      reused = born > stamped + REUSE_SLACK_MS ||
+        (born > stamped + REUSE_EXE_SLACK_MS && !!a && !!b && a !== b);
+    }
+    verdict.verdict = reused ? 'reused' : 'same-process';
+    return reused;
+  }
+  // provably dead: the stamped process predates this boot, or (for a valid stamp) its PID is gone or now
+  // belongs to a provably different process. A malformed stamp is dead only when the FILE predates boot —
+  // otherwise it is unprovable, i.e. busy.
   function holderDead(holder, lockfile) {
     if (!holder.valid) return predatesBoot(lockMtime(lockfile));
     if (predatesBoot(holder.startedAt)) return true;
-    return !pidAlive(holder.pid);
+    if (!pidAlive(holder.pid)) return true;
+    return pidReused(holder);
   }
   const filename = String(d.filename || '.starnet-workspace-owner.json');
   if (!fs || typeof fs.openSync !== 'function' || typeof fs.renameSync !== 'function') {
@@ -108,7 +171,8 @@ function makeWorkspaceOwner(deps) {
     if (!Number.isSafeInteger(latest + 1)) throw new Error('ownership generation exhausted');
     const ticket = path.join(directory, (latest + 1) + '.json');
     const temporary = path.join(directory, '.pending-' + pid + '-' + String(nonce()).replace(/[^a-zA-Z0-9_-]/g, '_'));
-    const raw = JSON.stringify({ version: 1, pid, nonce: String(nonce()), startedAt: Number(now()) || 0 });
+    const raw = JSON.stringify(Object.assign({ version: 1, pid, nonce: String(nonce()), startedAt: Number(now()) || 0,
+      executable: ownExecutable() }, identityStamp()));
     let fd = null, temporaryOwned = false;
     try {
       fd = fs.openSync(temporary, 'wx');
@@ -149,20 +213,21 @@ function makeWorkspaceOwner(deps) {
       if (!value || value.version !== 1 || !Number.isInteger(Number(value.pid)) || Number(value.pid) <= 0 ||
           typeof value.nonce !== 'string' || !value.nonce) return { valid: false, raw: raw };
       return { valid: true, raw: raw, pid: Number(value.pid), nonce: value.nonce,
-        startedAt: Number(value.startedAt) || 0, executable: String(value.executable || '') };
+        startedAt: Number(value.startedAt) || 0, executable: String(value.executable || ''),
+        startTicks: typeof value.startTicks === 'string' && /^\d+$/.test(value.startTicks) ? value.startTicks : '' };
     } catch (e) {
       return { valid: false, unreadable: true, error: (e && e.code) || 'unreadable' };
     }
   }
 
   function tryCreate(lockfile, root) {
-    const claim = {
+    const claim = Object.assign({
       version: 1,
       pid: pid,
       nonce: String(nonce()),
       startedAt: Number(now()) || 0,
-      executable: (typeof process !== 'undefined' && process.execPath) ? String(process.execPath) : ''
-    };
+      executable: ownExecutable()
+    }, identityStamp());
     const raw = JSON.stringify(claim);
     const temporary = lockfile + '.tmp.' + pid + '.' + String(nonce()).replace(/[^a-zA-Z0-9_-]/g, '_');
     let fd = null;
@@ -208,9 +273,17 @@ function makeWorkspaceOwner(deps) {
     }
     try { fs.mkdirSync(resolved, { recursive: true }); }
     catch (e) { return { ok: false, code: 'WORKSPACE_OWNER_UNAVAILABLE', root: resolved, error: e }; }
+    probed = new Map();
+    try { return claimRoot(resolved); }
+    finally { probed = null; }
+  }
+
+  // identity on a BUSY result: what the PID-reuse check found for the holder it judged (null = no live PID probed)
+  function claimRoot(resolved) {
+    lastIdentity = null;
     try {
       if (!elect(resolved)) return { ok: false, code: 'WORKSPACE_BUSY', root: resolved,
-        holder: readHolder(path.join(resolved, filename)) };
+        holder: readHolder(path.join(resolved, filename)), identity: lastIdentity };
     } catch (error) { return { ok: false, code: 'WORKSPACE_OWNER_UNAVAILABLE', root: resolved, error }; }
     try {
     const lockfile = path.join(resolved, filename);
@@ -218,9 +291,10 @@ function makeWorkspaceOwner(deps) {
     if (created.ok) return created;
     if (!created.exists) return { ok: false, code: 'WORKSPACE_OWNER_UNAVAILABLE', root: resolved, lockfile: lockfile, error: created.error };
 
+    lastIdentity = null;
     const holder = readHolder(lockfile);
     if (!holderDead(holder, lockfile)) {
-      return { ok: false, code: 'WORKSPACE_BUSY', root: resolved, lockfile: lockfile, holder: holder };
+      return { ok: false, code: 'WORKSPACE_BUSY', root: resolved, lockfile: lockfile, holder: holder, identity: lastIdentity };
     }
 
     // This process holds the immutable election ticket. No other current host
@@ -253,4 +327,19 @@ function makeWorkspaceOwner(deps) {
   return { acquire: acquire, release: release, current: function () { return held && held.claim; } };
 }
 
-module.exports = { makeWorkspaceOwner: makeWorkspaceOwner, makeBootedAt: makeBootedAt, _internals: { defaultPidAlive: defaultPidAlive } };
+// One line for the boot refusal: what the PID-reuse check actually found (never more than it proved).
+function describeIdentity(identity) {
+  const v = identity || {};
+  const at = ms => (Number(ms) > 0 ? new Date(Number(ms)).toISOString() : 'an unknown time');
+  if (v.verdict === 'same-process' && Number(v.processStartedAt) > 0) {
+    return 'PID ' + v.pid + ' started ' + at(v.processStartedAt) + '; its claim was stamped ' + at(v.stampedAt) +
+      ' — not provably a different process, treated as a live owner';
+  }
+  if (v.verdict === 'same-process') return 'PID ' + v.pid + ' carries the claim\'s exact process start ticks — the same process';
+  if (v.verdict === 'reused') return 'PID ' + v.pid + ' now belongs to a process started after the claim — a recycled PID';
+  return 'PID ' + v.pid + ' is running but its start time could not be read (' + String(v.reason || 'unknown') +
+    ') — treated as a live owner';
+}
+
+module.exports = { makeWorkspaceOwner: makeWorkspaceOwner, makeBootedAt: makeBootedAt, describeIdentity: describeIdentity,
+  _internals: { defaultPidAlive: defaultPidAlive } };
