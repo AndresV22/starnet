@@ -8192,7 +8192,21 @@ const Chat = (() => {
     // yet (the run.start beat has not landed) = nothing to kill server-side, so the local abort stands alone.
     if (rid && typeof Harness !== 'undefined' && Harness.cancel) {
       Promise.resolve(Harness.cancel(rid)).then(v => { if (v && v.ok) localAbort(); else stopFailed(id, v); }, e => stopFailed(id, { ok: false, error: (e && e.message) || String(e), transport: true }));
-    } else localAbort();
+    } else { if (!rid) stopReportHolding(id); localAbort(); }
+  }
+  /* A SEND STILL WAITING FOR ITS TURN IS NEVER LEFT ON "CONNECTING" (stall report 2026-10-13). A message with no run id yet
+     waits in the station behind whatever holds this conversation, and the one holder this page never started is the
+     overseer's automatic report on delegated work (it takes the same per-conversation turn). STOP never reached that
+     report, so every new message sat on "connecting" until it finished. STOP on such a send now also stops it, by the run
+     id the station lists for it (read fresh, never from a stale poll), and says so once the station confirms. */
+  function stopReportHolding(id) {
+    if (typeof Harness === 'undefined' || !Harness.cancel || !Harness.api || !Harness.api.get) return;
+    Promise.resolve(Harness.api.get('/api/overseer')).then(j => {
+      const holding = ((j && j.reviews) || []).filter(r => r && r.status === 'reviewing' && r.parentStreamId === id && r.reviewRunId);
+      return Promise.all(holding.map(r => Harness.cancel(r.reviewRunId)));   // Harness.cancel answers { ok }, never throws
+    }).then(answers => {
+      if ((answers || []).some(v => v && v.ok) && activeWs && activeWs.id === id) localLine('STOP also ended the report on your delegated work that this message was waiting behind.');
+    }, e => console.warn('[stop] could not read the station\'s reports to stop:', (e && e.message) || e));   // this send is stopped either way
   }
   /* QUEUED WORDS ARE NEVER LOST ON STOP (live walk 2026-10-14): a message typed while the run worked became a queued pill,
      and STOP deleted it — not sent, not in the box, no notice. The stop still takes the backlog off the belt (nothing

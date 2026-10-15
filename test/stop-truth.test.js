@@ -39,7 +39,7 @@ function stopRig(opts) {
     status: () => {}, updateControls: () => {},
     retireOpenConsents: (wsId, runId) => retired.push([wsId, runId]),
     aborters: new Map([['ws1', { abort: () => aborted.push('ws1') }]]),
-    Harness: { cancel: () => new Promise(r => { cancelResolve = r; }) },
+    Harness: (opts && opts.Harness) || { cancel: () => new Promise(r => { cancelResolve = r; }) },
     stopFailed: () => {},
     input: { value: opts && opts.typed || '' },
     autoGrowInput: () => {},
@@ -55,7 +55,7 @@ function stopRig(opts) {
   const promptEnd = src.indexOf('  function backgroundPermissionNotify(', promptStart);
   A.ok(settleStart > 0 && settleEnd > settleStart && promptStart > 0 && promptEnd > promptStart, 'the bell settlement helpers are present');
   const helperNames = ['function restoreQueued', 'function settleStoppedAsks', 'function sendQueuedNow', 'function forgetSentNow',
-    'function steerWire', 'function markSentNowLanded', 'function restoreSentNow', 'function settleSentNow', 'function giveBack', 'function returnHeld'];
+    'function steerWire', 'function markSentNowLanded', 'function restoreSentNow', 'function settleSentNow', 'function giveBack', 'function returnHeld', 'function stopReportHolding'];
   const helperSrc = helperNames.map(h => A.fnBody(src, h));
   A.ok(helperSrc.every(Boolean), 'the STOP / SEND NOW helpers are present: ' + helperNames.filter((h, i) => !helperSrc[i]).join(', '));
   const helpers = helperSrc.join('\n');
@@ -204,6 +204,44 @@ function stopRig(opts) {
     A.ok(r.lines.slice(before).some(l => /stopped before the agent read your send-now message/.test(l)), 'with its line, in its own log');
     r.ctx.__returnHeld('ws1');
     A.eq(r.ctx.input.value, 'use the blue folder', 'given back once');
+  }
+
+  // ── 1c. STOP on a send still waiting for its turn ("connecting": no run id yet) also stops the overseer's automatic
+  //        report that holds this conversation (stall report 2026-10-13): the page never started that report, so its STOP
+  //        never reached it, and every new message sat on "connecting" until the report finished. ──
+  {
+    const cancels = [], gets = [];
+    const reviews = [
+      { id: 'g1:report:1', status: 'reviewing', parentStreamId: 'ws1', reviewRunId: 'review-run-1' },
+      { id: 'g2:report:1', status: 'reviewing', parentStreamId: 'ws-other', reviewRunId: 'review-run-2' },   // another conversation's
+      { id: 'g3:report:1', status: 'done', parentStreamId: 'ws1', reviewRunId: 'review-run-0' }              // a finished one
+    ];
+    const r = stopRig({ Harness: { cancel: rid => { cancels.push(rid); return Promise.resolve({ ok: true }); }, api: { get: async p => { gets.push(p); return { reviews }; } } } });
+    Channels.begin('ws1', Date.now());   // the send is out, the station has not started it: "connecting"
+    A.eq(Channels.runIdOf('ws1'), null, 'fixture: the waiting send has no run id yet');
+    r.ctx.__stop('click');
+    A.eq(r.aborted, ['ws1'], 'the waiting send itself is let go at once (nothing to kill by id)');
+    for (let i = 0; i < 5; i++) await new Promise(res => setTimeout(res, 0));
+    A.eq(gets, ['/api/overseer'], 'the station\'s own list of reports is read fresh at STOP time');
+    A.eq(cancels, ['review-run-1'], 'STOP reaches exactly the report holding THIS conversation — never another conversation\'s, never a finished one');
+    A.ok(r.lines.some(l => /also ended the report on your delegated work/i.test(l)), 'one line says the report was stopped too: ' + JSON.stringify(r.lines));
+  }
+  {
+    // a send that has its run id is stopped by that id alone: no report lookup, no extra stop
+    const gets = [], cancels = [];
+    const r = stopRig({ Harness: { cancel: rid => { cancels.push(rid); return Promise.resolve({ ok: true }); }, api: { get: async p => { gets.push(p); return { reviews: [{ status: 'reviewing', parentStreamId: 'ws1', reviewRunId: 'review-run-1' }] }; } } } });
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    r.ctx.__stop('click');
+    for (let i = 0; i < 5; i++) await new Promise(res => setTimeout(res, 0));
+    A.eq([gets.length, cancels], [0, ['run-1']], 'a started run is stopped by its own id only');
+  }
+  {
+    // nothing holds the conversation (or the station refused): no claim that a report was stopped
+    const r = stopRig({ Harness: { cancel: () => Promise.resolve({ ok: false, error: 'refused' }), api: { get: async () => ({ reviews: [{ status: 'reviewing', parentStreamId: 'ws1', reviewRunId: 'review-run-1' }] }) } } });
+    Channels.begin('ws1', Date.now());
+    r.ctx.__stop('click');
+    for (let i = 0; i < 5; i++) await new Promise(res => setTimeout(res, 0));
+    A.ok(!r.lines.some(l => /report/i.test(l)), 'a refused report stop claims nothing: ' + JSON.stringify(r.lines));
   }
 
   // ── 2. the stopped run's open asks settle everywhere once the station CONFIRMS the stop ──
