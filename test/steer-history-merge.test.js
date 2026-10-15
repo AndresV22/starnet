@@ -109,4 +109,68 @@ const rh = A.fnBody(source, 'function renderHistory(onlyTurns)');
 A.ok(/\(\?:\^\|\\n\)\\\[steering\\\] \(\[\^\\n\]\*\)\\n\?/.test(rh), 'renderHistory splits steering lines out of the reply');
 A.ok(/classList\.add\('tool', 'steer-echo'\)/.test(rh), 'a replayed steering note is a steer-echo row');
 
+/* A NOTE THE RUN READ, SHOWN AFTER A RELOAD (live walk 2026-10-14). A reload cancels the run before its reply is saved, so the
+   note's echo existed nowhere: the page asks the station (GET /api/run/steer) and, for a note the run read, files ONE
+   station row { sys, steerEcho, content: '[steering] …', sourceRunId } after that run's dialogue (chat.js showSentNowRead).
+   That row is the page's own: both merges keep it exactly once across loads, and renderHistory draws it as the same dim
+   steer-echo row the live stream drew — never a plain station line, never the agent's prose, never model context (sys). */
+{
+  const phone = fs.readFileSync(path.join(__dirname, '../sidecar/remote/host.js'), 'utf8');
+  const phoneMerge = new Function(A.fnBody(phone, 'function mergeCanonical(local, turns)') + '; return mergeCanonical;')();
+  const durable = [
+    { role: 'user', content: 'run the slow job', sourceRunId: 'r9', rowId: 1 },
+    { role: 'assistant', sys: true, error: true, transcriptPending: true, sourceRunId: 'r9', dispatchState: 'page-closed', content: '■ the run ended when this page closed' }
+  ];
+  for (const [who, fn] of [['desk', merge], ['phone', phoneMerge]]) {
+    let saved = [
+      { role: 'user', content: 'run the slow job' },
+      { role: 'assistant', sys: true, steerEcho: true, content: '[steering] use the blue folder', sourceRunId: 'r9', ts: 4 }
+    ];
+    for (let load = 1; load <= 3; load++) {
+      saved = JSON.parse(JSON.stringify(fn(saved, durable)));
+      A.eq(saved.filter(m => m.steerEcho).map(m => m.content), ['[steering] use the blue folder'], who + ' load ' + load + ': the read note stays ONE row');
+      A.eq(saved.filter(m => m.role === 'user').length, 1, who + ' load ' + load + ': the directive stays one row');
+    }
+  }
+  // LIVE WALK (2026-10-14, this lane): a reload mid-run saves no copy of the run's own directive, so the transcript
+  // INSERTS it after the last row it matched — which put the next run's directive between an earlier run and its filed
+  // echo ("do the slow job" · "do the slow job again" · [steering] use the blue folder). A run's own station rows stay
+  // with that run; a later run's turns go after them. Its own turns still come first.
+  for (const [who, fn] of [['desk', merge], ['phone', phoneMerge]]) {
+    const saved = [
+      { role: 'user', content: 'do the slow job', sourceRunId: 'rA', rowId: 1 },
+      { role: 'assistant', sys: true, steerEcho: true, content: '[steering] use the blue folder', sourceRunId: 'rA', ts: 4 }
+    ];
+    const turns = [
+      { role: 'user', content: 'do the slow job', sourceRunId: 'rA', rowId: 1 },
+      { role: 'assistant', content: 'Halfway there.', sourceRunId: 'rA', rowId: 2 },
+      { role: 'user', content: 'do the slow job again', sourceRunId: 'rB', rowId: 5 },
+      { role: 'assistant', content: 'On it.', sourceRunId: 'rB', rowId: 6 }
+    ];
+    let out = saved;
+    for (let load = 1; load <= 2; load++) {
+      out = JSON.parse(JSON.stringify(fn(out, turns)));
+      A.eq(out.map(m => m.content), ['do the slow job', 'Halfway there.', '[steering] use the blue folder', 'do the slow job again', 'On it.'],
+        who + ' load ' + load + ': the echo stays with its own run, ahead of the next run\'s directive');
+    }
+    // a station row with no run (and a row of another run) keeps the old placement
+    const plain = fn([{ role: 'user', content: 'go', sourceRunId: 'rC', rowId: 1 }, { role: 'system', sys: true, content: '⚒ built while you were away' }],
+      [{ role: 'user', content: 'go', sourceRunId: 'rC', rowId: 1 }, { role: 'user', content: 'next', sourceRunId: 'rD', rowId: 2 }]);
+    A.eq(plain.map(m => m.content), ['go', 'next', '⚒ built while you were away'], who + ': a station row without a run keeps its old place');
+  }
+  // the real renderHistory over that row
+  const made = [], toolLines = [];
+  const ctx = require('vm').createContext({
+    activeWs: { id: 'ws1', history: [] }, renderingHistory: false,
+    row: (cls, o) => { const r = { cls, o, d: { cls: [], classList: { add: (...c) => r.d.cls.push(...c) } }, body: {} }; made.push(r); return r; },
+    toolLine: (t, e) => toolLines.push(t), trimMarkerLine: () => {}, goalStepOf: () => null, goalStepLine: () => {}, addUser: () => {},
+    turnFileRefs: () => [], renderProse: (b, t) => { b.text = t; }, replayableDeliverables: () => [], replayDeliverableRow: () => {},
+    offerTryAgain: () => {}, offerRetry: () => {}, isBusy: () => false
+  });
+  require('vm').runInContext(rh + ';\nrenderHistory([{ role: "user", content: "go" }, { role: "assistant", sys: true, steerEcho: true, content: "[steering] use the blue folder", sourceRunId: "r9", ts: 4 }, { role: "assistant", sys: true, content: "■ a station line" }]);', ctx);
+  const echoRows = made.filter(r => r.d.cls.includes('steer-echo'));
+  A.eq(echoRows.map(r => [r.cls, r.body.textContent, r.o.stamp]), [['agent', '[steering] use the blue folder', 4]], 'a filed read note replays as the dim steer-echo row, stamped when it was sent');
+  A.eq(toolLines, ['■ a station line'], 'and never as a plain station line (other station rows are unchanged)');
+}
+
 A.report('steer-history-merge.test');

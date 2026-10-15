@@ -9,6 +9,9 @@
      · the floor's AWAITING APPROVAL tag and CREW's gold "needs your OK" card waited on that same lost response.
    And once trunk's SEND NOW key joined the queued pill (0.13.5 merge): a line handed to the run but not yet read when STOP
    landed died with the run, and a refusal arriving after the STOP re-queued it and auto-sent it as a new turn.
+   And not just STOP (live walk on the 0.13.5 candidate, 2026-10-14): a SEND NOW line accepted mid hand-off was gone after a
+   page RELOAD (which also cancels the run) — not in the message box, not in the history — because the sent-now list lived
+   in page memory only. Section 1d runs the reload, close, crash and reconnect paths against the station's answer.
 
    This runs the REAL stopActive (+ its helpers) and the REAL bell settlement listener from chat.js in a sandbox. */
 'use strict';
@@ -20,6 +23,10 @@ const vm = require('vm');
 const src = fs.readFileSync(path.join(__dirname, '../frontend/app/chat.js'), 'utf8');
 const Channels = require('../frontend/app/channels.js');
 
+// a browser's localStorage that outlives a "page": a reload is a NEW rig (fresh memory) on the SAME storage
+function memStorage() { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: k => { m.delete(k); }, _m: m }; }
+const onDisk = (storage, ws) => { const raw = storage.getItem('starnet.sentNow.v1'); return raw ? (JSON.parse(raw)[ws] || []) : []; };
+
 function stopRig(opts) {
   Channels.reset();
   const bus = A.makeBus();
@@ -27,7 +34,8 @@ function stopRig(opts) {
   const settled = [], notified = [], lines = [], retired = [], aborted = [];
   let cancelResolve;
   const ctx = {
-    console, Date, Promise, setTimeout, clearTimeout, JSON,
+    console, Date, Promise, setTimeout: (opts && opts.setTimeout) || setTimeout, clearTimeout, JSON,
+    localStorage: opts && opts.storage, sentNowChecks: new Map(), log: null,
     U: { bus },
     Channels,
     activeWs: { id: 'ws1', agentId: 'agent', conversationMode: 'chat' },
@@ -55,14 +63,17 @@ function stopRig(opts) {
   const promptEnd = src.indexOf('  function backgroundPermissionNotify(', promptStart);
   A.ok(settleStart > 0 && settleEnd > settleStart && promptStart > 0 && promptEnd > promptStart, 'the bell settlement helpers are present');
   const helperNames = ['function restoreQueued', 'function settleStoppedAsks', 'function sendQueuedNow', 'function forgetSentNow',
-    'function steerWire', 'function markSentNowLanded', 'function restoreSentNow', 'function settleSentNow', 'function giveBack', 'function returnHeld', 'function stopReportHolding'];
+    'function steerWire', 'function markSentNowLanded', 'function restoreSentNow', 'function settleSentNow', 'function giveBack', 'function returnHeld', 'function stopReportHolding',
+    'function sentNowDisk', 'function keepSentNow', 'function dropSentNow', 'function releaseSentNow', 'function reconcileSentNow', 'async function askSentNow',
+    'function sentNowVerdict', 'function shownSteer', 'function showSentNowRead'];
   const helperSrc = helperNames.map(h => A.fnBody(src, h));
   A.ok(helperSrc.every(Boolean), 'the STOP / SEND NOW helpers are present: ' + helperNames.filter((h, i) => !helperSrc[i]).join(', '));
   const helpers = helperSrc.join('\n');
   const stop = A.fnBody(src, 'function stopActive');
   A.ok(stop.length > 500 && stop.length < 12000, 'stopActive body located');
   vm.runInContext(src.slice(settleStart, settleEnd) + src.slice(promptStart, promptEnd) + '\n' + helpers + '\n' + stop
-    + '\n;this.__stop = stopActive; this.__announced = announcedPrompt; this.__sendNow = sendQueuedNow; this.__landed = markSentNowLanded; this.__settleSentNow = settleSentNow; this.__returnHeld = returnHeld;', ctx);
+    + '\n;this.__stop = stopActive; this.__announced = announcedPrompt; this.__sendNow = sendQueuedNow; this.__landed = markSentNowLanded; this.__settleSentNow = settleSentNow; this.__returnHeld = returnHeld;'
+    + ' this.__reconcile = reconcileSentNow; this.__release = releaseSentNow; this.__verdict = sentNowVerdict;', ctx);
   return { ctx, bus, emitted, settled, notified, lines, retired, aborted, confirm: v => cancelResolve(v) };
 }
 
@@ -159,7 +170,13 @@ function stopRig(opts) {
     // the wiring the sandbox injects: the live run's tokens mark echoes, and every teardown settles the run's lines
     A.ok(/onToken: d => \{ acc \+= d; Channels\.appendToken\(ws\.id, d\); if \(thisRunId && d && d\.indexOf\('\[steering\] '\) >= 0\) markSentNowLanded\(ws\.id, thisRunId, d\);/.test(src),
       'the run\'s own token stream marks a sent-now line read when its [steering] echo arrives');
-    A.ok(/\} finally \{[\s\S]{0,600}Channels\.end\(ws\.id\);\s*if \(thisRunId\) settleSentNow\(ws\.id, thisRunId, acc\);/.test(src), 'send()\'s teardown settles the run\'s sent-now lines on every end, against the run\'s own text');
+    A.ok(/\} finally \{[\s\S]{0,600}Channels\.end\(ws\.id\);\s*if \(thisRunId\) \{ if \(streamLost \|\| interruptedStreams\.has\(ws\.id\)\) releaseSentNow\(ws\.id, thisRunId, acc\); else settleSentNow\(ws\.id, thisRunId, acc\); \}/.test(src), 'send()\'s teardown settles the run\'s sent-now lines on every end, against the run\'s own text — unless its stream died (the station decides those)');
+    // LIVE (this lane): the station was killed mid-run with a send-now line pending; the page's thrown teardown is not always
+    // classified 'network', so the line was re-queued and auto-sent into the dead station. A throw that is not a deliberate
+    // STOP never saw its run end: it marks the stream lost, whatever the error's wording.
+    const thrown = src.slice(src.indexOf('      const stopped = interrupted.has(ws.id);   // the Commander pressed Stop'), src.indexOf('let engineAlive = null;', src.indexOf('      const stopped = interrupted.has(ws.id);   // the Commander pressed Stop')));
+    A.ok(thrown.length > 200 && thrown.length < 4000 && /\} else \{[\s\S]*persistPartial\(ws, acc\);\s*streamLost = true;/.test(thrown), 'a non-STOP throw marks the stream lost (right after it saves what streamed)');
+    A.ok(/let runToolsOk = 0, runDeliv = 0, thisRunId = null, streamLost = false;/.test(src), 'each send starts with its stream not lost');
     A.ok(/if \(activeWs\) \{ returnHeld\(activeWs\.id\); flushQueued\(activeWs\.id\); \}/.test(src), 'returning to a session gives back what its confirmed STOP held, before its queue drains');
     A.ok(/queued\.clear\(\); sentNow\.clear\(\);/.test(src), 'a session switch starts with no sent-now lines, like the queue');
   }
@@ -204,6 +221,203 @@ function stopRig(opts) {
     A.ok(r.lines.slice(before).some(l => /stopped before the agent read your send-now message/.test(l)), 'with its line, in its own log');
     r.ctx.__returnHeld('ws1');
     A.eq(r.ctx.input.value, 'use the blue folder', 'given back once');
+  }
+
+  // ── 1d. RELOAD / CLOSE / CRASH / RECONNECT (live walk 2026-10-14): the page's memory is gone, the line is not. Every line handed
+  //        to a run is on disk (this browser) until the page settles it; whatever is left is decided by the STATION on the
+  //        conversation's next load (GET /api/run/steer): read → a steer-echo row; never read → back in the box with one line;
+  //        no record → read only if the saved history shows its echo, else back with a line that says the station can't tell;
+  //        still running / no answer → asked again later. Never auto-sent, never twice, never a line the agent read. ──
+  {
+    const say = (storage, notes, extra) => (url, o) => {
+      if (/^\/api\/run\/steer\?runId=/.test(url)) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(Object.assign({ runId: 'run-1', live: false, ended: true, source: 'memory', notes: notes() }, extra && extra())) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, pending: 1 }) });
+    };
+    // page 1: the line is handed to the run (accepted) — then the page reloads mid hand-off
+    const pageOne = (storage, typed) => {
+      const r = stopRig({ storage });
+      Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+      const posts = [];
+      r.ctx.fetch = (url, o) => { posts.push(JSON.parse(o.body)); return Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: true, pending: 1, noteId: JSON.parse(o.body).noteId }) }); };
+      r.ctx.queued.set('ws1', [typed]);
+      r.ctx.__sendNow('ws1', 0, typed);
+      return { r, posts };
+    };
+    // page 2: a fresh page (new memory) on the same browser storage, showing ws1
+    const pageTwo = (storage, fetch, history, o) => {
+      const r = stopRig({ storage, setTimeout: o && o.setTimeout });
+      r.ctx.activeWs = { id: 'ws1', agentId: 'agent', conversationMode: 'chat', history: history || [{ role: 'user', content: 'run the slow job', sourceRunId: 'run-1' }] };
+      const asked = [];
+      r.ctx.fetch = (url, opt) => { asked.push(url); return fetch(url, opt); };
+      return { r, asked, ws: r.ctx.activeWs };
+    };
+    {
+      // (a) the run never read it: back in THIS conversation's message box, unsent, with one honest line — once
+      const storage = memStorage();
+      const one = pageOne(storage, 'use the blue folder\nand skip the tests');
+      await tick(); await tick();
+      A.ok(/^sn[a-z0-9]+$/.test(one.posts[0].noteId || ''), 'the steer POST names the line with the page\'s own noteId: ' + JSON.stringify(one.posts[0]));
+      const kept = onDisk(storage, 'ws1');
+      A.eq(kept.map(e => [e.runId, e.text, e.wire]), [['run-1', 'use the blue folder\nand skip the tests', 'use the blue folder and skip the tests']], 'the accepted line is on disk while its run holds it');
+      const id = kept[0].id;
+      const two = pageTwo(storage, say(storage, () => ({ [id]: 'unapplied' })));
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(two.asked, ['/api/run/steer?runId=run-1'], 'the reloaded page asks the station about that run');
+      A.eq(two.r.ctx.input.value, 'use the blue folder\nand skip the tests', 'the unread line is back in the message box as typed');
+      A.ok(two.r.lines.some(l => /run ended before the agent read your send-now message/.test(l) && /back in the message box/.test(l)), 'one honest line: ' + JSON.stringify(two.r.lines));
+      A.eq(two.r.ctx.queued.has('ws1'), false, 'never queued (a queue would auto-send it)');
+      A.eq(onDisk(storage, 'ws1'), [], 'and it leaves the disk');
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq([two.asked.length, two.r.ctx.input.value, two.r.lines.length], [1, 'use the blue folder\nand skip the tests', 1], 'a second load gives nothing back twice');
+      const three = pageTwo(storage, say(storage, () => ({ [id]: 'unapplied' })));
+      await three.r.ctx.__reconcile(three.ws);
+      A.eq([three.asked.length, three.r.ctx.input.value], [0, ''], 'nor does the next reload');
+    }
+    {
+      // (b) the run DID read it (its echo never reached the page before the reload): shown as read, never back in the box
+      const storage = memStorage();
+      pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      const id = onDisk(storage, 'ws1')[0].id;
+      const hist = [{ role: 'user', content: 'run the slow job', sourceRunId: 'run-1' }, { role: 'assistant', sys: true, error: true, transcriptPending: true, sourceRunId: 'run-1', content: '■ the run ended when this page closed' }];
+      const two = pageTwo(storage, say(storage, () => ({ [id]: 'applied' })), hist);
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(two.r.ctx.input.value, '', 'a line the agent read never comes back');
+      const echo = two.ws.history.filter(m => m && m.steerEcho);
+      A.eq(echo.map(m => [m.content, m.sourceRunId, m.sys]), [['[steering] use the blue folder', 'run-1', true]], 'it is shown as read: one steer-echo row, a station row (never model context)');
+      A.eq(two.ws.history.indexOf(echo[0]), 1, 'placed after that run\'s own dialogue, before the station\'s lines about it');
+      A.eq(onDisk(storage, 'ws1'), [], 'and it leaves the disk');
+      A.eq(two.r.lines, [], 'no extra line: the echo row is the proof');
+      // a saved reply that already shows the echo is never doubled
+      const storage2 = memStorage();
+      pageOne(storage2, 'use the blue folder');
+      await tick(); await tick();
+      const id2 = onDisk(storage2, 'ws1')[0].id;
+      const saved = [{ role: 'user', content: 'go' }, { role: 'assistant', content: 'Looking.\n[steering] use the blue folder\nDone.', sourceRunId: 'run-1' }];
+      const four = pageTwo(storage2, say(storage2, () => ({ [id2]: 'applied' })), saved);
+      await four.r.ctx.__reconcile(four.ws);
+      A.eq(four.ws.history.filter(m => m && m.steerEcho).length, 0, 'a reply already showing the echo gets no second row');
+    }
+    {
+      // (c) the run is still unwinding (the reload's cancel has not reached its loop yet): nothing yet, asked again later
+      const storage = memStorage();
+      pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      const id = onDisk(storage, 'ws1')[0].id;
+      let state = 'pending', live = true;
+      const timers = [];
+      const two = pageTwo(storage, say(storage, () => ({ [id]: state }), () => ({ live, ended: false })), null, { setTimeout: (fn, ms) => { timers.push(ms); } });
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq([two.r.ctx.input.value, onDisk(storage, 'ws1').length, timers.length], ['', 1, 1], 'a run still holding it: nothing yet, it stays on disk, one retry is armed');
+      state = 'unapplied'; live = false;
+      await two.r.ctx.__reconcile(two.ws, 1);
+      A.eq(two.r.ctx.input.value, 'use the blue folder', 'once the run ended without reading it, it is back');
+    }
+    {
+      // (d) the station does not answer: nothing is decided, nothing is lost
+      const storage = memStorage();
+      pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      const two = pageTwo(storage, () => Promise.reject(new Error('offline')), null, { setTimeout: () => {} });
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq([two.r.ctx.input.value, onDisk(storage, 'ws1').length], ['', 1], 'an unreachable station decides nothing (the line stays on disk)');
+      const bad = pageTwo(storage, () => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'x' }) }), null, { setTimeout: () => {} });
+      await bad.r.ctx.__reconcile(bad.ws);
+      A.eq([bad.r.ctx.input.value, onDisk(storage, 'ws1').length], ['', 1], 'nor does a 500');
+    }
+    {
+      // (e) a restart lost the run (no ledger, no record): read only if the saved history shows its echo; else back, saying so
+      const storage = memStorage();
+      pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      const none = () => ({ source: 'none', ended: false });
+      const two = pageTwo(storage, say(storage, () => ({}), none), [{ role: 'user', content: 'go' }, { role: 'assistant', content: '\n[steering] use the blue folder\nOk.', sourceRunId: 'run-1' }]);
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq([two.r.ctx.input.value, onDisk(storage, 'ws1').length], ['', 0], 'no record, but this run\'s saved reply shows it: read');
+      const storage2 = memStorage();
+      pageOne(storage2, 'use the blue folder');
+      await tick(); await tick();
+      const three = pageTwo(storage2, say(storage2, () => ({}), none), [{ role: 'user', content: 'go' }, { role: 'assistant', content: '\n[steering] use the blue folder\nOk.', sourceRunId: 'run-0' }]);
+      await three.r.ctx.__reconcile(three.ws);
+      A.eq(three.r.ctx.input.value, 'use the blue folder', 'an echo from ANOTHER run proves nothing: it comes back');
+      A.ok(three.r.lines.some(l => /station has no record that the agent read your send-now message/.test(l) && /back in the message box/.test(l)), 'with a line that says the station cannot tell: ' + JSON.stringify(three.r.lines));
+    }
+    {
+      // (f) the station never took it (its POST was refused or never arrived; the recorded run has no such note): back
+      const storage = memStorage();
+      pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      const two = pageTwo(storage, say(storage, () => ({}), () => ({ source: 'record' })));
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(two.r.ctx.input.value, 'use the blue folder', 'a line the station never took is back in the box');
+    }
+    {
+      // (g) a line STOP already gave back is never given back again after a reload; one held for another session is, once
+      const storage = memStorage();
+      const one = pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      one.r.ctx.__stop('click'); one.r.confirm({ ok: true }); await tick();
+      A.eq(one.r.ctx.input.value, 'use the blue folder', 'fixture: STOP gave it back');
+      A.eq(onDisk(storage, 'ws1'), [], 'the line in the message box is off the disk (an unsent draft from here on)');
+      const storage2 = memStorage();
+      const held = pageOne(storage2, 'use the blue folder');
+      await tick(); await tick();
+      held.r.ctx.__stop('click');
+      held.r.ctx.activeWs = { id: 'ws2', agentId: 'mira', conversationMode: 'chat' };
+      held.r.confirm({ ok: true }); await tick();
+      A.eq(onDisk(storage2, 'ws1').length, 1, 'held for its session (another one on screen): still on disk until it lands');
+      const id = onDisk(storage2, 'ws1')[0].id;
+      const before = held.r.lines.length;
+      held.r.ctx.activeWs = { id: 'ws1', agentId: 'agent', conversationMode: 'chat', history: [] };
+      held.r.ctx.fetch = say(storage2, () => ({ [id]: 'unapplied' }));
+      await held.r.ctx.__reconcile(held.r.ctx.activeWs);
+      A.eq([held.r.ctx.input.value, held.r.lines.length], ['', before], 'the load never decides a line this page still holds');
+      held.r.ctx.__returnHeld('ws1');
+      A.eq([held.r.ctx.input.value, onDisk(storage2, 'ws1').length], ['use the blue folder', 0], 'returning gives it back once and it leaves the disk');
+      const two = pageTwo(storage2, say(storage2, () => ({ [id]: 'unapplied' })));
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(two.r.ctx.input.value, '', 'and a reload after that gives nothing back twice');
+    }
+    {
+      // (h) RECONNECT (DISCONNECT → re-entry) and a dropped stream: the page lets go of the line instead of settling it, so it is
+      //     never re-queued into a queue the re-entry wipes (or auto-sent behind the reconnect); the station decides on the next load
+      const storage = memStorage();
+      const one = pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      one.r.ctx.__release('ws1');                    // Chat.abort(): the teardown lets go of every line it holds
+      Channels.end('ws1'); one.r.ctx.__settleSentNow('ws1', 'run-1', 'Working.');   // the aborted run's finally runs after that
+      A.eq([one.r.ctx.queued.has('ws1'), one.r.ctx.sentNow.has('ws1'), onDisk(storage, 'ws1').length], [false, false, 1], 'not re-queued, not held: it waits on disk for the station');
+      const id = onDisk(storage, 'ws1')[0].id;
+      const two = pageTwo(storage, say(storage, () => ({ [id]: 'unapplied' })));
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(two.r.ctx.input.value, 'use the blue folder', 'after re-entry it is back in the message box');
+      // a line whose echo the page DID see before its stream died is read: off the disk at once
+      const storage2 = memStorage();
+      const seen = pageOne(storage2, 'use the blue folder');
+      await tick(); await tick();
+      seen.r.ctx.__landed('ws1', 'run-1', '\n[steering] use the blue folder\n');
+      seen.r.ctx.__release('ws1', 'run-1', '');
+      A.eq(onDisk(storage2, 'ws1'), [], 'a line the page saw land is never asked about (or given back) later');
+    }
+    {
+      // (i) the load never asks about a line its own page still holds for a live run
+      const storage = memStorage();
+      const one = pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      const asked = [];
+      one.r.ctx.activeWs = { id: 'ws1', agentId: 'agent', conversationMode: 'chat', history: [] };
+      one.r.ctx.fetch = url => { asked.push(url); return Promise.reject(new Error('no')); };
+      await one.r.ctx.__reconcile(one.r.ctx.activeWs);
+      A.eq([asked, one.r.ctx.input.value], [[], ''], 'a line in this page\'s own hands is not the station\'s to decide');
+    }
+    {
+      // the wiring: the teardown lets go, a load asks once its history settled, and the run's end asks about what it let go
+      const abortFn = A.fnBody(src, '  function abort() {');
+      A.ok(abortFn.length > 100 && abortFn.length < 4000 && /for \(const id of Array\.from\(sentNow\.keys\(\)\)\) releaseSentNow\(id\);/.test(abortFn), 'DISCONNECT lets go of every sent-now line before it aborts (no re-queue into the wiped queue)');
+      const load = A.fnBody(src, '  function load(ws) {');
+      A.ok(/Promise\.resolve\(loadServerHistory\(activeWs, historyPin\)\)[^\n]*reconcileSentNow\(/.test(load), 'a conversation\'s load asks the station about its leftover lines once its history is merged');
+      A.ok(/releaseSentNow\(ws\.id, thisRunId, acc\); else settleSentNow\(ws\.id, thisRunId, acc\); \}(?:[ \t]*\/\/[^\n]*)?\s*reconcileSentNow\(ws\);/.test(src), 'a run\'s end asks right away about any line it let go');
+    }
   }
 
   // ── 1c. STOP on a send still waiting for its turn ("connecting": no run id yet) also stops the overseer's automatic

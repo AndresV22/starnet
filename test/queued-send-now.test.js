@@ -6,7 +6,9 @@
      · the pill leaves the queue while the POST flies, so flushQueued can never ALSO send it as a new turn;
      · every refusal (no confirmed runId, 404/409 run ended, 429 full, network) puts it back at the FRONT of the
        queue with a line saying why — a send-now is never silently dropped;
-     · success claims only what a 200 proves (the sidecar holds it), never that the agent already acted on it.
+     · success claims only what a 200 proves (the sidecar holds it), never that the agent already acted on it;
+     · the line is on DISK (this browser) from the moment it is posted, under the noteId the POST carries, until the page
+       settles it — a reload mid hand-off used to lose it (live walk 2026-10-14; the reload side is stop-truth 1d).
 
    chat.js is browser-flow (DOM + streaming), not node-loadable — locked by reading the source (the
    steer-idle-honesty mold). */
@@ -72,12 +74,18 @@ A.ok(/now\.setAttribute\('data-tip', /.test(rb) && !/now\.title\s*=/.test(rb), '
    · an answer for a session that is no longer on screen prints nothing in the log that is. */
 const vm = require('vm');
 const Channels = require('../frontend/app/channels.js');
-function sendRig() {
+function memStorage(broken) {
+  const m = new Map();
+  return { getItem: k => { if (broken) throw new Error('blocked'); return m.has(k) ? m.get(k) : null; }, setItem: (k, v) => { if (broken) throw new Error('blocked'); m.set(k, String(v)); } };
+}
+const onDisk = (storage, ws) => { const raw = storage.getItem('starnet.sentNow.v1'); return raw ? (JSON.parse(raw)[ws] || []) : []; };
+function sendRig(opts) {
   Channels.reset();
   const lines = [], flushed = [], posts = [];
   let answer = null;
   const ctx = {
-    console, Promise, JSON, setTimeout, Channels,
+    console, Promise, JSON, setTimeout, Channels, Date, Math,
+    localStorage: memStorage(opts && opts.brokenStorage),
     activeWs: { id: 'ws1' }, queued: new Map(), sentNow: new Map(), heldBack: new Map(),
     localLine: t => lines.push(t), renderQueued: () => {}, flushQueued: id => flushed.push(id),
     input: { value: '' }, autoGrowInput: () => {},
@@ -85,7 +93,7 @@ function sendRig() {
   };
   vm.createContext(ctx);
   const names = ['function sendQueuedNow', 'function forgetSentNow', 'function steerWire', 'function markSentNowLanded', 'function restoreSentNow',
-    'function settleSentNow', 'function giveBack', 'function returnHeld'];
+    'function settleSentNow', 'function giveBack', 'function returnHeld', 'function sentNowDisk', 'function keepSentNow', 'function dropSentNow'];
   const bodies = names.map(h => A.fnBody(src, h));
   A.ok(bodies.every(b => b.length > 20 && b.length < 6000), 'the SEND NOW helpers are present: ' + names.filter((h, i) => !(bodies[i].length > 20 && bodies[i].length < 6000)).join(', '));
   vm.runInContext(bodies.join('\n') + '\n;this.__sendNow = sendQueuedNow; this.__landed = markSentNowLanded; this.__restore = restoreSentNow; this.__settle = settleSentNow; this.__return = returnHeld;', ctx);
@@ -186,6 +194,47 @@ const ok200 = { status: 200, json: () => Promise.resolve({ ok: true }) };
     A.eq(r.ctx.queued.get('ws1'), ['use the blue folder'], 'a late ok for an ended run that never read it re-queues it');
     A.ok(r.lines.some(l => /ended before the agent read your send-now message/.test(l)), 'with one line: ' + JSON.stringify(r.lines));
     A.eq(r.ctx.sentNow.has('ws1'), false, 'and the ended run keeps no send-now lines');
+  }
+  // ── ON DISK UNTIL SETTLED (live walk 2026-10-14): a reload mid hand-off lost an accepted line ──
+  {
+    const r = sendRig();
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    r.ctx.queued.set('ws1', ['use the blue folder\nplease']);
+    r.ctx.__sendNow('ws1', 0, 'use the blue folder\nplease');
+    const disk = onDisk(r.ctx.localStorage, 'ws1');
+    A.ok(/^sn[a-z0-9]+$/.test(r.posts[0].noteId || ''), 'the POST names the line with the page\'s own noteId: ' + JSON.stringify(r.posts[0]));
+    A.eq(disk.map(e => [e.id, e.runId, e.text, e.wire]), [[r.posts[0].noteId, 'run-1', 'use the blue folder\nplease', 'use the blue folder please']],
+      'it is on disk BEFORE the station answers (a reload mid-POST still finds it): the typed words, the wire, its run');
+    r.answer(ok200); await tick(); await tick();
+    A.eq(onDisk(r.ctx.localStorage, 'ws1').length, 1, 'accepted: it stays on disk while the run holds it');
+    A.eq(r.ctx.sentNow.get('ws1')[0].id, r.posts[0].noteId, 'memory and disk name the same line');
+  }
+  {
+    const r = sendRig();
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    r.ctx.queued.set('ws1', ['use the blue folder']);
+    r.ctx.__sendNow('ws1', 0, 'use the blue folder');
+    r.answer({ status: 409, json: () => Promise.resolve({ ok: false }) }); await tick(); await tick();
+    A.eq(onDisk(r.ctx.localStorage, 'ws1'), [], 'a refused line is a queued pill again: off the disk');
+  }
+  {
+    const r = sendRig();
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    r.ctx.queued.set('ws1', ['use the blue folder']);
+    r.ctx.__sendNow('ws1', 0, 'use the blue folder');
+    r.answer(ok200); await tick(); await tick();
+    Channels.end('ws1'); r.ctx.__settle('ws1', 'run-1', '\n[steering] use the blue folder\nDone.');
+    A.eq(onDisk(r.ctx.localStorage, 'ws1'), [], 'a run that ended in this page settles its lines: off the disk');
+  }
+  {
+    // a browser that blocks storage (private window, cleared site data) still sends now: memory works as before
+    const r = sendRig({ brokenStorage: true });
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    r.ctx.queued.set('ws1', ['use the blue folder']);
+    r.ctx.__sendNow('ws1', 0, 'use the blue folder');
+    r.answer(ok200); await tick(); await tick();
+    A.eq([r.posts.length, (r.ctx.sentNow.get('ws1') || []).length], [1, 1], 'blocked storage never stops the steer');
+    A.ok(r.lines.some(l => /Sent into the live run/.test(l)), 'and the line says what the 200 proves');
   }
 })().then(() => {
   // with the speaker on, the voice never reads the Commander's own steering note as the agent's words
