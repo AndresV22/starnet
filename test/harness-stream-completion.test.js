@@ -108,7 +108,8 @@ async function exercise(source, wire, options = {}) {
       const sandbox = { ws, acc: 'Retained partial', thisRunId: 'lead', runRoot: null, interrupted: new Set(), interruptedStreams,
         persistPartial: (w, text) => { calls.push('partial'); w.history.push({ role: 'assistant', content: text }); },
         Harness: { pingEngine: async () => { calls.push('health'); return true; } },
-        Friendly: { friendlyError: () => ({ kind: 'network', userMessage: 'Stream interrupted' }) },
+        // a transport-loss verdict: the reconnect watch arms on its provenance (transport), never on the kind alone
+        Friendly: { friendlyError: () => ({ kind: 'network', transport: true, userMessage: 'Stream interrupted' }) },
         Workstreams: { noteRunEnd: (...args) => calls.push(args) },
         armReconnectWatch: () => calls.push('journal'), isActiveWs: () => active,
         activeLiveRow: { error: () => calls.push('render-error') }, resolvePresence: () => calls.push('presence'),

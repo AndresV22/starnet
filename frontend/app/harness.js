@@ -1027,6 +1027,30 @@ const Harness = (() => {
     if (providerNeedsKey(provider) && !DESKTOP && !DEVMODE && !key) throw new Error('no API key set');
     if (!model) throw new Error('no model selected');
 
+    /* TRANSPORT PROVENANCE (night N2, 2026-10-15 — found by the GH#116 lane). A transport loss is known by WHERE an
+       error was thrown, never by its words. Browsers do not agree on those words: when the sidecar dies mid-stream,
+       Chromium/WebView2 (the Windows desktop app) rejects the body read with a bare "network error" (its console says
+       net::ERR_INCOMPLETE_CHUNKED_ENCODING), which friendlyerror's word list never knew — the drop read as `unknown`
+       and the reconnect watch never started. Widening that list is the trap: text the SIDECAR streamed (a provider's
+       own "network error") flows through the same classifier, and would arm a probe that then announces "connection
+       restored" about a connection that never dropped. So chat() marks the errors raised by its OWN transport — the
+       fetch() rejection, the body read rejection, the body ending before the lead's completion — and friendlyError
+       reads only that mark (verdict.transport). In-band text arrives as a string and can never carry it. The browser's
+       own error object is kept (callers check identity and name); only a value that cannot hold the mark is wrapped.
+       (Nested so the tests that execute chat() on its own run it whole.) */
+    function transportLoss(e, site) {
+      if (e != null && (typeof e === 'object' || typeof e === 'function') && Object.isExtensible(e)) {
+        e.starnetTransport = site;
+        if (e.starnetTransport === site) return e;
+      }
+      const wrapped = new Error(String((e && e.message) || e || 'the connection was lost'));
+      wrapped.starnetTransport = site;
+      wrapped.cause = e;
+      return wrapped;
+    }
+    // a Stop (AbortController) is the Commander's own act, never a transport loss
+    function isAbortError(e) { return !!e && e.name === 'AbortError'; }
+
     let res;
     try {
       const reqBody = { model, provider, reasoningEffort, system, messages, agentId: agentId || 'agent', isTask: !!isTask, recurring: !!recurring };
@@ -1081,7 +1105,9 @@ const Harness = (() => {
         body: JSON.stringify(reqBody)
       });
     } catch (e) {
-      throw new Error('cannot reach the STARNET sidecar — start it with `npm start` (node sidecar/index.js)');
+      // a Stop while connecting keeps today's message, but only a real refused/failed fetch is a transport loss
+      const refused = new Error('cannot reach the STARNET sidecar — start it with `npm start` (node sidecar/index.js)');
+      throw isAbortError(e) ? refused : transportLoss(refused, 'fetch');
     }
     // A pre-stream failure's TRUE reason lives in the response body — runRouteFailure's {"error":"sidecar
     // failure: Not signed in to ChatGPT …"} JSON, handleRun's "missing key/model", the token gate's "forbidden
@@ -1111,7 +1137,9 @@ const Harness = (() => {
     for (;;) {
       let chunk;
       try { chunk = await reader.read(); }
-      catch (e) { if (sawLeadEnd) break; throw e; } // a lost trailing connection cannot undo a confirmed end
+      // a lost trailing connection cannot undo a confirmed end. Otherwise the browser's own rejection is rethrown
+      // (identity kept) carrying its provenance: Chromium/WebView2 says only "network error" here (night N2).
+      catch (e) { if (sawLeadEnd) break; throw isAbortError(e) ? e : transportLoss(e, 'read'); }
       const { value, done } = chunk;
       // EOF is a transport boundary, never proof the run completed. Flush the decoder and
       // process a final complete JSON record even when the transport omitted its newline.
@@ -1203,7 +1231,7 @@ const Harness = (() => {
     // Preserve explicit in-band errors, including setup failures before run.start. Otherwise
     // let COMMS keep the partial reply and reconcile with the durable journal; never retry
     // inference here, since tools may already have executed before the stream was lost.
-    if (!sawLeadEnd && !errMsg) throw new Error('Reply stream disconnected before completion was confirmed.');
+    if (!sawLeadEnd && !errMsg) throw transportLoss(new Error('Reply stream disconnected before completion was confirmed.'), 'eof');
     // surface the error to the caller (do NOT swallow it just because some text streamed first) —
     // a network/fetch failure still throws below; this is for in-band run errors / capdenied.
     if (errMsg) return { text: full, usage: lastUsage, runId, error: errMsg, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd, budgetCapIsBalance, unpricedModel, unpricedCapTokens, subscriptionModel, subscriptionCapTokens };
