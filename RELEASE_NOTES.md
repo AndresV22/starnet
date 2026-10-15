@@ -44,9 +44,9 @@ The big one. 0.13.3 was security only; this is the feature update that was promi
 
 ## Build mode & conveyors
 
-- **Building is drag-and-drop.** Drag one machine onto another to lay a belt. Drag a machine onto empty floor to pick what goes there, or drag a belt's middle to branch it. Ctrl+drag a belt to bend it through a tile.
+- **Building is drag-and-drop.** Drag one machine onto another to lay a belt. Drag a machine onto empty floor to pick what goes there, or drag a belt's middle to branch it. Ctrl+drag a belt (Cmd+drag on Mac) to bend it through a tile.
 - **Select to move.** The MOVE tool is retired. Click a piece to select it, then drag it onto open floor. Shift+drag moves any piece.
-- **Copy whole lines.** Drag a box (it picks up the belts it crosses) or double-click a machine to select its whole line. Ctrl+C / X / V / D copy, cut, paste or duplicate it with its belts, settings, briefs, budgets and crew. Right-click removes a machine or belt. On the Conveyors tab, keys 1-8 pick pieces.
+- **Copy whole lines.** Drag a box (it picks up the belts it crosses) or double-click a machine to select its whole line. Ctrl+C / X / V / D (Cmd on Mac) copy, cut, paste or duplicate it with its belts, settings, briefs, budgets and crew. Right-click removes a machine or belt. On the Conveyors tab, keys 1-8 pick pieces.
 - **SEND TO.** Drop a line's OUTBOX on another line's INBOX. Every job that finishes cleanly in that OUTBOX is handed on, and the next line works it with its own crew, job record and budget, so a real job on one line can start paid work on the next. A job crosses at most 4 lines. Old belts that joined two lines offer MAKE IT A SEND TO.
 - **SPLIT THE JOB.** A SPLITTER can split one job into parts, one per branch, next to COPY TO EACH and TAKE TURNS. Branches that each feed one JOINER run at the same time and share the line's budget.
 - **TOO LONG is shown before you pay.** A line longer than its budget is flagged on its INBOX, and the Workflow panel offers a key that raises the budget.
