@@ -23,6 +23,16 @@ A.ok(render, 'renderQueued exists in chat.js');
 const rb = render ? render[1] : '';
 A.ok(/className = 'queued-now'/.test(rb), 'every queued pill gets a queued-now key');
 A.ok(/sendQueuedNow\(/.test(rb), 'the key calls sendQueuedNow');
+{
+  // the pill's tip names what it does now that the key exists: it sends after this run, or send now hands it to the run.
+  // Run the tip line for real: the clipped pill's whole message reads in the tip, and the hint survives the 400-char cap.
+  const line = rb.slice(rb.indexOf('      const QHINT'), rb.indexOf("const label = document.createElement('span')"));
+  A.ok(line.length > 40 && !/pill\.title\s*=/.test(rb), 'the pill tip is a station data-tip (no native title)');
+  const tipOf = t => { let tip = null; new Function('pill', 't', line)({ setAttribute: (k, v) => { if (k === 'data-tip') tip = v; } }, t); return tip; };
+  A.eq(tipOf('use the blue folder'), '“use the blue folder” · sends after this run · send now hands it to the running task', 'the tip names SEND NOW, not a slash command');
+  const ht = tipOf('x'.repeat(2000));
+  A.ok(ht.length <= 400 && /…” · sends after this run · send now hands it to the running task$/.test(ht), 'a message past the tip cap gives way, never the hint');
+}
 
 const fn = /function\s+sendQueuedNow\s*\(id, i, text\)\s*\{([\s\S]*?)\n  \}/.exec(src);
 A.ok(fn, 'sendQueuedNow exists in chat.js');
