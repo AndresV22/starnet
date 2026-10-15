@@ -168,6 +168,32 @@ const NY = require('../frontend/app/needsyou.js');
   A.eq(ctx.api.notifsMarkRead().waiting, 7, 'notifications.read reports what is really still waiting (live + uncovered)');
   A.eq(badge.textContent, '7', '…and reading the history never clears a wait off the bell');
 
+  // ---- NEEDS YOU lives in the SESSIONS view: a render from PROJECTS (a build landing, a STEP-IN, an extension change, a
+  // dismiss from NOTIFICATIONS) never un-hides it above the projects list (wiring review 2026-10-14) ----
+  {
+    const host = { hidden: true, innerHTML: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, addEventListener() {}, querySelectorAll: () => [], contains: () => false };
+    global.document = { getElementById: id => id === 'ws-needs' ? host : null, querySelector: () => null, hidden: false, activeElement: null };
+    let view = 'projects';
+    global.App.railView = () => view;
+    NY.render();
+    A.ok(host.hidden === true && host.innerHTML === '', 'in PROJECTS a render keeps NEEDS YOU hidden (its 6 waits notwithstanding)');
+    // a sidecar feed change (a build landing / an extension approved) re-renders from any view: still hidden in PROJECTS
+    const realFetch = global.fetch;
+    global.fetch = async url => ({ ok: true, json: async () => url === '/api/hooks' ? { hooks: [], pending: [] } : { plugins: [] } });
+    await NY.refreshFeeds(true);
+    A.eq(NY._internals.feeds().extensions, 0, 'fixture: the feed really changed (extensions approved)');
+    A.ok(host.hidden === true && host.innerHTML === '', 'a feed change heard in PROJECTS leaves NEEDS YOU hidden there');
+    A.ok(NY.items(NOW).length > 0, 'the bell and NOTIFICATIONS still read the live list in PROJECTS (items() is not gated)');
+    view = 'sessions';
+    NY.render();
+    A.ok(host.hidden === false && /class="ny-head"/.test(host.innerHTML), 'back in SESSIONS the next render rebuilds the block (never a stale shape)');
+    global.fetch = realFetch;
+    await NY.refreshFeeds(true);
+    delete global.App.railView;
+    global.document = undefined;
+    A.ok(/railView: \(\) => railView,/.test(read('frontend/app/app.js')), 'App exposes the rail view needsyou.js reads');
+  }
+
   // the rail and the bell share one source; the heartbeat keeps the badge live in every rail view
   const app = read('frontend/app/app.js');
   A.ok(/StationUI\.badges\(\);   \/\/ org P01: the bell adds the live NEEDS YOU count/.test(app), 'the 1s rail heartbeat repaints the bell');
