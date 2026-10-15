@@ -991,9 +991,11 @@
     bindBus();
     doc.body.classList.add('hud-mode');
     applyView();
-    // the COMMS header is the HUD's drag handle
+    // the COMMS header is the HUD's drag handle. The title is 'deep': since org P26 it holds the session name in a child
+    // <span class=comms-session>, and Tauri's bare attribute drags only when the press lands on the element ITSELF — so a
+    // press on the name moved nothing. The h3 stays bare: it holds keys, and a key must stay a click.
     S.els.h3.setAttribute('data-tauri-drag-region', '');
-    if (S.els.title) S.els.title.setAttribute('data-tauri-drag-region', '');
+    if (S.els.title) S.els.title.setAttribute('data-tauri-drag-region', 'deep');
     render();
     poll(); pollHistory();
     S.pollT = root.setInterval(poll, POLL_MS);

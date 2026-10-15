@@ -55,6 +55,30 @@ const T0 = 1_800_000_000_000;
   A.ok(js.includes('holdToMove(open); holdToMove(rows);') && js.includes('cur.startDragging()') && js.includes("invoke('plugin:window|start_dragging', { label: 'main' })") && js.includes('if (!justMoved()) setView(\'activity\');'),
     'the agent cam moves: hold the picture or a row and drag the window; a press that does not move stays a click');
   A.ok(fs.readFileSync(path.join(ROOT, 'src-tauri/capabilities/default.json'), 'utf8').includes('core:window:allow-start-dragging'), 'the window may start an OS drag');
+  {
+    // the header drags from ANY part of the title, the session name included (org P26 put it in a child span). Tauri 2's
+    // drag.js isDragRegion rule, verbatim in shape: a bare attribute drags only when the press lands ON that element,
+    // 'deep' drags from its whole subtree, a clickable with no attribute blocks.
+    const isDragRegion = (composedPath) => {
+      for (const n of composedPath) {
+        const attr = n.attrs['data-tauri-drag-region'];
+        if (n.clickable && attr === undefined) return false;
+        if (attr === undefined) continue;
+        if (attr === 'false') return false;
+        if (attr === 'deep') return true;
+        if (attr === '' || attr === 'true') return n === composedPath[0];
+      }
+      return false;
+    };
+    const titleAttr = (/S\.els\.title\.setAttribute\('data-tauri-drag-region', '([^']*)'\)/.exec(js) || [])[1];
+    const h3Attr = (/S\.els\.h3\.setAttribute\('data-tauri-drag-region', '([^']*)'\)/.exec(js) || [])[1];
+    const h3 = { attrs: { 'data-tauri-drag-region': h3Attr } }, title = { attrs: { 'data-tauri-drag-region': titleAttr } };
+    const name = { attrs: {} }, key = { attrs: {}, clickable: true };
+    A.ok(isDragRegion([name, title, h3]), 'a press on the session name in the HUD header moves the window');
+    A.ok(isDragRegion([title, h3]) && isDragRegion([h3]), '…as does the word COMMS and the empty header');
+    A.ok(!isDragRegion([key, h3]), 'a header key stays a click (the h3 is not deep)');
+    A.eq(h3Attr, '', 'the h3 keeps the bare (self-only) attribute');
+  }
   const side = fs.readFileSync(path.join(ROOT, 'sidecar/index.js'), 'utf8');
   A.ok(side.includes('row.stoppable = runs.has(runId);') && side.includes("source: 'host', stoppable: runs.has(runId) }"), 'the snapshot says which runs /api/cancel can reach (additive)');
   const world = fs.readFileSync(path.join(ROOT, 'frontend/app/world.js'), 'utf8');
