@@ -36,7 +36,7 @@ global.Overseer = { snapshot: () => ({ workers: [
   { runId: 'wr5', status: 'interrupted', agentId: 'designer', parentStreamId: 'home', completedAt: NOW - 1000 }
 ] }) };
 global.App = { agentName: id => ({ agent: 'NOVA', writer: 'VEX', researcher: 'MIRA', designer: 'ROOK' })[id] || id };
-global.Chat = { consentPhrase: p => p.tool === 'mcp__gmail__send' ? 'send an email to beta@list' : String(p.tool) };
+global.Chat = { consentPhrase: p => p.tool === 'mcp__gmail__send' ? 'send an email' : String(p.tool) };   // short enough for the rail's two lines at its narrowest (test/needs-you-rail-fit.test.js)
 // the approval card's own INSPECT rule (chat.js consentInspect), run for real: it decides whether the rail's one line is
 // the whole request
 const consentCard = {};
@@ -54,7 +54,7 @@ const NY = require('../frontend/app/needsyou.js');
   A.eq(list.map(i => i.key).join(' '), 'group:grp ask:p1 ask:p2 routine:cron-r1 worker:wr1 worker:wr3',
     'asks first (oldest waiting first; a group with no age leads), then failures newest first');
   const ask = list.find(i => i.key === 'ask:p2');
-  A.eq(ask.who + ' | ' + ask.what + ' | ' + ask.where + ' | ' + ask.workerWsId, 'VEX | send an email to beta@list | General | thread_vex', 'a delegated worker\'s ask names the WORKER, says exactly what, and where');
+  A.eq(ask.who + ' | ' + ask.what + ' | ' + ask.where + ' | ' + ask.workerWsId, 'VEX | send an email | General | thread_vex', 'a delegated worker\'s ask names the WORKER, says exactly what, and where');
   A.eq(list.find(i => i.key === 'ask:p1').what, 'Which price tier should lead?', 'a question shows the question itself');
   A.ok(!list.some(i => i.key === 'ask:p9'), 'an ask in a conversation this page does not hold is not listed');
   A.ok(!list.some(i => /wr2|wr5/.test(i.key)), 'finished work and work the Commander stopped never need you');
@@ -121,19 +121,20 @@ const NY = require('../frontend/app/needsyou.js');
   const longPath = ask({ promptId: 'p28', tool: 'fs.read', argsSummary: 'C:\\Users\\andro\\projects\\launch-prep\\drafts\\pricing\\tier-comparison-final.md' });
   A.eq(global.Chat.consentInspect(longPath.p), null, '(a bare path under the glance limit has no INSPECT panel on its card)');
   A.ok(/>Review</.test(k(longPath)) && !/data-ny-act="once"/.test(k(longPath)), 'a path longer than the rail shows is reviewed on its card');
-  A.ok(/data-ny-act="once"[^>]*>Approve once</.test(k(ask({ promptId: 'p29', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a short request is still one-tap Approve');
+  // (a real request short enough for the rail's two lines at its narrowest — "wants to use fs read: notes.md" no longer is)
+  A.ok(/data-ny-act="once"[^>]*>Approve once</.test(k(ask({ promptId: 'p29', tool: 'mcp__fs__ls', argsSummary: '' }))), 'a short request is still one-tap Approve');
   // org P02 (g3 D1, final round): a direct-chat ask is reviewed through its own row — the row, its "in <where>" door and its
   // ask line open the COMMS card (the whole request, its Always / Full access keys) — so its keys are Approve once · Deny on ONE
   // row (three keys stacked into three full-width keys on the rail); a worker's ask reviews on its Delegated row's INSPECT
-  const direct = k(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }));
+  const direct = k(ask({ promptId: 'p30', tool: 'mcp__fs__ls', argsSummary: '' }));
   A.eq((direct.match(/data-ny-act="[a-z]+"[^>]*>[^<]+</g) || []).map(x => x.replace(/^data-ny-act="([a-z]+)"[^>]*>([^<]+)<$/, '$1:$2')).join(' | '), 'once:Approve once | deny:Deny', 'a direct-chat row\'s keys: Approve once · Deny');
-  const rowHtml = NY._internals.html([Object.assign(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }), { who: 'NOVA', where: 'General', what: 'fs read: notes.md', since: Date.now() })], Date.now());
+  const rowHtml = NY._internals.html([Object.assign(ask({ promptId: 'p30', tool: 'mcp__fs__ls', argsSummary: '' }), { who: 'NOVA', where: 'General', what: 'use fs ls', since: Date.now() })], Date.now());
   A.ok(/<li class="ny-item approval ny-review" data-ny-key="ask:p30">/.test(rowHtml), 'its row is the Review door (the row click opens its card)');
   A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p30" data-tip="Review it on its card: the whole request, and its Always and Full access keys">in General<\/button>/.test(rowHtml), '…and its "in <where>" door says so: ' + rowHtml.slice(0, 400));
   for (const w of [{ workerStreamId: 'thread_vex' }, { workerRunId: 'wr9' }, { background: true }]) {
-    const wa = ask(Object.assign({ promptId: 'p31', tool: 'fs.read', argsSummary: 'notes.md' }, w)), wk = k(wa);
+    const wa = ask(Object.assign({ promptId: 'p31', tool: 'mcp__fs__ls', argsSummary: '' }, w)), wk = k(wa);
     A.ok(/>Approve once</.test(wk) && />Deny</.test(wk) && !/>Review</.test(wk), 'a worker ask keeps Approve once · Deny (its review is the Delegated INSPECT): ' + Object.keys(w)[0]);
-    A.ok(!/ny-review/.test(NY._internals.html([Object.assign(wa, { who: 'VEX', where: 'General', what: 'fs read: notes.md', since: Date.now() })], Date.now())), '…and its row is not offered as the Review door: ' + Object.keys(w)[0]);
+    A.ok(!/ny-review/.test(NY._internals.html([Object.assign(wa, { who: 'VEX', where: 'General', what: 'use fs ls', since: Date.now() })], Date.now())), '…and its row is not offered as the Review door: ' + Object.keys(w)[0]);
   }
   const glassCss = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'pipglass.css'), 'utf8');
   A.ok(/\.ny-keys \{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; \}/.test(glassCss) && /\.ny-key \{\s*flex: 1 1 auto; min-width: 0; min-height: 34px; padding: 5px 8px; font: 15px\/1\.1 'VT323'/.test(glassCss) && !/\.ny-key\.ny-review \{ flex: 1 1 100%; \}/.test(glassCss), 'the two keys share one row down to the 200px rail at 15px, never three stacked full-width keys');

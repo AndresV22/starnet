@@ -217,7 +217,13 @@ const NeedsYou = (() => {
     return s < 60 ? 'now' : s < 3600 ? Math.floor(s / 60) + 'm' : s < DAY / 1000 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd';
   }
   const KIND = { approval: 'wants to', question: 'asks', group: '', failed: '', routine: '' };
-  const RAIL_CHARS = 48;   // within what the rail's three clamped ask lines show (pipglass.css .ny-what: line-clamp 3)
+  /* the longest ask line the rail ALWAYS shows whole (pipglass.css .ny-what: two clamped lines of 17px VT323 at .3px
+     spacing, 7.1px a character). Its narrowest default is the 200px laptop rail at AUTO's 115% text: about 101px of
+     line, 14 characters. Line 1 always holds the ask word ("wants to "), and whatever follows must fit ONE line, since
+     a word that misses line 1's end moves whole to line 2: 9 + 14 = 23. (48 assumed the old three-line clamp: a
+     40-character ask was cut to "…" while the rail still offered to approve it.) test/needs-you-rail-fit.test.js
+     derives this from the CSS and the font, so a restyle of the row fails there first. */
+  const RAIL_CHARS = 23;
   // the rail shows one glance line. Approve from here only when that line IS the whole request; when the approval card
   // holds more (INSPECT: a long command's tail, a file change, every argument; a station ask's own sentence: a build's
   // plan, the job a line runs, what its runs spend, that it runs unattended), or the line is longer than the rail
