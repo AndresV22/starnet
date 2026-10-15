@@ -12803,8 +12803,11 @@ async function runSampleJob(readArgs) {
     const recordedJob = jobId ? LineJobs.get(lineJobs, jobId) : null;
     const onward = recordedJob && recordedJob.sentTo ? { sentTo: recordedJob.sentTo } : {};
     // the OUTBOX id is plan.sendTo's KEY (as pipeline.js sendRec reads it): the values carry no outboxId, so a line with
-    // two OUTBOXes used to tell the lead its destinations without saying which OUTBOX hands on to which
-    if (line && plan.sendTo) onward.onwardDestinations = Object.entries(plan.sendTo).filter(([, s]) => s && s.fromLine === line).map(([outboxId, s]) => ({ lineId: s.toLine, outboxId }));
+    // two OUTBOXes used to tell the lead its destinations without saying which OUTBOX hands on to which.
+    // THE JOB'S OWN OUTBOX DECIDES (qa/bugs 3ee2d13a): a hand-off only ever leaves from the OUTBOX the job landed in (the hub's line
+    // outcome names it), so when that is known only ITS SEND TO is listed — a job in an OUTBOX that sends nowhere has no destination,
+    // and station.test_line no longer says "onward hand-off unconfirmed" for it. Unknown: every SEND TO of the line, as before.
+    if (line && plan.sendTo) onward.onwardDestinations = Object.entries(plan.sendTo).filter(([outboxId, s]) => s && s.fromLine === line && !(sampleLineOutcome && sampleLineOutcome.outboxId && String(sampleLineOutcome.outboxId) !== outboxId)).map(([outboxId, s]) => ({ lineId: s.toLine, outboxId }));
     if (workitemId) {
       const d = bumpQueue(agentId, -1);
       if (completed) chanEmit('workitem.delivered', { workitemId, finalQueueId: 'outbox', agentId, box: '', ms: Date.now() - t0, ts: Date.now(), sample: true });
