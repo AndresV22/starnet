@@ -13,15 +13,31 @@ const dismiss = A.fnBody(nav, 'function dismissCoach(persist)');
 const show = A.fnBody(nav, 'function showCoachOnce()');
 A.ok(dismiss && show && dismiss.length < nav.length && show.length < nav.length, 'both coach functions are found');
 
-function page(storage) {
+// held = { awakening, dialogue }: what navdock's own guards read (org P31 — the tip waits for the arrival and for an open
+// conversation panel to clear); both false is the ordinary in-game page
+function page(storage, held) {
   const coach = { hidden: true };
   const timers = [];
-  const make = new Function('coach', 'localStorage', 'setTimeout', 'clearTimeout',
+  const h = held || {};
+  const make = new Function('coach', 'localStorage', 'setTimeout', 'clearTimeout', 'awakeningHeld', 'dialogueOpen',
     "const COACH_KEY = 'starnet.navcoach.seen'; let coachTimer = 0; let coachShown = false;\n" + dismiss + '\n' + show + '\nreturn { dismissCoach, showCoachOnce };');
-  const api = make(coach, storage, (fn) => { timers.push(fn); return timers.length; }, () => {});
+  const api = make(coach, storage, (fn) => { timers.push(fn); return timers.length; }, () => {}, () => !!h.awakening, () => !!h.dialogue);
   return { coach, timers, api };
 }
 const store = () => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), m }; };
+// the arrival and an open conversation panel hold the tip back; it shows on the next ask once both clear (org P31)
+{
+  const ls = store(), held = { awakening: true, dialogue: false };
+  const p = page(ls, held);
+  p.api.showCoachOnce();
+  A.eq(p.coach.hidden, true, 'the tip waits while the awakening is on screen');
+  held.awakening = false; held.dialogue = true;
+  p.api.showCoachOnce();
+  A.eq(p.coach.hidden, true, 'the tip waits while the conversation panel covers COMMS');
+  held.dialogue = false;
+  p.api.showCoachOnce();
+  A.eq(p.coach.hidden, false, 'the tip shows once nothing covers the docks');
+}
 
 // the walk's path: the tip shows, fades by itself, then the Commander uses the docks for 40 minutes, then reloads
 {
