@@ -247,9 +247,13 @@ A.ok(/still learning you/i.test(NR.readinessText(rdWarm)) && /3 of 4 areas/.test
 // bar does not make it act, and LAST REPORT shows this line with no dial context at all.
 A.ok(/; to act on its own it needs either all 4 areas or 4 recent runs$/.test(NR.readinessText(rdWarm)) && !/starts acting|once either|lets it act|one of those is complete|won’t act on its own before/i.test(NR.readinessText(rdWarm)), 'readinessText names the bar it needs — EITHER all 4 areas or 4 recent runs, never read as both (g1 P09 final round) — and never promises it will act once a bar clears');
 A.eq(NR.readinessPlain({ tier: 'hot' }), '', 'a hot station has no hold-back reason');
-// a fully-hot, granted build station: present tense, the real pace from leashPerDay, each job a new ⚒ session.
+// a fully-hot, granted build station: present tense, the real pace from leashPerDay, each job a new session in the rail.
 const outBuild = NR.postureOutlook(Object.assign({}, stBase, { buildMode: 'build', draftReason: null, workshopGranted: true, readiness: { tier: 'hot' } }));
-A.eq(outBuild, 'While you’re away I’ll do up to 3 small jobs a day; each arrives as a new ⚒ session.', 'a granted, hot station says what it will do, at the status pace');
+A.eq(outBuild, 'While you’re away I’ll do up to 3 small jobs a day; each arrives as a new session in your rail.', 'a granted, hot station says what it will do, at the status pace');
+// (org P09/P31 wire) onboarding speaks postureOutlook in the Dialogue panel (VT323): no symbol glyph that falls back to another font
+for (const st of [outBuild, outCold, NR.postureOutlook({ buildMode: 'build', leashPerDay: 7 }), NR.postureOutlook({ buildMode: 'draft', draftReason: 'no-workshop-grant' })]) {
+  A.ok(!/[\u2600-\u27BF\u2B00-\u2BFF]/.test(st), 'the posture outlook carries no fallback-font symbol glyph: ' + JSON.stringify(st));
+}
 A.ok(/up to 7 small jobs a day/.test(NR.postureOutlook({ buildMode: 'build', leashPerDay: 7 })), 'the job count follows status.leashPerDay, never a fixed number');
 A.ok(!/\d/.test(NR.postureOutlook({ buildMode: 'build', leashPerDay: null })), 'an unknown leashPerDay drops the number instead of inventing one');
 A.ok(!/still learning|I’ll start once/i.test(outBuild), 'a hot station adds no still-learning caveat');
