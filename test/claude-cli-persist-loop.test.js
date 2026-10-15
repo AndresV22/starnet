@@ -142,6 +142,9 @@ function fixture() {
       A.eq(f.costs().map(c => [c.tokensIn, c.tokensOut, c.cachedTokens, Math.round(c.usd * 1e6) / 1e6]), expected, mode + ': every completed/failed attempt booked once with account-scoped cost');
       A.eq(Math.round(out.usd * 1e6) / 1e6, mode === 'metered' ? 0.4 : 0, 'run total matches settled attempt shares');
       A.eq(f.seq.filter(e => e.name === 'agent.run.error').length, 0, 'successful recovery emits no terminal error');
+      // the usage-limit turn's streamed call never becomes a tool row: two rows (a, b), both real results, no failed mark
+      A.eq(f.seq.filter(e => e.name === 'agent.tool_call').length, 2, mode + ': only the two dispatched calls become tool rows');
+      A.eq(f.seq.filter(e => e.name === 'agent.tool_result').map(e => !!e.payload.isError), [false, false], mode + ': no tool row reads failed because of the usage limit');
       f.protocolChecks(); f.endChecks('done');
       if (mode === 'retained') {
         A.eq(a.kills.length, 2, 'run end retries A failed cleanup exactly once');
@@ -167,6 +170,11 @@ function fixture() {
       A.eq(f.reads, [], 'rejected parsed call never reaches registry');
       A.eq(f.seq.filter(e => e.name === 'provider.fallback').length, 0, 'no invented fallback without another account');
       A.eq(f.seq.filter(e => e.name === 'agent.run.error').length, 1, 'one terminal error event');
+      // (stall report 2026-10-13: "x" marks after a usage limit) the limited turn's streamed call is never shown as a tool
+      // row, so no row can read failed; the limit itself is said once, in plain words
+      A.eq(f.seq.filter(e => e.name === 'agent.tool_call' || e.name === 'agent.tool_result').length, 0, tag + '/' + terminal + ': the rejected call never becomes a tool row (no call, no failed result)');
+      const said = f.seq.filter(e => e.name === 'agent.run.error').map(e => String(e.payload.message || ''));
+      if (tag === 'rate_limit') A.ok(said.length === 1 && /usage limit reached/i.test(said[0]), tag + '/' + terminal + ': the limit is named once: ' + JSON.stringify(said));
       A.eq(f.costs().map(c => [c.tokensIn, c.cachedTokens, c.usd]), [[220, 20, 0]], 'available attempt input/cache and subscription zero settled exactly once');
       A.ok(f.costs()[0] && f.costs()[0].tokensOut >= 4, 'available output count preserved without inventing a billed result');
       A.eq(a.children.length, 1, 'observed error never prewarms another child');
