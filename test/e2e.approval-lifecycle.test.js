@@ -250,6 +250,7 @@ async function until(fn, ms, label) {
     // the Commander approves the writer's ask from its row / NEEDS YOU (Chat.answerConsent -> POST /api/consent)
     const ans = await (await fetch(B + '/api/consent', { method: 'POST', headers: H, body: JSON.stringify({ runId: leadRunId, promptId: writerAsk.promptId, decision: 'once' }) })).json();
     A.eq(ans.ok, true, 'POST /api/consent with the prompt\'s runId answers a background ask after the lead ended');
+    A.ok(!ans.gone, 'an answer that landed is never reported gone');
     await until(() => bus.events.some(e => e.name === 'permission.response' && e.payload && e.payload.promptId === writerAsk.promptId && e.payload.decision === 'once'), 5000, 'the answer announced on the station bus');
     const writerFile = path.join(fixture.workspace, 'writer', 'launch-email.md');
     await until(() => fs.existsSync(writerFile), 8000, 'the approved write landing in the writer\'s workspace');
@@ -265,6 +266,11 @@ async function until(fn, ms, label) {
     A.ok(!(gone.prompts || []).some(r => r.promptId === writerAsk.promptId || r.promptId === drafterAsk.promptId), 'settled asks leave the snapshot');
     const late = await (await fetch(B + '/api/consent', { method: 'POST', headers: H, body: JSON.stringify({ runId: leadRunId, promptId: drafterAsk.promptId, decision: 'once' }) })).json();
     A.eq(late.ok, false, 'a late answer to the expired ask approves nothing');
+    /* SOAK 10-15: an ask the station no longer holds says so (gone:true), so the worker's row lets it go and says the
+       approval is no longer waiting, instead of "Please try again" on a key nothing can answer any more */
+    A.eq(late.gone, true, 'a late answer to the expired background ask is told the ask is gone');
+    const twice = await (await fetch(B + '/api/consent', { method: 'POST', headers: H, body: JSON.stringify({ runId: leadRunId, promptId: writerAsk.promptId, decision: 'deny' }) })).json();
+    A.eq([twice.ok, twice.gone], [false, true], 'a second answer to an ask already answered (on another surface) is told it is gone, and changes nothing');
 
     /* ---------------- 2. #60: the page reloads while the run waits on its own approval ---------------- */
     let reloadRunId = '';
@@ -343,6 +349,11 @@ async function until(fn, ms, label) {
     // a "session" answer (a paired phone offers it) to the drafter's ask after the lead's turn: session grants end with
     // the lead's run (handleRun's finally), and that run is already over — so it approves this one call, and no grant
     // is written under the ended run (it would outlive every run that could ever clear it)
+    // an answer addressed to a run that does not hold this ask applies nothing, and is never told "gone" while the ask
+    // still waits (the page would drop a live ask's keys on that word)
+    const astray = await (await fetch(B + '/api/consent', { method: 'POST', headers: H, body: JSON.stringify({ runId: 'not-the-slot', promptId: d2.promptId, decision: 'once' }) })).json();
+    A.eq([astray.ok, !!astray.gone], [false, false], 'a misaddressed answer is refused, and the still-waiting ask is not reported gone');
+    A.ok(!bus.events.some(e => e.name === 'permission.response' && e.payload && e.payload.promptId === d2.promptId), 'the misaddressed answer settled nothing');
     const sess = await (await fetch(B + '/api/consent', { method: 'POST', headers: H, body: JSON.stringify({ runId: lead2RunId, promptId: d2.promptId, decision: 'session' }) })).json();
     A.eq(sess.ok, true, 'a "session" answer to a background ask after its lead ended is accepted');
     const drafterFile = path.join(fixture.workspace, 'drafter', 'pricing-page.md');

@@ -23391,7 +23391,7 @@ async function runOnceCore(o) {
 
 // POST /api/consent { runId, promptId, decision } — the browser's answer to a live permission.prompt. Resolves the
 // run's awaiting dispatch. Unknown/illegal decisions fail closed to 'deny'. A stale runId/promptId is a harmless
-// no-op (the run already ended or auto-denied).
+// no-op (the run already ended or auto-denied), answered ok:false + gone:true when no such ask waits anywhere.
 async function handleConsent(req, res) {
   let body;
   try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
@@ -23412,8 +23412,14 @@ async function handleConsent(req, res) {
     if (!persisted) decision = 'deny';
   }
   if (finish) finish(decision);
+  /* GONE (soak 10-15): the station holds no such ask any more — answered on another surface, expired, withdrawn, or lost to
+     a restart. Said apart from a refusal (additive), so a surface that still shows its keys lets it go and says it is no
+     longer waiting, instead of "try again" on a key nothing can answer. Never said while the ask still waits under another
+     run (a misaddressed answer): that page must keep its keys. */
+  let gone = false;
+  if (!finish) { gone = true; for (const p of [...pendingByRun.values(), ...channelPendingByRun.values()]) if (p && p.has(body.promptId)) { gone = false; break; } }
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ ok: !!finish && persisted, decision, agentId: agentId || null, approvalMode: persisted && decision === 'full' ? 'full' : null }));
+  res.end(JSON.stringify(Object.assign({ ok: !!finish && persisted, decision, agentId: agentId || null, approvalMode: persisted && decision === 'full' ? 'full' : null }, gone ? { gone: true } : {})));
 }
 
 /* POST /api/consent/answer { runId, promptId, answer } — the in-turn clarify reply (2026-07-31). A SIBLING
