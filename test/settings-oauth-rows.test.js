@@ -137,7 +137,8 @@ A.ok(/p !== 'codex' && p !== 'grok' && p !== 'kimi'/.test(keycta), 'keycta treat
   A.ok(/\.then\(r => \{ setDesktopConfigured\(p, on\); return r; \}\)/.test(harness), 'setKey flips configured only after the keychain write resolves');
   A.ok(/err && err\.message/.test(ui) && /could not verify and store the ' \+ provName\(provider\) \+ ' key/.test(ui), 'Settings key save renders the exact validation/keychain failure copy');
   // Settings OAuth state changes mirror into the desktop configured-map (genesis already did; Settings must too).
-  A.ok(/Harness\.setDesktopConfigured\('codex', true\)/.test(ui) && /Harness\.setDesktopConfigured\(pid, true\)/.test(ui), 'Settings sign-in feeds the desktop configured-map');
+  // (org P03 wiring) every sign-in — card, door, or the API KEYS row's RE-SIGN-IN, codex included — finishes in startCardSignin
+  A.ok(/function startCardSignin\(pid, retryLabel\) \{[\s\S]*?Harness\.setDesktopConfigured\(pid, true\)/.test(ui) && /if \(act === 'codex-resign'\) \{ startCardSignin\('codex', '⏼ RE-SIGN-IN'\); return; \}/.test(ui), 'Settings sign-in feeds the desktop configured-map');
   A.ok(/Harness\.setDesktopConfigured\('codex', false\)/.test(ui) && /Harness\.setDesktopConfigured\(pid, false\)/.test(ui), 'Settings disconnect clears the desktop configured-map');
   // model reconcile on OAuth card select: a foreign global model slug must not ride to the new endpoint.
   A.ok(/isOAuthProvider\(p\) && typeof fetch === 'function'/.test(ui) && /\/api\/auth\/' \+ p \+ '\/models/.test(ui), 'selecting an OAuth provider card reconciles the model against that provider\'s catalog');

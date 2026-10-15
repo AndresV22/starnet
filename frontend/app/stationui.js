@@ -5821,12 +5821,20 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<button class="bb sm" data-act="' + esc(pid) + '-resign">⏼ RE-SIGN-IN</button>' +
       '<button class="bb sm danger" data-act="' + esc(pid) + '-logout">✕ DISCONNECT</button>' +
       '</div></div>' +
-      // the inline device-code surface the RE-SIGN-IN action fills (same engine as codex: OAuthSignIn.for(pid)
-      // → code + verification URL here, poll until the sidecar reports connected).
-      '<div class="key-edit codex-inline" id="' + esc(pid) + '-inline-signin" hidden>' +
-      '<span class="dim" id="' + esc(pid) + '-inline-status"></span>' +
-      '<code class="key-mask" id="' + esc(pid) + '-inline-code" hidden></code>' +
-      '<button class="bb sm" id="' + esc(pid) + '-inline-open" hidden>↗ OPEN PAGE</button>' +
+      // the inline device-code surface the RE-SIGN-IN action fills — drawn from the ONE card-flow state (oauthRowFlowHtml)
+      oauthRowFlowHtml(pid);
+  }
+  /* ONE SIGN-IN, ONE CODE (org P03 wiring): the API KEYS row's ⏼ RE-SIGN-IN and the card's ⏼ SIGN IN / RECONNECT door drive
+     the SAME engine (OAuthSignIn.for(pid); codex = CodexSignIn), and a start silently cancels the flow before it. The row
+     used to keep its own DOM-only box: the card then went on showing a superseded code nobody polled, and a Settings
+     repaint wiped the row's code. Both boxes are now views of oauthCardFlow[pid] (startCardSignin owns it), each redrawn
+     by paintOAuthCardFlow, so every box on screen shows the one code the engine is polling for. */
+  function oauthRowFlowHtml(pid) {
+    const v = oauthCardFlowView(pid, true);
+    return '<div class="key-edit codex-inline" id="' + esc(pid) + '-inline-signin"' + (v ? '' : ' hidden') + '>' +
+      '<span class="dim" id="' + esc(pid) + '-inline-status">' + (v ? v.statusHtml : '') + '</span>' +
+      '<code class="key-mask" id="' + esc(pid) + '-inline-code"' + (v && v.code ? '>' + esc(v.code) : ' hidden>') + '</code>' +
+      '<button class="bb sm" data-act="oauth-row-open" data-provider="' + esc(pid) + '" id="' + esc(pid) + '-inline-open"' + (v && v.openUri ? '' : ' hidden') + '>↗ OPEN PAGE</button>' +
       '</div>';
   }
   function keysHtml() {
@@ -5893,13 +5901,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           '<button class="bb sm" data-act="codex-resign">⏼ RE-SIGN-IN</button>' +
           '<button class="bb sm danger" data-act="codex-logout">✕ DISCONNECT</button>' +
           '</div></div>' +
-          // the inline device-code surface the RE-SIGN-IN action fills (same engine as the brain screen:
-          // CodexSignIn.start → code + verification URL here, poll until the sidecar reports connected).
-          '<div class="key-edit codex-inline" id="codex-inline-signin" hidden>' +
-          '<span class="dim" id="codex-inline-status"></span>' +
-          '<code class="key-mask" id="codex-inline-code" hidden></code>' +
-          '<button class="bb sm" id="codex-inline-open" hidden>↗ OPEN PAGE</button>' +
-          '</div>';
+          // the inline device-code surface the RE-SIGN-IN action fills — drawn from the ONE card-flow state (oauthRowFlowHtml)
+          oauthRowFlowHtml('codex');
       }
       if (k.local) {
         return '<div class="key-row">' +
@@ -5974,39 +5977,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (act !== 'rm') sfx('click');   // destructive REMOVE owns its own 'bad' cue (matches the CLEAR control)
         // ---- ChatGPT (Codex) OAuth row actions — no Harness store involved; they drive the sidecar's
         //      device-flow endpoints through the SAME shared engine as the brain screen (codexsignin.js). ----
-        if (act === 'codex-resign') {
-          if (typeof CodexSignIn === 'undefined') return;
-          const box = body.querySelector('#codex-inline-signin');
-          const st = body.querySelector('#codex-inline-status');
-          const code = body.querySelector('#codex-inline-code');
-          const open = body.querySelector('#codex-inline-open');
-          if (box) box.hidden = false;
-          CodexSignIn.start({
-            onRequesting: () => { if (st) st.textContent = 'requesting a sign-in code…'; },
-            onError: msg => { if (st) st.textContent = msg; sfx('bad'); },
-            onTimeout: () => { if (st) st.textContent = 'sign-in timed out — hit RE-SIGN-IN to start again'; },
-            onCode: c => {
-              if (code) { code.textContent = c.user_code; code.hidden = false; }
-              // DISPLAY the bare address, OPEN the code-carrying one (open_uri) — see codexsignin.js.
-              if (st) st.innerHTML = 'enter this code at <b>' + esc(c.verification_uri) + '</b> (opening it now)…';
-              if (open) { open.hidden = false; open.onclick = () => { sfx('click'); openExternal(c.open_uri || c.verification_uri); }; }
-              openExternal(c.open_uri || c.verification_uri);
-            },
-            onConnected: () => {
-              // the sidecar just exchanged + persisted fresh tokens — that POLL answer is backend truth.
-              codexStatusKnown = { connected: true, expired: false, reason: '' };
-              if (typeof Harness !== 'undefined' && Harness.setDesktopConfigured) Harness.setDesktopConfigured('codex', true);   // desktop map learns mid-session (genesis feeds it; Settings must too)
-              notify('✓ reconnected ChatGPT — your agents can run on your subscription again', 'good');
-              if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
-              if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
-              refreshCodexConnectionStatus();   // re-read the durable status (persistError etc.) behind the repaint
-              rerender('settings');
-            }
-          });
+        if (act === 'codex-resign') { startCardSignin('codex', '⏼ RE-SIGN-IN'); return; }   // the ONE card flow (oauthRowFlowHtml)
+        // the row box's ↗ OPEN PAGE reopens the page the shared flow's code belongs to
+        if (act === 'oauth-row-open') {
+          const f = oauthCardFlow[b.dataset.provider];
+          if (f && f.openUri) openExternal(f.openUri);
           return;
         }
         if (act === 'codex-logout') {
-          if (typeof CodexSignIn !== 'undefined') CodexSignIn.cancel();
+          if (typeof CodexSignIn !== 'undefined') CodexSignIn.cancel(); delete oauthCardFlow.codex;   // the cancelled flow's code leaves every box
           const drop = (typeof CodexSignIn !== 'undefined') ? CodexSignIn.logout() : Harness.api.post('/api/auth/codex/logout').catch(() => {});
           Promise.resolve(drop).then(() => {
             codexStatusKnown = { connected: false, expired: false, reason: '' };   // the sidecar just confirmed the drop
@@ -6025,39 +6004,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (oauthAct) {
           const pid = oauthAct[1];
           const engine = (typeof OAuthSignIn !== 'undefined') ? OAuthSignIn.for(pid) : null;
-          if (oauthAct[2] === 'resign') {
-            if (!engine) return;
-            const box = body.querySelector('#' + pid + '-inline-signin');
-            const st = body.querySelector('#' + pid + '-inline-status');
-            const code = body.querySelector('#' + pid + '-inline-code');
-            const open = body.querySelector('#' + pid + '-inline-open');
-            if (box) box.hidden = false;
-            engine.start({
-              onRequesting: () => { if (st) st.textContent = 'requesting a sign-in code…'; },
-              onError: msg => { if (st) st.textContent = msg; sfx('bad'); },
-              onTimeout: () => { if (st) st.textContent = 'sign-in timed out — hit RE-SIGN-IN to start again'; },
-              onCode: c => {
-                if (code) { code.textContent = c.user_code; code.hidden = false; }
-                // DISPLAY the bare address, OPEN the code-carrying one — kimi's page REQUIRES ?user_code=.
-                if (st) st.innerHTML = 'enter this code at <b>' + esc(c.verification_uri) + '</b> (opening it now)…';
-                if (open) { open.hidden = false; open.onclick = () => { sfx('click'); openExternal(c.open_uri || c.verification_uri); }; }
-                openExternal(c.open_uri || c.verification_uri);
-              },
-              onConnected: () => {
-                // the sidecar just exchanged + persisted fresh tokens — that POLL answer is backend truth.
-                oauthStatus[pid] = { connected: true, expired: false, reason: '' };
-                if (typeof Harness !== 'undefined' && Harness.setDesktopConfigured) Harness.setDesktopConfigured(pid, true);   // desktop map learns mid-session (genesis feeds it; Settings must too)
-                notify('✓ reconnected ' + provName(pid) + ' — your agents can run on your subscription again', 'good');
-                if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
-                if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
-                refreshOAuthStatus(pid);   // re-read the durable status (persistError etc.) behind the repaint
-                rerender('settings');
-              }
-            });
-            return;
-          }
+          if (oauthAct[2] === 'resign') { if (engine) startCardSignin(pid, '⏼ RE-SIGN-IN'); return; }   // the ONE card flow
           // logout
-          if (engine) engine.cancel();
+          if (engine) engine.cancel(); delete oauthCardFlow[pid];
           const drop = engine ? engine.logout() : Harness.api.post('/api/auth/' + pid + '/logout').catch(() => {});
           Promise.resolve(drop).then(() => {
             oauthStatus[pid] = { connected: false, expired: false, reason: '' };   // the sidecar just confirmed the drop
@@ -6502,12 +6451,25 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     };
   }
   function paintOAuthCardFlow(pid) {
+    paintOAuthRowFlow(pid);
     const w = open.settings;
     const box = w && w.querySelector('#prov-oauth-inline-' + pid);
     if (!box) return;   // the card isn't drawn right now — its next render draws the box from the state
     const v = oauthCardFlowView(pid, true);
     box.hidden = !v;
     const st = box.querySelector('#prov-oauth-status-' + pid), code = box.querySelector('#prov-oauth-code-' + pid), openBtn = box.querySelector('#prov-oauth-open-' + pid);
+    if (st) st.innerHTML = v ? v.statusHtml : '';
+    if (code) { code.textContent = v ? v.code : ''; code.hidden = !(v && v.code); }
+    if (openBtn) openBtn.hidden = !(v && v.openUri);
+  }
+  // the API KEYS row's box is the same flow's second view (oauthRowFlowHtml) — absent while the provider has no row
+  function paintOAuthRowFlow(pid) {
+    const w = open.settings;
+    const box = w && w.querySelector('#' + pid + '-inline-signin');
+    if (!box) return;
+    const v = oauthCardFlowView(pid, true);
+    box.hidden = !v;
+    const st = box.querySelector('#' + pid + '-inline-status'), code = box.querySelector('#' + pid + '-inline-code'), openBtn = box.querySelector('#' + pid + '-inline-open');
     if (st) st.innerHTML = v ? v.statusHtml : '';
     if (code) { code.textContent = v ? v.code : ''; code.hidden = !(v && v.code); }
     if (openBtn) openBtn.hidden = !(v && v.openUri);
