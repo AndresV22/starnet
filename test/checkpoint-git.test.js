@@ -42,6 +42,19 @@ const run = makeCheckpointGitRunner({spawn,file:process.execPath,timeoutMs:1200,
     const afterAbort=fs.statSync(heartbeat).size;
     await new Promise(r=>setTimeout(r,250));
     A.eq(fs.statSync(heartbeat).size,afterAbort,'abort stopped descendant before returning');
+    // #107 residual: a per-call bound wins over the constructor default. Shadow-repo maintenance (gc, the re-init
+    // add/commit) needs longer than a snapshot's add; ignoring opts.timeoutMs cut every gc off at the default and
+    // left its half-written tmp_pack behind on every turn. A 2.5 s command must finish under a 6 s per-call bound
+    // even though the runner's own default (1.2 s) would kill it, and a per-call bound shorter than the default
+    // must still stop a command that would otherwise run on.
+    const slowOk=await settled(run(['-e',"setTimeout(()=>{process.stdout.write('done');process.exit(0);},2500)"],{cwd:root,timeoutMs:6000}),12000);
+    A.ok(slowOk&&slowOk.code===0&&!slowOk.timedOut,'a per-call timeoutMs longer than the default lets the command finish');
+    A.eq(slowOk&&slowOk.stdout,'done','the longer per-call bound returns the command output');
+    const longDefault=makeCheckpointGitRunner({spawn,file:process.execPath,timeoutMs:15000,clock:{now:()=>Date.now()}});
+    const t0=Date.now();
+    const cutShort=await settled(longDefault(['-e',"setTimeout(()=>process.exit(0),12000)"],{cwd:root,timeoutMs:1200}),10000);
+    A.ok(cutShort&&cutShort.timedOut&&cutShort.code!==0,'a per-call timeoutMs shorter than the default stops the command');
+    A.ok(Date.now()-t0<10000,'the shorter per-call bound is honoured, not the 15 s default');
     const missing=await makeCheckpointGitRunner({spawn,file:path.join(root,'absent-executable')})([],{cwd:root});
     A.ok(missing.code!==0,'missing executable resolves fail-open error');
     const source=fs.readFileSync(path.join(__dirname,'../sidecar/index.js'),'utf8');
