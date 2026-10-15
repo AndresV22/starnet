@@ -1348,6 +1348,10 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 }
 .fnv-dialogue.show { opacity: 1; }
 .fnv-dialogue.no-anim { transition: none; }
+/* a MID-GAME OFFER (dialogue.js armOffer) ends above the message box: its bottom is set to the composer stack's top edge, and
+   the box rides above it, so the / menu and the model dock that open upward from the box are never under the panel */
+.fnv-dialogue.fnv-offer { border-bottom: 1px solid var(--ph-dim); }
+#chat-panel.fnv-offer-host #chat-inputrow { z-index: 31; }
 /* A body-level fixed panel, so its viewport caps carry the --sn-unzoom reciprocal (see style.css
    `.term`): a bare 70vh renders as 101vh at HUGE, and this panel is anchored to the BOTTOM, so the
    overflow leaves by the top — it would grow past the frame exactly where the speaker line is.

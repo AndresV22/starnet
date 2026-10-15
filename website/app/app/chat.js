@@ -162,6 +162,7 @@ const Chat = (() => {
   function topInLog(el) { const k = log.offsetHeight ? (log.getBoundingClientRect().height / log.offsetHeight) || 1 : 1; return (el.getBoundingClientRect().top - log.getBoundingClientRect().top) / k; }
   function holdCard(el) { log.scrollTop += topInLog(el) - 8; stick = false; heldCard = el; heldScrollTop = log.scrollTop; hideNewPill(); }
   function revealCard(el) {
+    noteAskLanding();   // a live question / approval card is on screen: an offer panel over COMMS steps aside for its keys
     if (!log || !el || !el.getBoundingClientRect || !log.clientHeight) { autoscroll(); return; }   // COMMS has no layout (behind CREW / ACTIVITY / cinema): nothing to reveal
     if (heldCard && heldCard !== el && log.contains(heldCard)) { if (!heldQueue.includes(el)) heldQueue.push(el); return 'queued'; }
     if (!stick) { autoscroll(); return; }
@@ -226,6 +227,7 @@ const Chat = (() => {
       if (p) { permissionRow(p, activeWs); card = find(); }
     }
     if (!card) return false;
+    noteAskLanding();   // NEEDS YOU › Review / Answer: the card it lands on is never under an offer panel
     revealHistory(card);
     if (card.dataset.liveAsk) { heldCard = card; heldScrollTop = log.scrollTop; heldQueue.length = 0; hideNewPill(); }   // answering it resumes the follow
     try { card.focus({ preventScroll: true }); } catch (_) { /* focus is a courtesy: the card is already in view */ }
@@ -1950,32 +1952,71 @@ const Chat = (() => {
     if (continuityEvents.length > 64) continuityEvents.shift();
   }
   function continuityDiagnostics() { return continuityEvents.map(e => ({ ...e })); }
-  function loadServerHistory(ws, loadToken) {
+  function loadServerHistory(ws, loadToken, timeoutMs) {
     if (!ws || !ws.id) return Promise.resolve(false);
-    const read = { history: ws.history, promise: null };
+    const read = { history: ws.history, promise: null, timeoutMs: timeoutMs > 0 ? timeoutMs : 0, retryable: false };   // 0 = the open-time 8 s window
     historyLoads.set(ws, read);
     noteContinuity(ws, 'history-loading');
     read.promise = reconcileServerHistory(ws, loadToken, read);
     return read.promise;
   }
 
+  /* THE FIRST MESSAGE AFTER A RESTART (soak S2, 2026-10-15). Opening a conversation reads its history once, in an 8 s
+     window. Right after a station restart the sidecar can take longer than that to answer (the soak's own API calls
+     took 5-11 s in the first seconds after boot, 0.5 s once warm), so that read can time out — and the FIRST send then
+     awaited the already-settled failure and refused ("history could not be restored") without asking the station
+     again; no run started. A send now asks again while the station has not answered: a fresh read, a longer window
+     per read (a busy boot answers late, not never), short backoff between unanswered reads, all inside one bounded
+     wait. The message is admitted only once a read REALLY answered (never on a guess), exactly once (admission
+     happens before the run is requested, so a retry can never double-send). STOP or a removed conversation ends the
+     wait at once; a station that never answers still ends in the same honest refusal, message kept; a refusal the
+     station answered on purpose (4xx) is final. The COMMS status stays 'connecting…' throughout — no run exists yet. */
+  const HISTORY_SEND_READ_MS = 20000;    // one send-time read's window (an open-time read keeps 8 s: reconcileServerHistory)
+  const HISTORY_SEND_WAIT_MS = 45000;    // the whole wait a send gives an unanswered history before it refuses
+  function changedBeforeSending() { return new Error('Conversation changed before sending.'); }
+  // Wait for a promise, but let the send's own abort (STOP) end the wait at once. The read itself is shared with the
+  // open-time load and keeps its own owner rules; only this send stops waiting on it.
+  function untilAborted(promise, signal) {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) { reject(changedBeforeSending()); return; }
+      const changed = () => reject(changedBeforeSending());
+      signal.addEventListener('abort', changed, { once: true });
+      promise.then(v => { signal.removeEventListener('abort', changed); resolve(v); },
+        e => { signal.removeEventListener('abort', changed); reject(e); });
+    });
+  }
+
   async function ensureHistoryReady(ws, signal) {
-    let read = historyLoads.get(ws);
-    if (!read || !read.promise) { loadServerHistory(ws, historyPinSeq); read = historyLoads.get(ws); }
-    let ready = await read.promise;
-    // A second open can supersede the request while this turn waits. Follow the
-    // latest owner, never admit inference on a previous visit's settled promise.
-    while (historyLoads.get(ws) !== read) {
-      if (signal.aborted) throw new Error('Conversation changed before sending.');
+    const deadline = Date.now() + HISTORY_SEND_WAIT_MS;
+    let asked = 0, read = null;
+    for (;;) {
       read = historyLoads.get(ws);
-      ready = await read.promise;
-    }
-    if (!ready) {
+      if (!read || !read.promise) {
+        loadServerHistory(ws, historyPinSeq, Math.max(1000, Math.min(HISTORY_SEND_READ_MS, deadline - Date.now())));
+        read = historyLoads.get(ws); asked++;
+      }
+      let ready = await untilAborted(read.promise, signal);
+      // A second open can supersede the request while this turn waits. Follow the
+      // latest owner, never admit inference on a previous visit's settled promise.
+      while (historyLoads.get(ws) !== read) {
+        if (signal.aborted) throw changedBeforeSending();
+        read = historyLoads.get(ws);
+        ready = await untilAborted(read.promise, signal);
+      }
+      if (ready) break;
       if (historyLoads.get(ws) === read) read.promise = null;
-      noteContinuity(ws, 'send-held-history-unavailable');
-      throw Object.assign(new Error('Conversation history could not be restored. Your message is kept; try again when the connection returns.'), { code: 'HISTORY_UNAVAILABLE' });
+      if (signal.aborted || (typeof Workstreams !== 'undefined' && Workstreams.get(ws.id) !== ws)) throw changedBeforeSending();
+      // a settled failure from before this send (the open-time read) is asked again at once; this send's own
+      // unanswered reads back off 1 s, 2 s, then 4 s
+      const pause = asked ? Math.min(4000, 500 * Math.pow(2, asked)) : 0;
+      if (!read.retryable || Date.now() + pause >= deadline) {
+        noteContinuity(ws, 'send-held-history-unavailable');
+        throw Object.assign(new Error('Conversation history could not be restored. Your message is kept; try again when the connection returns.'), { code: 'HISTORY_UNAVAILABLE' });
+      }
+      noteContinuity(ws, 'send-history-retry');
+      if (pause) await untilAborted(new Promise(resolve => setTimeout(resolve, pause)), signal);
     }
-    if (signal.aborted || (typeof Workstreams !== 'undefined' && Workstreams.get(ws.id) !== ws)) throw new Error('Conversation changed before sending.');
+    if (signal.aborted || (typeof Workstreams !== 'undefined' && Workstreams.get(ws.id) !== ws)) throw changedBeforeSending();
     noteContinuity(ws, 'send-history-ready');
     return read;
   }
@@ -1986,12 +2027,13 @@ const Chat = (() => {
     let busy = false;
     try { busy = typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(ws.id); } catch (_) {}
     const waits = cronSession && !busy ? [120, 400] : [];
-    let turns = [], reachable = false;
+    let turns = [], reachable = false, refused = false;
     for (let attempt = 0; attempt <= waits.length; attempt++) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const timeout = setTimeout(() => controller.abort(), read.timeoutMs > 0 ? read.timeoutMs : 8000);   // a send's read may wait longer (ensureHistoryReady)
       try {
         const r = await fetch('/api/transcript?agent=' + encodeURIComponent(ws.agentId || 'agent') + '&stream=' + encodeURIComponent(ws.id) + '&limit=200', { cache: 'no-store', signal: controller.signal });
+        refused = !r.ok && r.status >= 400 && r.status < 500;   // the station answered "no": asking again cannot change it
         if (r.ok) {
           const j = (await r.json()) || {};
           if (!Array.isArray(j.turns)) break; // malformed is unknown, never an empty transcript
@@ -1999,10 +2041,11 @@ const Chat = (() => {
           reachable = true;
           if (!cronSession || turns.some(t => t && t.role === 'assistant' && String(t.content == null ? '' : t.content).trim())) break;
         }
-      } catch (_) { /* retry the bounded cron persistence window below */ }
+      } catch (_) { refused = false; /* no answer (timeout / connection): retry the bounded cron persistence window below */ }
       finally { clearTimeout(timeout); }
       if (attempt < waits.length) await new Promise(resolve => setTimeout(resolve, waits[attempt]));
     }
+    read.retryable = !reachable && !refused;   // unanswered (or unreadable) — a send may ask again (ensureHistoryReady)
     // A superseded read, removed session or deliberate clear cannot write back.
     if (historyLoads.get(ws) !== read || (typeof Workstreams !== 'undefined' && Workstreams.get(ws.id) !== ws)
       || (read.history.length && !ws.history.length)) { noteContinuity(ws, 'history-stale-discarded'); return false; }
@@ -4176,6 +4219,11 @@ const Chat = (() => {
   async function answerConsent(p, ws, decision, via) {
     const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
     const answer = await Harness.consent(rid, p.promptId, decision);
+    if (answer && !answer.ok && answer.gone === true) {
+      letGoneAskGo(p.promptId);
+      const gone = new Error('that approval is no longer waiting, so your answer was not applied'); gone.gone = true;
+      throw gone;
+    }
     if (!(answer && answer.ok)) throw new Error((answer && answer.error) || 'The station did not confirm that answer. Please try again.');
     if (ws) settlePromptNotice(ws.id, p.promptId);
     const appliedDecision = (answer && answer.decision) || 'deny';
@@ -4254,6 +4302,26 @@ const Chat = (() => {
     try { c.retire(text); } catch (e) { if (typeof console !== 'undefined') console.warn('[comms] retire card failed', e); }
     return true;
   }
+  /* AN ASK THE STATION NO LONGER HOLDS (soak 10-15). The consent route says `gone` when no such ask waits anywhere: it was
+     answered on a surface whose word never reached this page, it expired, or it was withdrawn (a restart). Retrying can never
+     land, so this page lets go of it everywhere it shows — its record, its bell entry, its card and the worker's row — in
+     neutral words: nothing is claimed about what settled it. */
+  function letGoneAskGo(promptId) {
+    const id = String(promptId);
+    if (typeof Channels !== 'undefined' && Channels.allPending) {
+      for (const { wsId, p } of Channels.allPending()) {
+        if (!p || String(p.promptId) !== id) continue;
+        Channels.clearPending(wsId, Date.now(), p.promptId);
+        settlePromptNotice(wsId, id);
+        if (typeof Workstreams !== 'undefined' && Workstreams.get && isActiveWs(Workstreams.get(wsId))) renderPresence();
+      }
+    }
+    retireConsentCard(id, '■ no longer waiting on you');
+    if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint();
+    if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
+    try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (e) { console.warn('[comms] rail refresh after a gone ask failed', e); }
+    syncStatus();
+  }
   function permissionRow(p, ws) {
     if (p && p.tool === 'brief.ask') return clarifyRow(p, ws);   // a question, not a grade — its own card
     // ONE PLACE PER STATUS: a delegated worker's ask is answered on that worker's row of the delegation card
@@ -4275,6 +4343,11 @@ const Chat = (() => {
       try { res = await answerConsent(p, ws, decision); }
       catch (e) {
         submitting = false;
+        // the station no longer holds this ask: answerConsent retired this card in neutral words (or this card does it here)
+        if (e && e.gone) {
+          if (!decided) { decided = true; btns.remove(); releaseCard(r.d); const tag = document.createElement('span'); tag.className = 'consent-result err'; tag.textContent = '■ no longer waiting on you'; r.body.appendChild(tag); syncStatus(); }
+          return;
+        }
         if (received && applyElsewhere) { applyElsewhere(received); return; }
         for (const b of btns.querySelectorAll('button')) b.disabled = false;
         if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
@@ -5900,6 +5973,7 @@ const Chat = (() => {
     return !!(pendingTaskQuestion && activeWs && pendingTaskQuestion.streamId === activeWs.id);
   }
   function offerTaskQuestion(tq) {
+    noteAskLanding();   // …and an offer panel over COMMS steps aside, so the question's answer chips are never under it
     clearNudge();   // the question CLAIMS the moment: a live gentle nudge leaves whole (prompt + chips) — its chip
                     // row would be wiped by choices() below anyway, and a stuck activeNudge would mute beats forever
     pendingTaskQuestion = Object.assign({}, tq, { streamId: activeWs && activeWs.id });
@@ -6455,18 +6529,36 @@ const Chat = (() => {
      the paid decomposition call happens only after the arc has actually won the moment. Confirm persists the tree (GoalStore.confirm); Not-now re-offers only when the belief
      changes (GoalStore.declineDecomposition). One confirm per task end, never stacked (the shared arbiter). */
   function arcBlocked() {
+    if (askWaiting()) return true;   // the panel would stand over that ask's keys (soak 2026-10-15)
     // the SAME stand-down set the study beat honors (a confirm panel must never render mid-awakening/interview/
     // tutorial-panel or while the next run streams). Reuses studyBlocked for one home for the guard set.
     if (typeof studyBlocked === 'function') return studyBlocked();
     return isBusy() || interview;
   }
+  // does an ask wait on the Commander — an approval / question card live in COMMS, a run that ended on a question, or any ask
+  // the station holds open (a background worker's approval outlives the run that handed the work off)?
+  function askWaiting() {
+    if (taskQuestionLive()) return true;
+    if (log && log.querySelector && log.querySelector('[data-live-ask]')) return true;
+    return !!(typeof Channels !== 'undefined' && Channels.allPending && Channels.allPending().length);
+  }
+  /* AN ASK OWNS COMMS OVER AN OFFER PANEL (soak 2026-10-15). The goal-path panel opened over COMMS at a run end and stayed: the
+     Commander's next message went out from the box it covered, the run asked for a team.dispatch approval, and the card landed
+     UNDER the panel — 19 approve clicks hit the panel's line. An offer panel (Dialogue.open({ offer })) now steps aside,
+     unanswered, the moment an approval or question reaches the Commander — asked-for or not, since a paused run is waiting on
+     them — and when they send a turn of their own (its reply would stream under it). Never a decline: it is offered again. */
+  function stepOfferAside(why) { return !!(typeof Dialogue !== 'undefined' && Dialogue.stepAside && Dialogue.stepAside(why)); }
+  function noteAskLanding() { return stepOfferAside('ask'); }
+  // ANY approval or question raised for the Commander (a run's own, a delegated worker's, a group's, a background one) steps an
+  // offer panel aside before its card draws: "defer while an ask waits" (askWaiting keeps it from re-opening meanwhile)
+  if (typeof U !== 'undefined' && U.bus && U.bus.on) U.bus.on('permission.prompt', noteAskLanding);
   /* A DELIVERY LANDING OWNS COMMS OVER THE ARC (rc review 2026-10-14). deliveryLanding() stands the arc down at offer time, but
      the offer then waits seconds on the decomposition call, and the panel stays up until it is answered: a worker's hand-back
      (deliverTurns) or a saved file that lands in that window was hidden behind it. Every landing bumps deliveryLandSeq; an
      offer in flight stands down when it moved, and an open panel steps aside — unanswered, never a decline, so the arc is
      offered again at a later run end. A panel the Commander opened themselves (PLAN A PATH) stays until they answer it. */
   let deliveryLandSeq = 0, arcYield = null;
-  const STEPPED_ASIDE = { steppedAside: true };
+  const STEPPED_ASIDE = { steppedAside: true }, NOT_NOW = { notNow: true };
   function noteDeliveryLanding() {
     deliveryLandSeq++;
     if (arcYield) arcYield();
@@ -6495,25 +6587,30 @@ const Chat = (() => {
       });
       if (!arcBeat) return;
       let path = res.texts.slice();
-      // an unasked panel steps aside for a delivery landing (see noteDeliveryLanding): `stepped` resolves the wait it is in
-      let stepAside = null;
-      const stepped = askedFor ? null : new Promise(r => { stepAside = r; });
-      const unlessLanding = p => stepped ? Promise.race([p, stepped]) : p;
-      if (stepAside) arcYield = () => stepAside(STEPPED_ASIDE);
+      /* the panel's ways out besides its own keys — `left` resolves the wait it is in: it STEPS ASIDE, unanswered, for an ask
+         reaching the Commander or their own turn (Dialogue.stepAside, see noteAskLanding) and — an unasked panel only — for a
+         delivery landing (noteDeliveryLanding); Esc answers it NOT NOW, exactly like its key. It is an offer, so it ends above
+         the message box (Dialogue armOffer). */
+      let leave = null;
+      const left = new Promise(r => { leave = r; });
+      const unlessLeft = p => Promise.race([p, left]);
+      if (!askedFor) arcYield = () => leave(STEPPED_ASIDE);
       try {
-        Dialogue.open({ name: (name || 'AGENT') });
+        Dialogue.open({ name: (name || 'AGENT'), offer: { notNow: () => leave(NOT_NOW), stepAside: () => leave(STEPPED_ASIDE) } });
         opened = true;
-        if (await unlessLanding(Dialogue.say('i think i see the path to that goal — here’s how i’d break it down. does this look right?')) === STEPPED_ASIDE) return opened;
+        const heard = await unlessLeft(Dialogue.say('i think i see the path to that goal — here’s how i’d break it down. does this look right?'));
+        if (heard === STEPPED_ASIDE) return opened;
         const linesOf = ts => ts.map((t, i) => (i + 1) + '. ' + t).join('\n');
         // Confirm / Not-now + an ✎ EDIT custom path (allowCustom): typing a revised path (steps separated by a
         // newline OR a semicolon) replaces it, then re-applies the pure floor/cap on Confirm. The custom text is
         // user-typed (never model markup); Dialogue renders it via textContent only.
-        const choice = await unlessLanding(Dialogue.node({
+        let choice = heard === NOT_NOW ? NOT_NOW : await unlessLeft(Dialogue.node({
           lines: linesOf(path),
           options: [ { label: 'confirm the path', value: 'confirm' }, { label: 'not now', value: 'other', skip: true } ],
           allowCustom: true, customLabel: 'edit the milestones', customPlaceholder: 'your milestones, separated by ; …'   // Dialogue draws the ✎ itself (it read "✎✎")
         }));
         if (choice === STEPPED_ASIDE) return opened;   // unanswered: no confirm, no decline, no learning signal
+        if (choice === NOT_NOW) choice = { value: 'other', label: 'not now', skip: true };   // Esc = the panel's own NOT NOW key
         if (Dialogue.isOpen && Dialogue.isOpen()) Dialogue.close();
         // route the choice through the PURE resolver (Goals.resolveConfirmChoice, behaviorally tested): an explicit
         // Confirm or a VALID edit (≥3 steps) persists; a too-short edit is a REJECTION of the model tree and
@@ -10671,6 +10768,7 @@ const Chat = (() => {
     const wiId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('wi-' + Date.now() + '-' + (++wiSeq));
     const wiPlacedTs = Date.now();
     let wiPlaced = false;   // set below iff a crate actually rode — every wi* beat downstream gates on it
+    stepOfferAside('turn');   // the Commander's own turn: an offer panel over COMMS steps aside so the exchange shows
     stick = true;   // sending a message means you want to watch the exchange — re-follow the bottom
     // TIMESTAMP TRUTH (P0): stamp the turn with its REAL wall-clock time at push, and render the same instant on
     // screen — so a later replay/switch shows this turn's actual time, never the reload clock.

@@ -1008,7 +1008,8 @@ const ModelDock = (() => {
       closeDock();
     });
     document.addEventListener('pointerdown', () => { pressAt = clock(); }, true);
-    document.addEventListener('keydown', ev => { if (open && ev.key === 'Escape') closeDock(); });
+    // an Esc that closed the dock is marked used: an offer panel over COMMS must not ALSO read it as its NOT NOW (review 10-15)
+    document.addEventListener('keydown', ev => { if (open && ev.key === 'Escape') { ev.preventDefault(); closeDock(); } });
   }
 
   function init(o) {
