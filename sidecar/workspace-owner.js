@@ -17,21 +17,26 @@
    43136 stamped 08:30:50Z, Windows gave its PID to cmd.exe at 09:01:52Z, and every boot after that exited 73
    WORKSPACE_BUSY until the crash-loop breaker parked the station degraded. With an injected processIdentity
    (sidecar/process-identity.js; the host passes it, the factory default stays inert like bootedAt), a live
-   stamped PID is probed for the OS's record of its CURRENT process: a process CREATED more than
-   REUSE_SLACK_MS after the claim was stamped cannot be the process that stamped it (a holder always exists
-   before it writes its claim). A start between REUSE_EXE_SLACK_MS and REUSE_SLACK_MS after the stamp counts
-   only when the executable differs too. On Linux the holder stamps its exact /proc start ticks and the probe
-   compares them for equality. An unreadable identity, an older start, or a start inside the slack stays BUSY:
+   stamped PID is probed for the OS's record of its CURRENT process and judged by judgeReuse (process-identity.js): a
+   process CREATED more than REUSE_SLACK_MS (60s) after the claim was stamped cannot be the process that
+   stamped it (a holder always exists before it writes its claim). A start between REUSE_EXE_SLACK_MS (2s) and
+   the slack counts only when the executable differs too. On Linux the holder stamps its exact /proc start
+   ticks and the probe compares them for equality. A Windows process whose StartTime Get-Process withholds
+   (System, services, other users, elevated) is read from Win32_Process with a DST-sized tolerance: its time
+   proves reuse only past slack + tolerance, its different image name proves it unless the reading places it
+   before the stamp. An unreadable identity, an older start, or a start inside the slack stays BUSY:
    uncertainty is a safe false-busy, never a second writer. The slack absorbs clock adjustment between a
    holder's creation and its stamp. The residual false-reclaim needs the wall clock stepped BACKWARD by more
-   than the slack inside the second or two between a holder's creation and its own stamp, the same
-   clock-step class the boot rule above already accepts over a far longer window.
+   than the slack (plus the tolerance, for an approximate same-image reading) inside the second or two between
+   a holder's creation and its own stamp, the same clock-step class the boot rule above already accepts over a
+   far longer window. The workspace-recovery election (workspace-recovery.js) passes the same identity.
 
    Immutable, atomically published generation tickets serialize claims and crash recovery.
    The compatibility claim retains O_EXCL creation and read-back verification; only the elected
    holder may replace it. Release publishes its marker after the last primary-file operation. */
 'use strict';
 const { note: failNote } = require('./failopen.js');
+const { judgeReuse } = require('./process-identity.js');
 
 function defaultNonce() {
   try { return require('node:crypto').randomBytes(16).toString('hex'); }
@@ -89,8 +94,6 @@ function makeWorkspaceOwner(deps) {
   // processIdentity: { probe(pid), self() } from sidecar/process-identity.js. OPT-IN exactly like bootedAt: the
   // factory default is inert, so a test's fake clock is never compared with a real process's creation time.
   const identity = d.processIdentity && typeof d.processIdentity.probe === 'function' ? d.processIdentity : null;
-  const REUSE_SLACK_MS = 60 * 1000;
-  const REUSE_EXE_SLACK_MS = 2 * 1000;
   let probed = null;   // pid -> probe result, scoped to one acquire() so a holder is probed at most once per boot
   let lastIdentity = null;
   function ownExecutable() {
@@ -101,11 +104,8 @@ function makeWorkspaceOwner(deps) {
     const own = identity.self();
     return own && typeof own.startTicks === 'string' && /^\d+$/.test(own.startTicks) ? { startTicks: own.startTicks } : {};
   }
-  function exeName(file) {
-    const s = String(file || '').trim().replace(/\\/g, '/');
-    return s.slice(s.lastIndexOf('/') + 1).toLowerCase().replace(/\.exe$/, '');
-  }
-  // The stamped PID is alive. Is its CURRENT process the one that wrote the claim? true only on proof of reuse.
+  // The stamped PID is alive. Is its CURRENT process the one that wrote the claim? true only on proof of reuse
+  // (judgeReuse in process-identity.js holds the rule, shared with the workspace-recovery lock).
   function pidReused(holder) {
     if (!identity) return false;
     let seen = probed && probed.get(holder.pid);
@@ -115,24 +115,9 @@ function makeWorkspaceOwner(deps) {
       catch (error) { seen = { ok: false, reason: String((error && (error.code || error.message)) || 'probe failed') }; }
       if (probed) probed.set(holder.pid, seen);
     }
-    const verdict = { pid: holder.pid, stampedAt: Number(holder.startedAt) || 0, verdict: 'unknown' };
-    lastIdentity = verdict;
-    if (!seen.ok) { verdict.reason = String(seen.reason || 'unknown'); return false; }
-    if (seen.startedAt) verdict.processStartedAt = Number(seen.startedAt) || 0;
-    if (seen.executable) verdict.executable = String(seen.executable);
-    let reused = false;
-    if (holder.startTicks && seen.startTicks) {
-      reused = holder.startTicks !== String(seen.startTicks);
-    } else {
-      const born = Number(seen.startedAt) || 0;
-      const stamped = Number(holder.startedAt) || 0;
-      if (!(born > 0) || !(stamped > 0)) { verdict.reason = 'no comparable start time'; return false; }
-      const a = exeName(holder.executable), b = exeName(seen.executable);
-      reused = born > stamped + REUSE_SLACK_MS ||
-        (born > stamped + REUSE_EXE_SLACK_MS && !!a && !!b && a !== b);
-    }
-    verdict.verdict = reused ? 'reused' : 'same-process';
-    return reused;
+    const judged = judgeReuse(holder, seen);
+    lastIdentity = Object.assign({ pid: holder.pid, stampedAt: Number(holder.startedAt) || 0 }, judged);
+    return judged.verdict === 'reused';
   }
   // provably dead: the stamped process predates this boot, or (for a valid stamp) its PID is gone or now
   // belongs to a provably different process. A malformed stamp is dead only when the FILE predates boot —
@@ -185,7 +170,9 @@ function makeWorkspaceOwner(deps) {
       election = ticket;
       return true;
     } catch (error) {
-      if (error && error.code === 'EEXIST') return false;
+      // Another contender published this generation first. IT is the blocker now, not the stale ticket whose
+      // PID we just judged, so a refusal must not present that verdict as the current holder's.
+      if (error && error.code === 'EEXIST') { lastIdentity = null; return false; }
       throw error;
     } finally {
       if (fd != null) { try { fs.closeSync(fd); } catch (error) { failNote('workspace.election.close', error); } }
@@ -331,6 +318,11 @@ function makeWorkspaceOwner(deps) {
 function describeIdentity(identity) {
   const v = identity || {};
   const at = ms => (Number(ms) > 0 ? new Date(Number(ms)).toISOString() : 'an unknown time');
+  if (v.verdict === 'same-process' && Number(v.processStartedAt) > 0 && Number(v.toleranceMs) > 0) {
+    return 'PID ' + v.pid + ' started about ' + at(v.processStartedAt) + ' (read without a process handle, ±' +
+      Math.round(Number(v.toleranceMs) / 60000) + ' min); its claim was stamped ' + at(v.stampedAt) +
+      ' — not provably a different process, treated as a live owner';
+  }
   if (v.verdict === 'same-process' && Number(v.processStartedAt) > 0) {
     return 'PID ' + v.pid + ' started ' + at(v.processStartedAt) + '; its claim was stamped ' + at(v.stampedAt) +
       ' — not provably a different process, treated as a live owner';

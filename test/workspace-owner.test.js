@@ -254,6 +254,57 @@ try {
   A.eq(inertBusy.identity, null, 'and no identity verdict is claimed');
   resetReuseRoot();
 
+  /* 11. Windows processes whose StartTime Get-Process will not disclose (System, services, other users, elevated).
+     Review 2026-10-15: 131 of 600 live processes (77 of them svchost) read "start time unavailable", so a holder
+     PID recycled to one of them still exited 73 on every boot. The probe now falls back to Win32_Process, which
+     needs no process handle: its image Name is always readable, but its CreationDate passes through a local-time
+     conversion that may be off by a DST step, so the reading carries a tolerance. Proof of reuse from such a
+     reading: a different image name (a Windows process never changes image) whose creation the reading cannot
+     place before the claim, or a creation later than the claim by more than slack + tolerance. */
+  const CIM_TOL = 2 * 3_600_000;
+  const cimRead = (startedAt, executable) => ({ ok: true, startedAt, executable, source: 'cim', toleranceMs: CIM_TOL });
+  stampHolder(43144, 'service-holder');
+  const svcReuse = contender(50629, { 43144: cimRead(STAMP + 10 * 60_000, 'svchost.exe') });
+  A.eq(svcReuse.acquire(REUSE_ROOT).ok, true, 'a holder PID recycled to a service host (no readable StartTime) is reclaimed: the boot proceeds');
+  svcReuse.release();
+  resetReuseRoot();
+  stampHolder(43144, 'elevated-holder');
+  const OWN_IMAGE = path.basename(process.execPath);   // the image name the fixture holders stamped
+  const sameImageApprox = contender(50630, { 43144: cimRead(STAMP + 10 * 60_000, OWN_IMAGE) }).acquire(REUSE_ROOT);
+  A.eq(sameImageApprox.code, 'WORKSPACE_BUSY', 'the same image read with a DST-sized tolerance is not proof of reuse: still busy');
+  A.eq(sameImageApprox.identity && sameImageApprox.identity.toleranceMs, CIM_TOL, 'the refusal keeps the reading\'s tolerance');
+  A.eq(describeIdentity(sameImageApprox.identity), 'PID 43144 started about 2026-10-15T08:40:50.470Z (read without a process handle, ' +
+    '±120 min); its claim was stamped 2026-10-15T08:30:50.470Z — not provably a different process, treated as a live owner',
+    'an approximate reading is reported as approximate');
+  A.eq(contender(50631, { 43144: cimRead(STAMP + 3 * 3_600_000, OWN_IMAGE) }).acquire(REUSE_ROOT).ok, true,
+    'a creation later than the claim by more than slack + tolerance proves reuse even for the same image');
+  resetReuseRoot();
+  stampHolder(43144, 'contradiction-holder');
+  A.eq(contender(50632, { 43144: cimRead(STAMP - 5 * 3_600_000, 'svchost.exe') }).acquire(REUSE_ROOT).code, 'WORKSPACE_BUSY',
+    'a different image the reading places hours BEFORE the claim contradicts the stamp: unknown, still busy');
+  resetReuseRoot();
+
+  /* 12. Lost election race (review 2026-10-15). The stale ticket's PID was judged reused, then another contender
+     published the next generation first (EEXIST on the ticket link). The blocker is that contender, not the
+     recycled PID, so the refusal must not print the stale PID's verdict as the current holder. */
+  stampHolder(43145, 'race-holder');
+  let raced = false;
+  const racingFs = Object.create(fs);
+  racingFs.linkSync = function (from, to) {
+    if (!raced && /\.generations[\\/]\d+\.json$/.test(String(to))) {
+      raced = true;   // the winning contender publishes this exact generation a moment before us
+      fs.writeFileSync(to, JSON.stringify({ version: 1, pid: 50699, nonce: 'race-winner', startedAt: STAMP + 3_600_000 }));
+    }
+    return fs.linkSync(from, to);
+  };
+  const raceLoser = makeWorkspaceOwner({ fs: racingFs, path, pid: 50633, now: () => STAMP + 3_600_000, nonce: () => 'race-loser',
+    pidAlive: () => true, processIdentity: identityOf({ 43145: { ok: true, startedAt: STAMP + 31 * 60_000, executable: CMD_EXE } }) });
+  const lostRace = raceLoser.acquire(REUSE_ROOT);
+  A.ok(raced, 'race fixture: the ticket link met a generation published by another contender');
+  A.eq(lostRace.code, 'WORKSPACE_BUSY', 'losing the election race is a busy workspace');
+  A.eq(lostRace.identity, null, 'and the refusal carries no verdict about the stale ticket\'s recycled PID');
+  resetReuseRoot();
+
   /* The probes themselves (sidecar/process-identity.js). Parsers first, then the real OS probe against real
      processes on whatever platform runs this test. */
   const { makeProcessIdentity, _internals: PI } = require('../sidecar/process-identity.js');
@@ -262,6 +313,10 @@ try {
   A.eq(PI.parseWin32('134365335305662822|'), { startedAt: 1792059930566, executable: '' }, 'win32: an unreadable image path stays empty');
   A.eq(PI.parseWin32(''), null, 'win32: empty output is no evidence');
   A.eq(PI.parseWin32('Exception calling GetProcessById|x'), null, 'win32: error text is no evidence');
+  A.eq(PI.parseWin32('cim|134364584810421230|svchost.exe\r\n'),
+    { startedAt: 1791984881042, executable: 'svchost.exe', source: 'cim', toleranceMs: 2 * 3_600_000 },
+    'win32 Win32_Process fallback: creation time + image name, marked approximate (a DST step wide)');
+  A.eq(PI.parseWin32('cim||svchost.exe'), null, 'win32 fallback without a creation time is no evidence');
   A.eq(PI.parseLstart('Wed Oct 15 08:30:50 2026 /usr/local/bin/node\n'),
     { startedAt: Date.UTC(2026, 9, 15, 8, 30, 50), executable: '/usr/local/bin/node' }, 'darwin: ps lstart (TZ=UTC) + comm');
   A.eq(PI.parseLstart('Thu Oct  1 07:05:09 2026   /Applications/My App.app/Contents/MacOS/node\n'),
@@ -281,6 +336,12 @@ try {
   A.eq(fakeWin.probe('1); Remove-Item C:\\ -Recurse; ('), { ok: false, reason: 'invalid pid' }, 'a non-integer pid is refused before any spawn');
   A.eq(winCalls.length, 1, 'no probe process for a non-integer pid');
   A.eq(fakeWin.self(), null, 'win32 stamps no extra identity (the wall-clock stamp is compared)');
+  A.ok(winCalls[0] && /Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId=43136'/.test(winCalls[0].args.join(' ')),
+    'win32 probe falls back to Win32_Process for exactly that PID when StartTime is withheld');
+  const cimWin = makeProcessIdentity({ platform: 'win32', env: {},
+    spawnSync: () => ({ status: 0, stdout: 'cim|134364584810421230|svchost.exe\r\n', stderr: '' }) });
+  A.eq(cimWin.probe(1280), { ok: true, startedAt: 1791984881042, executable: 'svchost.exe', source: 'cim', toleranceMs: 2 * 3_600_000 },
+    'a service host read through Win32_Process is an approximate identity, not an unknown one');
   const failedWin = makeProcessIdentity({ platform: 'win32', env: {},
     spawnSync: () => ({ status: 1, stdout: '', stderr: 'Get-Process : Cannot find a process with the process identifier 43136.\r\nAt line:1' }) });
   A.eq(failedWin.probe(43136).ok, false, 'a failed win32 probe is unknown, never evidence');
@@ -321,6 +382,37 @@ try {
     }
     const exited = spawnSync(process.execPath, ['-e', '0'], { windowsHide: true });
     A.eq(real.probe(exited.pid).ok, false, 'real probe of an exited PID is unknown, never a start time');
+
+    if (process.platform === 'win32') {
+      // REAL processes whose StartTime Get-Process withholds: System (PID 4) and a service host.
+      const sys = real.probe(4);
+      A.eq(sys.ok && sys.source, 'cim', 'REAL: the System process is read through Win32_Process, not reported unknown: ' + JSON.stringify(sys));
+      A.eq(String(sys.executable).toLowerCase(), 'system', 'REAL: Win32_Process names the System image');
+      A.ok(sys.startedAt > 0 && sys.startedAt <= Date.now() && sys.toleranceMs === 2 * 3_600_000, 'REAL: a creation time with its tolerance');
+      const svcList = spawnSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+        ['-NoProfile', '-NonInteractive', '-Command', "(Get-CimInstance -ClassName Win32_Process -Filter \"Name='svchost.exe'\" | Select-Object -First 1).ProcessId"],
+        { encoding: 'utf8', windowsHide: true });
+      const svcPid = Number(String(svcList.stdout || '').trim());
+      A.ok(svcPid > 0, 'real fixture: a live service host PID (' + svcPid + ')');
+      const svc = real.probe(svcPid);
+      A.ok(svc.ok === true && /^svchost(\.exe)?$/i.test(String(svc.executable).split(/[\\/]/).pop()),
+        'REAL: a service host has a readable identity (' + JSON.stringify(svc) + ')');
+      // a dead sidecar's claim whose PID Windows recycled to System: stamped before System's creation -> reclaimed
+      resetReuseRoot();
+      const sysGhost = makeWorkspaceOwner({ fs, path, pid: 4, now: () => sys.startedAt - 10 * 60_000, nonce: () => 'real-system-ghost' });
+      A.eq(sysGhost.acquire(REUSE_ROOT).ok, true, 'real fixture: a dead holder stamped the PID System holds now');
+      const pastSystem = makeWorkspaceOwner({ fs, path, now: () => Date.now(), nonce: () => 'real-past-system', processIdentity: real });
+      A.eq(pastSystem.acquire(REUSE_ROOT).ok, true, 'REAL: a holder PID now held by a process without a readable StartTime no longer wedges boot');
+      pastSystem.release();
+      // System provably existed long before this claim, so a different image there is a contradiction, never proof
+      resetReuseRoot();
+      fs.writeFileSync(reuseLock, JSON.stringify({ version: 1, pid: 4, nonce: 'real-contradiction', startedAt: sys.startedAt + 3 * 3_600_000,
+        executable: process.execPath }));
+      const contradicted = makeWorkspaceOwner({ fs, path, now: () => Date.now(), nonce: () => 'real-contradicted', processIdentity: real }).acquire(REUSE_ROOT);
+      A.eq(contradicted.code, 'WORKSPACE_BUSY', 'REAL: a claim stamped hours after its PID\'s current process began stays busy');
+      A.eq(JSON.parse(fs.readFileSync(reuseLock, 'utf8')).nonce, 'real-contradiction', 'REAL: and that claim is untouched');
+      resetReuseRoot();
+    }
 
     const live = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
     try {
