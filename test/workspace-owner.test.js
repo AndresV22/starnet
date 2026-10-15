@@ -343,6 +343,15 @@ try {
       A.eq(bootedReal.ok, true, 'REAL: a claim whose PID now belongs to a newer, unrelated process is reclaimed and the boot proceeds');
       A.eq(JSON.parse(fs.readFileSync(reuseLock, 'utf8')).pid, process.pid, 'REAL: the booting process owns the workspace');
       booting.release();
+      // the recycled PID is the booting sidecar's OWN pid (the shell reaped an orphan and Windows handed its PID to
+      // the next spawn): kill(0) on itself always says alive, so only the identity proves the old claim dead
+      resetReuseRoot();
+      const ownPidGhost = makeWorkspaceOwner({ fs, path, now: () => Date.now() - 31 * 60_000, nonce: () => 'real-own-ghost',
+        processIdentity: { probe: real.probe, self: () => (process.platform === 'linux' ? { startTicks: '1' } : null) } });
+      A.eq(ownPidGhost.acquire(REUSE_ROOT).ok, true, 'real fixture: a dead holder stamped the PID this process now has');
+      const reborn = makeWorkspaceOwner({ fs, path, now: () => Date.now(), nonce: () => 'real-reborn', processIdentity: real });
+      A.eq(reborn.acquire(REUSE_ROOT).ok, true, 'REAL: a claim stamped with our own PID before this process existed is reclaimed');
+      reborn.release();
     } finally {
       live.kill();
     }
