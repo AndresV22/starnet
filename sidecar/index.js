@@ -23848,7 +23848,12 @@ async function handleAutonomyPosture(req, res) {
       workshopGranted = workshopOf(NIGHTSHIFT_AGENT);
     }
   } catch (_) { workshopGranted = null; }   // a grant hiccup must never fail the posture write; null = unknown (honest)
-  return json(200, { ok: true, summary: commanderPosture.summary(), postureWritten: postureWritten, resumeRequested: resumeRequested, haltLifted: haltLifted, nightshiftArmed: !!nightshiftTimer, nightshiftStatePersisted: nightshiftStatePersisted, cronHaltPersisted: cronHaltPersisted, workshopGranted: workshopGranted });
+  // halt + cronArmed (org P06 wiring, additive): the halt picture AFTER this write. The dial lifts only the cron and
+  // night-shift halts — goal loops (and overseer reviews) lift only on an explicit RESUME AUTOMATION — so the page's
+  // receipt names what still waits and says "schedules can run" only when the scheduler is armed. null = unknown.
+  let haltAfter = null;
+  try { haltAfter = haltStatus(); } catch (e) { console.warn('[autonomy] halt read-back failed:', (e && e.message) || e); }
+  return json(200, { ok: true, summary: commanderPosture.summary(), postureWritten: postureWritten, resumeRequested: resumeRequested, haltLifted: haltLifted, halt: haltAfter, cronArmed: !!cronArmed, nightshiftArmed: !!nightshiftTimer, nightshiftStatePersisted: nightshiftStatePersisted, cronHaltPersisted: cronHaltPersisted, workshopGranted: workshopGranted });
 }
 // GET /api/autonomy/posture — the server copy (posture summary + whether a beliefs snapshot is present). Never
 // echoes the raw beliefs texts back to the browser (it already has them); just reports presence + freshness.
