@@ -348,10 +348,11 @@
         schedulerArmed = !!(j && j.enabled && !j.halted);
         const createState = body.querySelector('#rt-create-state');
         // ONE ARM RULE (org P16): the line says what saving will really do — it turns a never-set switch on, never an explicit OFF
-        // (GET /api/cron armSet), never an E-STOP
+        // (GET /api/cron armSet), never an E-STOP. It names the switch by its key and the page it is on, as AUTOMATE labels it
+        // (automation.js labels.routines = 'Scheduled jobs' — never an old page name no tab carries; org wire AUTO-P16-2)
         if (createState) createState.textContent = schedulerArmed ? 'Scheduling is on. Saving adds this task to the schedule shown below.'
-          : (j && j.halted) ? 'Scheduling is stopped (E-STOP). Saving keeps it stopped: it runs only after you turn scheduling on in Active Routines.'
-          : (j && j.armSet) ? 'Scheduling is off — you turned it off. Saving keeps it off: press ▶ TURN SCHEDULING ON in Active Routines when you want it to run.'
+          : (j && j.halted) ? 'Scheduling is stopped (E-STOP). Saving keeps it stopped: it runs only after you press ▶ TURN SCHEDULING ON in Scheduled jobs.'
+          : (j && j.armSet) ? 'Scheduling is off — you turned it off. Saving keeps it off: press ▶ TURN SCHEDULING ON in Scheduled jobs when you want it to run.'
           : 'Scheduling is off. Saving turns it on for the whole station, so every saved schedule runs at its time.';   // the INBOX form's own words (workflowpanel.js) — one SAVE SCHEDULE, one sentence
         maxConsecutive = (j && Number(j.maxConsecutiveFailures)) || 0;
         maxPendingDeliveries = (j && Number(j.maxPendingDeliveries)) || 0;
@@ -858,7 +859,7 @@
           if (r && r.scheduler) schedulerArmed = !!r.scheduler.armed;   // the create reply carries the live arm state
           const arm = (typeof AutoJobs !== 'undefined' && AutoJobs.armStateLine) ? AutoJobs.armStateLine(schedulerArmed) : null;
           const who = line ? 'the ' + String(line.name || 'workflow').toUpperCase() + ' workflow' : agentLabel(agentId || 'agent');
-          if (r && r.scheduler && r.scheduler.halted) notify('routine "' + (name || 'unnamed') + '" saved — the scheduler is on E-STOP, so nothing fires until you resume it in AUTOMATE › SCHEDULES', 'warn');
+          if (r && r.scheduler && r.scheduler.halted) notify('routine "' + (name || 'unnamed') + '" saved — the scheduler is on E-STOP, so nothing fires until you press ▶ TURN SCHEDULING ON in AUTOMATE › SCHEDULES › Scheduled jobs', 'warn');
           // ONE ARM RULE (org P16): said as it happened — this save turned scheduling on, or it kept the Commander's OFF and offers the switch
           else if (r && r.scheduler && r.scheduler.armedNow) { msgEl.textContent = '✓ saved · scheduling is now on'; notify('routine "' + (name || 'unnamed') + '" scheduled for ' + who + ' — scheduling is now on', 'good'); }
           else if (r && r.scheduler && r.scheduler.offByChoice) {
