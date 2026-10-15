@@ -16,7 +16,7 @@
 
    makeCheckpointStore({ fs, pathMod, root, runGit, clock, keep?, scopeIdOf?, allowWorkTree? })
      -> { snapshot, restore, restoreDetailed, list, isValidId }
-     runGit(args:string[], { cwd }) -> Promise<{ code:int|string, stdout, stderr }>   // resolves, never rejects
+     runGit(args:string[], { cwd, timeoutMs? }) -> Promise<{ code:int|string, stdout, stderr }>   // resolves, never rejects
      snapshot(agentId, { runId, turn, label, workTree? }) -> Promise<{ id, created:bool, files, bytes } | null>
      restore(agentId, snapshotId)              -> Promise<bool>   // only restores an id IN this agent's index
      restoreDetailed(agentId, snapshotId)      -> Promise<{ ok, reason?, preRestoreId? }>   // + the pre-restore undo id
@@ -44,6 +44,11 @@
   const SCOPE_RE = /^[a-f0-9]{16,64}$/;               // host-derived digest of one canonical project root
   const KEEP_DEFAULT = 50;                            // snapshots retained per agent (prune oldest beyond this)
   const MAX_REPO_BYTES_DEFAULT = 500 * 1024 * 1024;   // shadow-repo size ceiling (500MB) before a gc/re-init sweep
+  const MAINTENANCE_GIT_TIMEOUT_MS = 120 * 1000;      // gc + the re-init add/commit: a big repo needs more than a snapshot's 15 s
+  const MAINTENANCE_BACKOFF_MS = 30 * 60 * 1000;      // a pass that leaves the repo over the ceiling pauses automatic passes this long
+  const FANOUT_RE = /^[0-9a-f]{2}$/;                  // objects/<2 hex>: loose objects, immutable once named
+  const PACK_TEMP_RE = /^(tmp_|\.tmp-\d+-pack)/;      // pack-objects' tmp_pack_/tmp_idx_/tmp_rev_… and repack's .tmp-<pid>-pack-* outputs
+  const LOOSE_TEMP_RE = /^tmp_obj_/;                  // a loose object still being written
 
   function makeCheckpointStore(deps) {
     const d = deps || {};
@@ -132,7 +137,9 @@
         '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'gc.autoDetach=false',
         '-c', 'user.email=starnet@local', '-c', 'user.name=starnet'];
     }
-    const git = (aid, scope, args) => runGit(base(aid, scope).concat(args), { cwd: workTreeFor(aid, scope) });
+    // timeoutMs (optional): a per-call bound for the slow maintenance commands; a snapshot's own calls keep the runner default.
+    const git = (aid, scope, args, timeoutMs) => runGit(base(aid, scope).concat(args),
+      timeoutMs ? { cwd: workTreeFor(aid, scope), timeoutMs: timeoutMs } : { cwd: workTreeFor(aid, scope) });
 
     // read the index file into a tagged result so the caller can distinguish a genuinely-empty index (no
     // snapshots recorded) from a torn/corrupt one that should trigger a git-log rebuild.
@@ -271,21 +278,89 @@
       } catch (e) { return { files: 0, bytes: 0 }; }
     }
 
-    // recursive byte size of a directory (best-effort; a stat failure counts 0 for that entry). Used to decide
-    // whether the shadow repo's object store has grown past the ceiling.
-    function dirBytes(dir) {
-      let total = 0;
-      let entries;
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return 0; }
-      for (const ent of entries) {
-        const full = pathMod.join(dir, ent.name);
-        try {
-          if (ent.isDirectory && ent.isDirectory()) total += dirBytes(full);
-          else total += fs.statSync(full).size;
-        } catch (_) {}
+    /* repoBytes — the shadow repo's on-disk size, measured ASYNC and incrementally (#107 residual). The old walk was
+       synchronous and stat-ed every file on every snapshot; with gc.auto=0 loose objects are only packed past the
+       ceiling, so it was an event-loop stall that grew with history. Loose objects (objects/<2 hex>/) are immutable
+       once named: git writes a temp file and renames it into place, and a temp file a killed command left never grows
+       again, because no checkpoint Git runs while this measures (it runs under the per-agent lock). So a fan-out
+       directory whose file NAMES are unchanged since the last measure keeps its byte total without one stat per
+       object. Everything else (packs, index, refs, the append-only reflogs, commit-graph) is small and is always
+       re-statted. Best effort: an entry that vanished or cannot be read counts 0, and its directory is not memoized. */
+    const fsp = fs.promises || null;
+    const looseDirBytes = new Map();   // fan-out dir path -> { sig, bytes }
+    function nameSignature(names) {    // order-independent: count + sum of FNV-1a hashes of the names
+      let sum = 0;
+      for (const n of names) {
+        let h = 2166136261;
+        for (let i = 0; i < n.length; i++) { h ^= n.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+        sum = (sum + h) >>> 0;
       }
-      return total;
+      return names.length + ':' + sum;
     }
+    async function listDir(dir) { return fsp ? fsp.readdir(dir, { withFileTypes: true }) : fs.readdirSync(dir, { withFileTypes: true }); }
+    async function fileSize(file) { return (fsp ? await fsp.stat(file) : fs.statSync(file)).size; }
+    async function walkBytes(dir, objectsDir, looseDir) {
+      let entries;
+      try { entries = await listDir(dir); }
+      catch (e) { looseDirBytes.delete(dir); return 0; }
+      const files = [];
+      let total = 0;
+      for (const ent of entries) {
+        if (!ent.isDirectory()) { files.push(ent.name); continue; }
+        const sub = await walkBytes(pathMod.join(dir, ent.name), objectsDir, dir === objectsDir && FANOUT_RE.test(ent.name));
+        total += sub;
+      }
+      const sig = looseDir ? nameSignature(files) : '';
+      const memo = looseDir ? looseDirBytes.get(dir) : null;
+      if (memo && memo.sig === sig) return total + memo.bytes;
+      let bytes = 0, unreadable = 0;
+      // concurrent stats: read each size first, THEN add (`bytes += await …` would read bytes before the await
+      // and every concurrent callback would overwrite the others' sums)
+      await Promise.all(files.map(async function (name) {
+        let size = 0;
+        try { size = await fileSize(pathMod.join(dir, name)); } catch (e) { unreadable++; }
+        bytes += size;
+      }));
+      if (looseDir) {
+        if (unreadable) looseDirBytes.delete(dir);
+        else looseDirBytes.set(dir, { sig: sig, bytes: bytes });
+      }
+      return total + bytes;
+    }
+    const repoBytes = (gitDir) => walkBytes(gitDir, pathMod.join(gitDir, 'objects'), false);
+
+    /* sweepGitTemporaries — remove what a killed or failed git leaves in the object store: pack-objects' tmp_pack_*,
+       tmp_idx_* (and its other tmp_* outputs), repack's renamed .tmp-<pid>-pack-* files, and tmp_obj_* loose-object
+       temps. It runs right after a gc attempt, inside the per-agent serialized() lock: every checkpoint Git command
+       for this agent runs under that lock, gc.auto=0 / maintenance.auto=false start no background git, and a timeout
+       or abort kills the whole process tree before the runner resolves, so no live git can own one of these names.
+       A gc killed at its bound prunes nothing, which is how #107 piled a tmp_pack up every turn; a successful gc
+       prunes tmp_* itself but never another process's .tmp-<pid>-pack-* (checked on git 2.54). Only those temp names
+       are touched: pack-*.pack/.idx/.keep, loose objects, refs and the index never match. Best effort: a file that
+       cannot be removed (EBUSY from AV/backup) is skipped and noted. */
+    async function sweepGitTemporaries(gitDir) {
+      const objectsDir = pathMod.join(gitDir, 'objects'), packDir = pathMod.join(objectsDir, 'pack');
+      const listed = async function (dir) { try { return await listDir(dir); } catch (e) { return []; } };
+      const victims = [];
+      for (const ent of await listed(packDir)) if (ent.isFile() && PACK_TEMP_RE.test(ent.name)) victims.push(pathMod.join(packDir, ent.name));
+      for (const ent of await listed(objectsDir)) {
+        if (ent.isFile() && LOOSE_TEMP_RE.test(ent.name)) victims.push(pathMod.join(objectsDir, ent.name));
+        else if (ent.isDirectory() && FANOUT_RE.test(ent.name)) {
+          const sub = pathMod.join(objectsDir, ent.name);
+          for (const f of await listed(sub)) if (f.isFile() && LOOSE_TEMP_RE.test(f.name)) victims.push(pathMod.join(sub, f.name));
+        }
+      }
+      let removed = 0, skipped = 0;
+      for (const file of victims) {
+        try { if (fsp) await fsp.unlink(file); else fs.unlinkSync(file); removed++; }
+        catch (e) { if (!(e && e.code === 'ENOENT')) { skipped++; failNote('checkpoint.gc.leftover', e); } }
+      }
+      return { removed: removed, skipped: skipped };
+    }
+
+    // gitDir -> clock ms before which snapshot() skips the automatic size pass (set when a pass ends over the ceiling)
+    const maintenanceRetryAt = new Map();
+    function maintenanceDue(gitDir) { const at = maintenanceRetryAt.get(gitDir); return !(at > clock.now()); }
 
     /* enforceSizeCeiling — bound the shadow repo's on-disk footprint. `git add -A` on every mutating turn writes
        a fresh blob per changed file; over months of 24/7 use the object store bloats even though only the last
@@ -297,26 +372,42 @@
           fresh single-commit repo of the current worktree, then RE-STAMPS the index to that one commit. This
           sacrifices the older in-index rollback points to keep disk bounded — a disclosed, honest tradeoff, taken
           ONLY past the ceiling. Fail-open: any git failure leaves the repo as-is (never crash a run).
-       Returns { swept, reinit, bytesBefore, bytesAfter } for tests/telemetry. */
+       gc and the re-init add/commit get MAINTENANCE_GIT_TIMEOUT_MS, not the snapshot default, and every gc attempt
+       is followed by sweepGitTemporaries. A pass that still ends over the ceiling (gc and re-init both failed, or the
+       current tree alone is bigger than the ceiling) pauses snapshot()'s automatic passes for this git-dir for
+       MAINTENANCE_BACKOFF_MS: re-running it on every mutating turn only restarted the same doomed gc, a stall inside
+       the tool's time budget each time (#107 residual). An explicit enforceSizeCeiling() call always runs.
+       Returns { swept, reinit, bytesBefore, bytesAfter, gcSucceeded, overLimit, leftoversRemoved } for tests/telemetry. */
     async function enforceSizeCeiling(aid, scope, meta) {
       if (!(maxRepoBytes > 0) || !repoExists(aid, scope)) return { swept: false, reinit: false };
       const gitDir = gitDirFor(aid, scope);
-      const before = dirBytes(gitDir);
-      if (before <= maxRepoBytes) return { swept: false, reinit: false, bytesBefore: before, bytesAfter: before };
+      const before = await repoBytes(gitDir);
+      if (before <= maxRepoBytes) {
+        maintenanceRetryAt.delete(gitDir);
+        return { swept: false, reinit: false, bytesBefore: before, bytesAfter: before };
+      }
       let gcSucceeded = false;
       try {
-        const gc = await git(aid, scope, ['gc', '--prune=now', '-q']);
+        const gc = await git(aid, scope, ['gc', '--prune=now', '-q'], MAINTENANCE_GIT_TIMEOUT_MS);
         gcSucceeded = !!gc && gc.code === 0;
-        if (!gcSucceeded) failNote('checkpoint.gc', new Error('Git maintenance failed; checkpoint storage may remain over limit'));
+        if (!gcSucceeded) failNote('checkpoint.gc', new Error('Git maintenance ' + (gc && gc.timedOut ? 'timed out' : 'failed') + '; checkpoint storage may remain over limit'));
       } catch (e) { failNote('checkpoint.gc', e); }
-      let after = dirBytes(gitDir);
+      let leftovers = null;
+      try { leftovers = await sweepGitTemporaries(gitDir); }
+      catch (e) { failNote('checkpoint.gc.leftover', e); }
+      let after = await repoBytes(gitDir);
       let reinit = false;
       if (after > maxRepoBytes) {
         reinit = await reinitFromCurrentTree(aid, scope, meta);
-        after = dirBytes(gitDir);
+        after = await repoBytes(gitDir);
       }
-      try { console.warn('[checkpoint] shadow repo for ' + aid + ' over ceiling (' + before + 'B) -> ' + (reinit ? 're-init' : (gcSucceeded ? 'gc' : 'maintenance failed')) + ' -> ' + after + 'B'); } catch (_) {}
-      return { swept: true, reinit: reinit, bytesBefore: before, bytesAfter: after, gcSucceeded: gcSucceeded, overLimit: after > maxRepoBytes };
+      const overLimit = after > maxRepoBytes;
+      if (overLimit) {
+        maintenanceRetryAt.set(gitDir, clock.now() + MAINTENANCE_BACKOFF_MS);
+        failNote('checkpoint.sizeCeiling.backoff', new Error('shadow repo still over the size ceiling after maintenance (' + after + 'B); automatic passes paused for 30 min'));
+      } else maintenanceRetryAt.delete(gitDir);
+      try { console.warn('[checkpoint] shadow repo for ' + aid + ' over ceiling (' + before + 'B) -> ' + (reinit ? 're-init' : (gcSucceeded ? 'gc' : 'maintenance failed')) + ' -> ' + after + 'B' + (leftovers && leftovers.removed ? ' (' + leftovers.removed + ' temp file(s) removed)' : '') + (overLimit ? ' (still over: automatic passes paused 30 min)' : '')); } catch (_) {}
+      return { swept: true, reinit: reinit, bytesBefore: before, bytesAfter: after, gcSucceeded: gcSucceeded, overLimit: overLimit, leftoversRemoved: leftovers ? leftovers.removed : 0 };
     }
     // wipe the shadow git-dir and re-create a single baseline commit of the CURRENT worktree, then re-stamp the
     // index to that one snapshot. Returns true on success. Fail-open (false) leaves the repo untouched on error.
@@ -334,13 +425,15 @@
         const cleanup = () => { try { fs.rmSync(fresh, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.cleanup', e); } };
         cleanup();
         fs.mkdirSync(fresh, { recursive: true });
-        const gitAt = (dir, args) => runGit(['--git-dir', dir, '--work-tree', workTreeFor(aid, scope),
+        // add + commit re-hash the WHOLE current tree into the side repo: they get the maintenance bound, not 15 s.
+        const gitAt = (dir, args, timeoutMs) => runGit(['--git-dir', dir, '--work-tree', workTreeFor(aid, scope),
           '-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false',
         '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'gc.autoDetach=false',
-          '-c', 'user.email=starnet@local', '-c', 'user.name=starnet'].concat(args), { cwd: workTreeFor(aid, scope) });
+          '-c', 'user.email=starnet@local', '-c', 'user.name=starnet'].concat(args),
+          timeoutMs ? { cwd: workTreeFor(aid, scope), timeoutMs: timeoutMs } : { cwd: workTreeFor(aid, scope) });
         if ((await gitAt(fresh, ['init', '-q'])).code !== 0) { cleanup(); return false; }
-        if ((await gitAt(fresh, ['add', '-A'])).code !== 0) { cleanup(); return false; }
-        const com = await gitAt(fresh, ['commit', '-q', '--allow-empty', '-m', 'baseline (repo re-init: size ceiling)']);
+        if ((await gitAt(fresh, ['add', '-A'], MAINTENANCE_GIT_TIMEOUT_MS)).code !== 0) { cleanup(); return false; }
+        const com = await gitAt(fresh, ['commit', '-q', '--allow-empty', '-m', 'baseline (repo re-init: size ceiling)'], MAINTENANCE_GIT_TIMEOUT_MS);
         if (com.code !== 0) { cleanup(); return false; }
         const sha = (await gitAt(fresh, ['rev-parse', 'HEAD'])).stdout.trim();
         if (!cp.isValidId(sha)) { cleanup(); return false; }
@@ -396,9 +489,13 @@
       const result = await commitSnapshot(aid, scope, meta, null);
       // Check even a dedup or failed add/commit: those were exactly the paths that left oversized
       // temporary pack data untouched forever. Restore's internal pre-undo snapshot never sweeps.
+      // Skipped while a pass in the last MAINTENANCE_BACKOFF_MS left this repo over the ceiling: re-running it
+      // every turn only restarted the same doomed gc (#107 residual). The first over-ceiling pass always runs.
       let maintenance;
-      try { maintenance = await enforceSizeCeiling(aid, scope, meta); }
-      catch (e) { failNote('checkpoint.sizeCeiling', e); }
+      if (maintenanceDue(gitDirFor(aid, scope))) {
+        try { maintenance = await enforceSizeCeiling(aid, scope, meta); }
+        catch (e) { failNote('checkpoint.sizeCeiling', e); }
+      }
       if (!result) return null;
       if (maintenance && maintenance.reinit) {
         // The sweep replaced history. Never hand the caller the now-deleted pre-sweep SHA.
