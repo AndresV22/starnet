@@ -1025,11 +1025,17 @@ const StationCommands = (() => {
         .filter(m => m && !m.hidden && !m.internal && typeof m.content === 'string'
           && (m.role === 'user' || m.role === 'assistant' || m.sys))
         .slice(-limit)
-        .map(m => ({
-          speaker: m.sys ? 'station' : (m.role === 'user' ? 'commander' : (m.agentId || ws.agentId || 'agent')),
-          sys: !!m.sys,
-          text: String(m.content).slice(0, 600)
-        }));
+        .map(m => {
+          // a goal-loop step is the STATION's prompt, never the Commander's words (org P29-sys wiring): a lead reading it must
+          // not tell the user "you asked me to continue…"
+          const step = (typeof GoalLoop !== 'undefined' && GoalLoop.stepOfTurn) ? GoalLoop.stepOfTurn(m) : null;
+          if (step != null) return { speaker: 'station', sys: true, text: ('Goal step: ' + step).slice(0, 600) };
+          return {
+            speaker: m.sys ? 'station' : (m.role === 'user' ? 'commander' : (m.agentId || ws.agentId || 'agent')),
+            sys: !!m.sys,
+            text: String(m.content).slice(0, 600)
+          };
+        });
       const busy = (typeof Channels !== 'undefined' && Channels.isBusy) ? !!Channels.isBusy(ws.id) : false;
       return {
         id: ws.id, title: hit.title || sessionName(ws), agentId: ws.agentId || 'agent',

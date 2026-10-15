@@ -30,6 +30,7 @@ function boot(opts) {
   const page = { rail: 0, persisted: 0, loaded: [], delivered: [], repainted: 0, acks: [], save: null };
   const sandbox = {
     Workstreams, Channels,
+    GoalLoop: require('../frontend/app/goalloop.js'),   // the shared goal-step predicate (org P29-sys wiring)
     App: {
       refreshRail: () => page.rail++,
       persist: () => { page.persisted++; page.save = JSON.parse(JSON.stringify(Workstreams.serialize())); },
@@ -591,6 +592,25 @@ for (const text of ['', 'Older partial work.']) {
   const lim = await call(env, 'station.read_session', { session: 'research', limit: 2 });
   A.eq(lim.result.turns.length, 2, 'limit returns the most recent N');
   A.eq(lim.result.turns[1].speaker, 'researcher', 'and they are the LAST turns, not the first');
+}
+
+/* ---- station.read_session: a goal-loop step is the STATION's prompt, never the Commander's words (org P29-sys wiring) —
+   a lead reading it must not tell the user "you asked me to continue…" ---- */
+{
+  const env = boot();
+  const GL = require('../frontend/app/goalloop.js');
+  const ws = env.W.create('launch');
+  ws.history.push(
+    { role: 'user', content: 'set up the launch' },
+    { role: 'user', content: GL.continuationPrompt(GL.create('ship the landing page', { now: 1 })) },
+    { role: 'user', content: '[Continuing toward your standing goal]\nGoal: old goal\n\nContinue working toward this goal. ' },
+    { role: 'assistant', content: 'Drafted the hero.' }
+  );
+  const out = await call(env, 'station.read_session', { session: 'launch' });
+  A.eq(out.result.turns.map(t => t.speaker), ['commander', 'station', 'station', 'agent'], 'goal steps (current + pre-org-pass head) read as the station');
+  A.eq(out.result.turns[1].text, 'Goal step: ship the landing page', '…naming the goal, never the internal prompt');
+  A.eq(out.result.turns[1].sys, true, '…flagged as a station line');
+  A.eq(out.result.turns[2].text, 'Goal step: old goal', 'an old saved step too');
 }
 
 /* ---- the voice-call rebind hook: a switch DURING a live call re-targets the call (it came through the

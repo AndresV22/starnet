@@ -278,7 +278,12 @@
       if (!s || !(arr(s.runIds).includes(runId) || (streamId && s.id === streamId))) continue;
       const h = arr(s.history);
       for (let i = h.length - 1; i >= 0; i--) {
-        if (h[i] && h[i].role === 'user') { const t = oneLine(textOf(h[i].content), 200); if (t) return { task: t, streamId: s.id || '' }; }
+        if (h[i] && h[i].role === 'user') {
+          // a goal-loop step is not the Commander's words: the run's task is the GOAL it works toward (org P29-sys wiring)
+          const step = (typeof GoalLoop !== 'undefined' && GoalLoop.stepOfTurn) ? GoalLoop.stepOfTurn(h[i]) : null;
+          const t = oneLine(step != null ? step : textOf(h[i].content), 200);
+          if (t) return { task: t, streamId: s.id || '' };
+        }
       }
       return { task: oneLine(s.title || '', 200), streamId: s.id || '' };
     }

@@ -576,14 +576,24 @@
     const w = find(id); if (!w) return null;
     opts = opts || {};
     const title = safeTitle(w);
-    const messages = visibleMessages(w).map(m => ({ role: m.role, content: scrubSecrets(m.content) }));
+    // a goal step keeps its record (role + the prompt the model received) and is NAMED as one: the readable export writes it
+    // as the station's line, never under "## Commander" (org P29-sys wiring)
+    const messages = visibleMessages(w).map(m => {
+      const out = { role: m.role, content: scrubSecrets(m.content) };
+      const step = goalStepOf(m);
+      if (step != null) out.goalStep = scrubSecrets(step);
+      return out;
+    });
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'general';
     if (format === 'json') {
       const doc = { schema: 'starnet.conversation', version: 1, exportedAt: opts.exportedAt != null ? opts.exportedAt : now(), title, messages, secretsIncluded: false };
       return { format: 'json', mime: 'application/json', filename: 'starnet-' + slug + '.json', text: JSON.stringify(doc, null, 2), doc };
     }
     const lines = ['# ' + title, '', '_Exported from StarNet. Hidden/system data and obvious credentials are excluded._', ''];
-    for (const m of messages) lines.push('## ' + (m.role === 'user' ? 'Commander' : 'Agent'), '', m.content, '');
+    for (const m of messages) {
+      if (m.goalStep != null) { lines.push('## Station', '', 'Goal step: ' + m.goalStep, ''); continue; }
+      lines.push('## ' + (m.role === 'user' ? 'Commander' : 'Agent'), '', m.content, '');
+    }
     return { format: 'markdown', mime: 'text/markdown', filename: 'starnet-' + slug + '.md', text: lines.join('\n') };
   }
   function parseConversationExport(text) {

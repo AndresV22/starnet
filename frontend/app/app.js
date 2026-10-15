@@ -4255,6 +4255,12 @@ const App = (() => {
     return out;
   }
   function railExcerpt(latest) {
+    // a goal-loop step is the station's line, never "You:" + the internal continuation prompt (org P29-sys wiring)
+    const step = (typeof GoalLoop !== 'undefined' && GoalLoop.stepOfTurn) ? GoalLoop.stepOfTurn(latest) : null;
+    if (step != null) {
+      const g = step.replace(/\s+/g, ' ').trim();
+      return '↻ Goal step: ' + (g.length > 147 ? g.slice(0, 146).trimEnd() + '…' : g);
+    }
     const text = latest.content
       .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
       .replace(/(^|\n)\s{0,3}(?:#{1,6}\s+|[-*+]\s+|>\s*)/g, ' ')
