@@ -182,6 +182,9 @@
         // Ollama: chat on the native /api/chat with a request-sized window (registry `nativeOllama`); an env pin or
         // ceiling wins over the profile's, the same way the output ceilings above resolve.
         nativeOllama: wire.nativeOllama === true,
+        // ...and whether that native wire was only BORROWED on the URL's look (a CUSTOM card): a server that then proves
+        // it is not Ollama is StarNet's wrong guess, so the turn moves to /v1 instead of blaming the user's card.
+        nativeOllamaBorrowed: wire !== profile && wire.nativeOllama === true,
         numCtx: resolveMaxOutputTokens(wire, 'numCtx'),
         maxCtx: resolveMaxOutputTokens(wire, 'maxCtx'),
         defaultContext: opts.defaultContext,

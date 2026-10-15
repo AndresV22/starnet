@@ -157,6 +157,10 @@
     output_limit:       { retryable: false, action: null, msg: 'The reply hit the model’s output limit while writing a large tool call, so nothing from it was saved. Ask for it in smaller parts.' },
     checkpoint_failed:  { retryable: true,  action: null, msg: 'StarNet couldn’t save this run’s progress to disk, so it stopped. Check free disk space, then try again.' },
     hook_blocked:       { retryable: false, action: null, msg: 'One of your hooks blocked this run. Change or turn off that hook to let it run.' },
+    /* GH#111: the OLLAMA card points at a server that is not Ollama (LM Studio answers Ollama's chat with a 200 "no such
+       route"). A resend reaches the same server, so no retry; the door is the CUSTOM card that speaks to it. The headline is
+       the adapter's own sentence (it names the server); this msg is only the fallback. */
+    endpoint_mismatch:  { retryable: false, action: 'settings', msg: 'The OLLAMA card points at a server that is not Ollama. Add that server under SETTINGS → AI & MODELS → CUSTOM with its /v1 URL instead.' },
     local_model_memory: { retryable: false, action: 'settings', msg: 'The local model ran out of memory. Close other local models or memory-heavy apps, or choose a smaller model from the model picker in COMMS before trying again. If the station is still blank or disconnected, restart StarNet after freeing memory.' },
     unknown:      { retryable: true,  action: null,       msg: 'Something went wrong on that turn — try again.' }
   };
@@ -168,7 +172,7 @@
     auth: 'auth', billing: 'billing', rate_limit: 'rate_limit', quota_exhausted: 'quota_exhausted', overloaded: 'provider_server_error',
     server_error: 'provider_server_error', timeout: 'timeout', context_overflow: 'context_overflow',
     model_not_found: 'model_not_found', content_policy_blocked: 'content_policy_blocked',
-    format_error: 'unknown', unknown: 'unknown'
+    format_error: 'unknown', endpoint_mismatch: 'endpoint_mismatch', unknown: 'unknown'
   };
 
   /* WHICH provider an error came from (org P03) — so a door lands on that provider's card in AI & MODELS and the
@@ -423,9 +427,12 @@
   }
 
   const MEMORY_RE = /^(?:local model|the model server at \S+) ran out of memory\./i;
+  // minted only by the openai-compatible adapter when the OLLAMA card's URL answers as another server (notOllamaError)
+  const WRONG_SERVER_RE = /^The OLLAMA card's URL(?: \([^)\s]*\))? is not an Ollama server:/;
   function kindFromRaw(raw, status) {
     const low = String(raw || '').toLowerCase();
     if (MEMORY_RE.test(String(raw || ''))) return 'local_model_memory';
+    if (WRONG_SERVER_RE.test(String(raw || ''))) return 'endpoint_mismatch';
     // Harness pre-flight guards ("no API key set" / "no model selected"): a misconfig, not a fault — point at
     // Settings instead of offering a doomed retry. (Match before capdenied, which the em-dash-less strings miss.)
     if (/chatgpt.*sign-?in|sign-?in.*chatgpt|not signed in to chatgpt|codex_not_connected|codex auth|codex_auth|chatgpt subscription.*connect/.test(low)) return 'oauth';
@@ -505,6 +512,13 @@
       const k = KINDS.local_model_memory;
       const msg = /^local model/i.test(raw) ? k.msg : raw.replace(/\s*\[[\s\S]*$/, '');
       return { userMessage: msg, kind: 'local_model_memory', retryable: k.retryable, action: k.action, raw };
+    }
+    // The adapter's own sentence names the server it reached and the card that speaks to it: that is the headline (its
+    // bracketed server words stay in raw), and the door lands on that CUSTOM card. Before this, COMMS led with "Something
+    // went wrong on that turn — try again" and a retry that reaches the same server.
+    if (WRONG_SERVER_RE.test(raw)) {
+      const k = KINDS.endpoint_mismatch;
+      return { userMessage: raw.replace(/\s*\[[\s\S]*$/, '') || k.msg, kind: 'endpoint_mismatch', retryable: k.retryable, action: k.action, provider: 'custom', raw };
     }
     // a StarNet-authored stop (loop guard, unkept promise, output-limit cut, hook…) leads with what happened and what
     // to do — before the user-abort test, whose /abort/ would otherwise claim a hook reason that mentions the word

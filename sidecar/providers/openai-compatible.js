@@ -427,6 +427,35 @@
     // Where the Ollama server runs, for its user-facing copy: loopback is "this computer", anything else is named.
     const ollamaHost = opts.nativeOllama === true ? provider.runtime.requestHostOf(baseUrl) : '';
     const ollamaIsLoopback = !ollamaHost || /^(?:localhost|.+\.localhost|127(?:\.\d+){3}|0\.0\.0\.0|\[?::1\]?)$/i.test(ollamaHost);
+    /* NOT AN OLLAMA SERVER (GH#111). LM Studio answers a route it does not serve with HTTP 200 and ONE JSON object,
+       {"error":"Unexpected endpoint or method. (POST /api/chat)"}, so an OLLAMA card pointed at LM Studio read that 200
+       as the native stream: a compact body surfaced the bare sentence (an `unknown` error, retried), a pretty-printed one
+       an empty reply. Those words as the FIRST native object prove the URL is not Ollama (Ollama never answers its own
+       route that way): the native wire goes off for this instance and the run is told which server it reached and which
+       card speaks to it. Content-type is never consulted (Ollama proxies vary). Terminal, not retried: errorClass reads
+       `endpointMismatch` as its own reason, so no retry ladder re-sends the turn into a silent /v1 success and hides
+       the misconfiguration. That sentence is for the OLLAMA card only: a CUSTOM card that merely BORROWED the native
+       wire on its URL's look (opts.nativeOllamaBorrowed) is already the right card, so wireStream re-asks /v1 instead. */
+    const NOT_OLLAMA_RE = /unexpected endpoint or method/i;
+    const NATIVE_LEFTOVER_MAX = 65536;   // bounded: only an error body that never parsed line by line is ever re-read
+    const nativeBorrowed = opts.nativeOllamaBorrowed === true;
+    /* host[:port] of the configured URL as a URL parser reads it (the port is what tells 1234 from 11434). URL.host never
+       carries userinfo, even a password with a raw "@", so no credential reaches COMMS, history or pasted diagnostics. */
+    const endpointHostPort = (() => { try { return new URL(String(baseUrl || '')).host || ''; } catch (_) { return ''; } })();
+    function nativeErrorText(j) {
+      if (!j || !j.error) return '';
+      if (typeof j.error === 'string') return j.error;
+      return String(j.error.message || j.error.code || '');
+    }
+    function notOllamaError(detail) {
+      const err = new Error('The OLLAMA card\'s URL' + (endpointHostPort ? ' (' + endpointHostPort + ')' : '') + ' is not an Ollama server: '
+        + 'it answered Ollama\'s chat request the way LM Studio does. Add that server under SETTINGS → AI & MODELS → CUSTOM '
+        + 'with its /v1 URL instead. [' + detail + ']');
+      err.ownMessage = true;
+      err.endpointMismatch = true;
+      err.body = { error: { message: detail } };
+      return err;
+    }
     const pinnedCtx = Math.max(0, Math.floor(Number(opts.numCtx) || 0));
     const ctxCeiling = Math.max(0, Math.floor(Number(opts.maxCtx) || 0)) || (ollamaNative ? ollamaNative.DEFAULT_MAX_CTX : 0);
     const modelFacts = new Map();      // model -> Promise<{ contextLength, supportsTools, supportsReasoning }>
@@ -511,7 +540,24 @@
     // the loop sees them; with no such tool this is the raw stream itself.
     function stream(req) { return toolschema.withRestoredArgKeys(wireStream(req), req && req.tools); }
 
+    /* A CUSTOM card's BORROWED native wire (GH#111 review): its URL only looked like Ollama, so a server that answers the
+       native chat as a different server (notOllamaError, thrown on the FIRST native object, before this turn yielded
+       anything) is StarNet's own wrong guess, and CUSTOM is already the card that speaks to it. nativeWire is off by
+       then; the same turn goes once on the /v1 wire, the way the 404 path does, and a /v1 failure reports itself.
+       Every other route streams wireStreamOnce untouched. */
     async function* wireStream(req) {
+      if (!nativeBorrowed || !nativeWire) { yield* wireStreamOnce(req); return; }
+      let yielded = false;
+      try {
+        for await (const ev of wireStreamOnce(req)) { yielded = true; yield ev; }
+      } catch (e) {
+        if (yielded || nativeWire || !e || e.endpointMismatch !== true) throw e;
+        failNote('providers.openai_compatible.custom_not_ollama', 'the CUSTOM endpoint at ' + endpointHostPort + ' looked like Ollama but is not (' + (e.body && e.body.error && e.body.error.message) + '): the turn moves to its /v1 wire');
+        yield* wireStreamOnce(req);
+      }
+    }
+
+    async function* wireStreamOnce(req) {
       req = req || {};
       maybeRewarmCatalog();
       const dropped = droppedParams.get(String(req.model || ''));
@@ -639,15 +685,43 @@
         return nextIdx > 0 ? nextIdx - 1 : 0;
       }
       let doneEmitted = false;   // exactly one terminal event per stream (see STREAM-END TRUTH below)
+      // Native body text that parsed as no object, kept only until the first object parses (see nativeLeftover).
+      let nativeObjects = 0;
+      let nativeUnparsed = '';
+
+      // One native NDJSON object. The FIRST one may prove the URL is not Ollama at all (notOllamaError).
+      function nativeObject(j) {
+        if (!j || typeof j !== 'object') return null;
+        if (!nativeObjects++) {
+          const detail = nativeErrorText(j);
+          if (detail && NOT_OLLAMA_RE.test(detail)) { nativeWire = false; throw notOllamaError(detail); }
+        }
+        const chunk = translate(j);
+        return chunk ? { json: chunk, last: j.done === true } : null;
+      }
+      /* A native body that never parsed line by line: a server that pretty-prints ONE JSON object over several lines
+         (LM Studio's 200 "no such route", GH#111) read as nothing, then a cut stream with an EMPTY reply. Read as one
+         document it is that object, so an {error} there is thrown, never an empty success. A body that is not JSON
+         stays exactly as before. */
+      function nativeLeftover() {
+        if (!translate || nativeObjects || !nativeUnparsed.trim()) return null;
+        let j;
+        try { j = JSON.parse(nativeUnparsed); } catch (_) { return null; }
+        return nativeObject(j);
+      }
 
       function parseLine(line) {
         const t = line.replace(/\r$/, '').trim();
         if (translate) {
           // one JSON object per line; the object with done:true is the whole stream's end (Ollama sends no [DONE])
           if (!t) return null;
-          let j; try { j = JSON.parse(t); } catch (_) { return null; }
-          const chunk = translate(j);
-          return chunk ? { json: chunk, last: j.done === true } : null;
+          let j;
+          try { j = JSON.parse(t); } catch (_) { j = undefined; }
+          if (!j || typeof j !== 'object') {
+            if (!nativeObjects && nativeUnparsed.length < NATIVE_LEFTOVER_MAX) nativeUnparsed += line + '\n';
+            return null;
+          }
+          return nativeObject(j);
         }
         if (!t || t.charAt(0) === ':') return null;
         if (t.indexOf('data:') !== 0) return null;
@@ -720,6 +794,8 @@
             if (p && p.done) sawSentinel = true;
             else if (p && p.json) { yield* emitFrom(p.json); if (p.last) sawSentinel = true; }
           }
+          const whole = nativeLeftover();
+          if (whole) { yield* emitFrom(whole.json); if (whole.last) sawSentinel = true; }
         }
         // STREAM-END TRUTH (truthful-telemetry law): always emit exactly ONE terminal event, and say honestly
         // whether the stream really ENDED or merely stopped arriving. A complete response carries a
