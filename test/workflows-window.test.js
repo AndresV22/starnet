@@ -421,5 +421,18 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.ok(/goalLine: \(\) => \{ const g = goalLine\(\); return g \? \{ id: g\.bp\.id, why: g\.why, quote: g\.quote \} : null; \},/.test(buildSrc), 'Build exposes the shelf\'s own FOR YOUR GOAL pick');
   }
 
+  /* ---------- night-leak 10-15: a closed window lets go of its body (module state held the last closed WORKFLOWS window) ---------- */
+  {
+    const o = registered.workflows.o;
+    A.ok(typeof o.onClose === 'function', 'the window registers a close teardown');
+    const el = { isConnected: true, innerHTML: '', querySelector: () => null, querySelectorAll: () => [], closest: () => null, contains: () => false, scrollTop: 0, getBoundingClientRect: () => ({ top: 0 }) };
+    registered.workflows.fn(el);
+    A.ok(WW._body() === el, 'an open window is the module body');
+    o.onClose(el);
+    A.ok(WW._body() === null, 'closing it drops the body: nothing in the module reaches the closed window');
+    WW.refresh(); WW.refresh(['x']);
+    A.ok(WW._body() === null, 'a refresh after close repaints nothing');
+  }
+
   A.report('workflows-window.test');
 })().catch(e => { console.error(e); process.exit(1); });

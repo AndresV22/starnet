@@ -967,7 +967,11 @@ const WorkflowsWindow = (() => {
       return true;
     }, () => true);
   }
-  if (UI() && UI().registerWindow) UI().registerWindow('workflows', 'WORKFLOWS', build, { className: 'wfw-win' });
+  /* CLOSED MEANS LET GO (night-leak, 2026-10-15): `body` is module state, so a closed WORKFLOWS window stayed reachable through it
+     (and through every module closure that shares this scope, the bus handlers below included) until the next open. Closing drops
+     the body and the floor subscription; every reader already treats a null body as closed (alive()). */
+  function closed() { body = null; stopTimers(); }
+  if (UI() && UI().registerWindow) UI().registerWindow('workflows', 'WORKFLOWS', build, { className: 'wfw-win', onClose: closed });
   /* SEND TO (2026-10-10): a job another line handed on runs in the background — no window posted it, so nothing folded its
      delivered run into DELIVERABLES › TO REVIEW, and the receiving line's result never reached the Commander's review pile. The
      floor's own events say when one lands in its OUTBOX (workitem.placed kind:'handoff', then workitem.delivered to 'outbox' for
@@ -1019,6 +1023,6 @@ const WorkflowsWindow = (() => {
     schedule();
   };
   return { open, refresh, openLine: key => open({ view: 'line', line: key, job: null }), openNew: () => open({ view: 'new' }), openByStream, openOutbox, showJob, startLines,
-    _state: S, _floor: floor, _lineWord: lineWord, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, _resultHTML: resultHTML, _startsText: startsText, _newHTML: newHTML, EX_HEAD };   // (the _ seams are test/eval reads)
+    _state: S, _body: () => body, _floor: floor, _lineWord: lineWord, _pick: pickStarter, _create: create, _send: send, _useFix: useFix, _styleKept: styleKept, _keepStyle: keepStyle, _putStyleBack: putStyleBack, _exampleBrief: exampleBrief, _resultHTML: resultHTML, _startsText: startsText, _newHTML: newHTML, EX_HEAD };   // (the _ seams are test/eval reads)
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowsWindow;

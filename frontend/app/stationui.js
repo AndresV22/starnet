@@ -88,6 +88,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // the live roster, so a SUMMON or a DELETE while the panel is open must repaint it — otherwise it keeps
   // offering a flip for an agent that no longer exists (and hides one that does). null when closed.
   let repaintPermAgents = null;
+  /* CLOSED MEANS NULL (night-leak, 2026-10-15). Both hooks are closures over the render that armed them (host .con-pane,
+     the dial and crew wraps …), so a hook left armed after SETTINGS closed kept that whole closed window alive — 3,509
+     elements found detached after a dock sweep, retained only by these two module variables. Closing SETTINGS drops them. */
+  function dropSettingsRepaints() { repaintAutonomyDial = null; repaintPermAgents = null; }
   /* Which PERMISSIONS crew rows the Commander has expanded, by agent id. MODULE scope, deliberately:
      the rows are <details> that paintCrew replaces wholesale, and the settings builder itself re-runs on
      every `rerender('settings')` (a tab swap, a live refresh) — so a Set declared inside that builder is
@@ -1006,7 +1010,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // a window closed while minimized (or minimized-then-restored, then torn down) must leave no orphan chip.
       const wasMin = !!minimized[key];
       if (wasMin) { delete minimized[key]; removeChip(key); }
-      if (w._onClose) { try { w._onClose(); } catch (_) {} }   // e.g. tear down the live arcade canvas
+      if (w._onClose) { try { w._onClose(w); } catch (_) {} }   // e.g. tear down the live arcade canvas (gets the closing window)
       const opener = w._opener;   // a11y: the control that opened this window, to restore focus to
       // free the slot NOW so a re-open (toggle) mounts a fresh window while this one animates out.
       delete open[key]; sfx('close');
@@ -3782,11 +3786,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // consumed here so a later open from anywhere else follows the dossier again), or the one picked in this same
     // open window (kept across its own rerenders), else the dossier's selected agent, as before.
     const sentFrom = skillsPick; skillsPick = null;
-    const keptHere = (skillsShown && skillsShown.win === open.connectors) ? skillsShown.id : null;
+    const keptHere = shownInOpenWindow() ? skillsShown.id : null;
     const picked = present.find(x => x && x.id === (sentFrom || keptHere));
     const a = picked || present[sel];
     const agentId = (a && a.id) || 'agent';
-    skillsShown = { id: agentId, win: open.connectors };
+    skillsShown = { id: agentId, win: weakWin(open.connectors) };
     const agentPicker = present.length
       ? '<label class="mc-hint" for="sk-agent-pick">Skills of</label><select id="sk-agent-pick" class="ab-agent-pick" aria-label="Show the skills of agent">' +
         present.map(x => '<option value="' + esc(x.id) + '"' + (x.id === agentId ? ' selected' : '') + '>' + esc(x.name || x.id) + '</option>').join('') + '</select>'
@@ -3846,7 +3850,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       loadAgentSkills(agentId);
       const pick = document.getElementById('sk-agent-pick');
       if (pick) pick.addEventListener('change', () => {
-        skillsShown = { id: pick.value, win: open.connectors }; sfx('click');
+        skillsShown = { id: pick.value, win: weakWin(open.connectors) }; sfx('click');
         const shown = present.find(x => x && x.id === pick.value);
         const intro = document.getElementById('sk-agent-intro'); if (intro) intro.innerHTML = skillsIntro(shown);
         // one agent per lane: the library's "active for <agent>" readout, the market's gear check and an exchange
@@ -4388,9 +4392,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // inherits an old pick. skillsAgentId() is what every skills action reads at click time.
   let skillsPick = null;
   let skillsShown = null;
+  /* …held WEAKLY (night-leak, 2026-10-15): a strong `win` kept the last closed ABILITIES window alive (8,762 elements after a
+     dock sweep) until the next open replaced it. A WeakRef still tells this window instance from a fresh one. */
+  const weakWin = w => (w && typeof WeakRef === 'function') ? new WeakRef(w) : null;
+  function shownInOpenWindow() {
+    const w = skillsShown && skillsShown.win && skillsShown.win.deref();
+    return !!w && w === open.connectors;
+  }
   let skillLibLoad = 0, skillMarketLoad = 0;
   function skillsAgentId() {
-    const id = skillsShown && skillsShown.win === open.connectors && present.some(x => x && x.id === skillsShown.id) ? skillsShown.id : null;
+    const id = shownInOpenWindow() && present.some(x => x && x.id === skillsShown.id) ? skillsShown.id : null;
     return id || (present[sel] && present[sel].id) || 'agent';
   }
   function skillsIntro(a) {
@@ -11738,8 +11749,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (head) head.after(host); else if (lib) lib.prepend(host); else body.prepend(host);
       if (typeof OutboxView !== 'undefined' && OutboxView.build) OutboxView.build(host); else host.hidden = true;
       if (consoleSection.deliverables === 'review') { delete consoleSection.deliverables; if (!host.hidden) setTimeout(() => { try { host.scrollIntoView({ block: 'start' }); } catch (_) {} }, 0); }
-    }, { console: true, className: 'dlv-win' }],
-    settings: ['SETTINGS',               buildSettings,  { console: true }],
+    }, { console: true, className: 'dlv-win', onClose: w => { if (typeof OutboxView !== 'undefined' && OutboxView.unmount) OutboxView.unmount(w); } }],
+    // a closed SETTINGS must not stay reachable through its repaint hooks (night-leak 10-15: they held the whole closed window)
+    settings: ['SETTINGS',               buildSettings,  { console: true, onClose: dropSettingsRepaints }],
     notifs:   ['NOTIFICATIONS',          buildNotifs,    { console: true, className: 'notifs-win' }],
     // the FIELD MANUAL codex is owned by tutorial.js (P3); this term just hosts its builder
     manual:   ['FIELD MANUAL',           body => { if (typeof Tutorial !== 'undefined' && Tutorial.fillFieldManual) Tutorial.fillFieldManual(body); }, { console: true, className: 'manual-win' }],

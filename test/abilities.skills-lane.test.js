@@ -26,7 +26,10 @@ const context = {
 // org P21: the lane names the shown agent through skillsIntro — run the shipped helper, not a stub
 const introMatch = source.match(/function skillsIntro\(a\) \{[\s\S]*?\n  \}/);
 A.ok(introMatch, 'the AGENT SKILLS intro helper is present');
-vm.runInNewContext((introMatch ? introMatch[0] : '') + '\n' + laneSource + '\nresult = abilitySkillsLane({});', context);
+// night-leak 10-15: the lane ties its pick to the window through a WeakRef (weakWin / shownInOpenWindow) — run the shipped helpers
+const weakSrc = (source.match(/  const weakWin = [^\n]*\n/) || [''])[0] + (source.match(/function shownInOpenWindow\(\) \{[\s\S]*?\n  \}/) || [''])[0];
+A.ok(/new WeakRef\(w\)/.test(weakSrc) && /function shownInOpenWindow/.test(weakSrc), 'the weak window tie helpers are present');
+vm.runInNewContext(weakSrc + '\n' + (introMatch ? introMatch[0] : '') + '\n' + laneSource + '\nresult = abilitySkillsLane({});', context);
 A.ok(/Reusable procedures <b>Agent<\/b> created or learned/.test(context.result.sections.find(s => s.id === 'agent') ? (() => { const el = { innerHTML: '' }; context.result.sections.find(s => s.id === 'agent').build(el); return el.innerHTML; })() : ''),
   'AGENT SKILLS names the agent it shows');
 
@@ -37,15 +40,18 @@ A.ok(/Reusable procedures <b>Agent<\/b> created or learned/.test(context.result.
   const helper = (source.match(/function skillsAgentId\(\) \{[\s\S]*?\n  \}/) || [''])[0];
   A.ok(helper, 'skillsAgentId (the one reader every skills action uses) is present');
   const seq = { present: [{ id: 'agent', name: 'Agent' }, { id: 'nova', name: 'NOVA' }], sel: 0, esc: v => String(v), skillsPick: null, skillsShown: null, open: { connectors: { id: 'w1' } } };
-  vm.runInNewContext((introMatch ? introMatch[0] : '') + '\n' + laneSource + '\n' + helper, seq);
+  vm.runInNewContext(weakSrc + '\n' + (introMatch ? introMatch[0] : '') + '\n' + laneSource + '\n' + helper, seq);
   const shownAfterBuild = () => { vm.runInNewContext('abilitySkillsLane({});', seq); return vm.runInNewContext('skillsAgentId()', seq); };
   seq.skillsPick = 'nova';
   A.eq(shownAfterBuild(), 'nova', 'P21: sent from NOVA\'s dossier SKILLS row → the lane shows NOVA');
   A.eq(seq.skillsPick, null, 'P21: the request is consumed when the lane builds');
   A.eq(shownAfterBuild(), 'nova', 'P21: a rerender of the same open window keeps NOVA');
+  // night-leak 10-15: a strong `win` kept the last closed ABILITIES window (8,762 elements) alive until the next open
+  A.ok(seq.skillsShown && seq.skillsShown.win !== seq.open.connectors && typeof seq.skillsShown.win.deref === 'function' && seq.skillsShown.win.deref() === seq.open.connectors,
+    'the lane ties its pick to the window WEAKLY (a WeakRef to this instance, never the element itself)');
   seq.open.connectors = { id: 'w2' };
   A.eq(shownAfterBuild(), 'agent', 'P21: a later fresh open (not from the SKILLS row) follows the dossier\'s agent again');
-  seq.skillsShown = { id: 'nova', win: seq.open.connectors };
+  seq.skillsShown = { id: 'nova', win: new WeakRef(seq.open.connectors) };
   A.eq(vm.runInNewContext('skillsAgentId()', seq), 'nova', 'P21: an in-window pick is what every skills action reads');
   seq.open.connectors = null;
   A.eq(vm.runInNewContext('skillsAgentId()', seq), 'agent', 'P21: once that window is gone the pick is gone with it');
