@@ -202,6 +202,7 @@ const Delegated = (() => {
   const receipts = new Map(); // worker thread id -> { status: 'loading'|'ok'|'err', data, at, runId, error }
   const loadingReceipts = new Set();
   const answering = new Set();
+  const closedAsks = new Map();   // worker thread id -> the ask the station no longer held when this page answered it (answer())
   const stopping = new Set();
   const WORD = { recorded: 'delivered', working: 'working', waiting: 'needs you', done: 'done', failed: 'failed', stopped: 'stopped', queued: 'starting', unknown: 'status unknown' };
   function names(list) {
@@ -240,7 +241,9 @@ const Delegated = (() => {
       // the thread's " (2)" is only there to keep thread titles unique; the card says the task in its own words
       const task = String(r.ws.title || 'Delegated task').replace(/ \(\d+\)$/, '').replace(/ · \d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/, '');
       const who = a.name || a.id, id = r.ws.id, shown = seen.has(id);
-      const status = st.cls === 'waiting' ? askLine(st.pend) : cap(st.live || WORD[st.cls]);
+      // its last answer reached no ask (answer()): said on the row while it still works, until it asks again or settles
+      if (closedAsks.has(id) && (st.cls === 'waiting' || !['working', 'unknown', 'queued'].includes(st.cls))) closedAsks.delete(id);
+      const status = st.cls === 'waiting' ? askLine(st.pend) : cap(st.live || WORD[st.cls]) + (closedAsks.has(id) ? ' · approval no longer waiting — your answer was not applied' : '');
       // ONE way to act per state: answer its ask, stop it while it runs, else see its work
       const key = st.cls === 'waiting' && st.pend.tool === 'brief.ask'
         ? '<button type="button" class="dg-key primary" data-dg-question="' + esc(st.pend.promptId) + '">Answer</button>'
@@ -575,16 +578,24 @@ const Delegated = (() => {
   }
   // answer a worker's ask from its row: the SAME answer path as the approval card (Chat.answerConsent), once or deny only
   // (Always / Full access are standing grants; a worker row grants only this request)
+  /* NEVER A DEAD KEY (soak 10-15). A key whose ask this page no longer holds repaints the card to what the ask became, and
+     an ask the STATION no longer holds (Chat.answerConsent rejects gone: answered on a surface whose word never reached this
+     page, expired, or withdrawn) leaves the row saying its approval is no longer waiting — your answer was not applied —
+     never "try again" on a key nothing can answer. A failed send (the station did not answer) keeps the keys. */
   function answer(wsId, decision, key) {
-    const r = findRow(wsId); if (!r) return;
+    const r = findRow(wsId); if (!r) { repaint(); return; }
     const p = askOf(r, Workstreams.activeId());
-    if (!p || p.tool === 'brief.ask' || typeof Chat === 'undefined' || !Chat.answerConsent) return;
+    if (!p || p.tool === 'brief.ask' || typeof Chat === 'undefined' || !Chat.answerConsent) { repaint(); return; }
     // the key answers the ask it was drawn for: if a different one is waiting now, show that one first, never answer it
     if (key && key.dataset && key.dataset.dgPrompt && String(p.promptId) !== key.dataset.dgPrompt) { repaint(); return; }
     const promptId = String(p.promptId); if (answering.has(promptId)) return;
     answering.add(promptId); key.disabled = true; repaint();
+    const notify = (text) => { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(text, 'warn'); };
     Promise.resolve(Chat.answerConsent(p, Workstreams.get(Workstreams.activeId()), decision === 'deny' ? 'deny' : 'once', 'row'))
-      .catch(e => { key.disabled = false; if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not send that answer: ' + ((e && e.message) || e), 'warn'); })
+      .catch(e => {
+        if (e && e.gone) { closedAsks.set(String(r.ws.id), promptId); notify((agentOf(r.ws.agentId || 'agent').name || 'The worker') + '\'s approval is no longer waiting — your answer was not applied'); return; }
+        key.disabled = false; notify('Could not send that answer: ' + ((e && e.message) || e));
+      })
       .then(() => { answering.delete(promptId); repaint(); });
   }
 

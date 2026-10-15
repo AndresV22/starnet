@@ -4176,6 +4176,11 @@ const Chat = (() => {
   async function answerConsent(p, ws, decision, via) {
     const rid = (p && p.runId) || ((ws && typeof Channels !== 'undefined') ? Channels.runIdOf(ws.id) : null);
     const answer = await Harness.consent(rid, p.promptId, decision);
+    if (answer && !answer.ok && answer.gone === true) {
+      letGoneAskGo(p.promptId);
+      const gone = new Error('that approval is no longer waiting, so your answer was not applied'); gone.gone = true;
+      throw gone;
+    }
     if (!(answer && answer.ok)) throw new Error((answer && answer.error) || 'The station did not confirm that answer. Please try again.');
     if (ws) settlePromptNotice(ws.id, p.promptId);
     const appliedDecision = (answer && answer.decision) || 'deny';
@@ -4254,6 +4259,26 @@ const Chat = (() => {
     try { c.retire(text); } catch (e) { if (typeof console !== 'undefined') console.warn('[comms] retire card failed', e); }
     return true;
   }
+  /* AN ASK THE STATION NO LONGER HOLDS (soak 10-15). The consent route says `gone` when no such ask waits anywhere: it was
+     answered on a surface whose word never reached this page, it expired, or it was withdrawn (a restart). Retrying can never
+     land, so this page lets go of it everywhere it shows — its record, its bell entry, its card and the worker's row — in
+     neutral words: nothing is claimed about what settled it. */
+  function letGoneAskGo(promptId) {
+    const id = String(promptId);
+    if (typeof Channels !== 'undefined' && Channels.allPending) {
+      for (const { wsId, p } of Channels.allPending()) {
+        if (!p || String(p.promptId) !== id) continue;
+        Channels.clearPending(wsId, Date.now(), p.promptId);
+        settlePromptNotice(wsId, id);
+        if (typeof Workstreams !== 'undefined' && Workstreams.get && isActiveWs(Workstreams.get(wsId))) renderPresence();
+      }
+    }
+    retireConsentCard(id, '■ no longer waiting on you');
+    if (typeof Delegated !== 'undefined' && Delegated.repaint) Delegated.repaint();
+    if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
+    try { if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } catch (e) { console.warn('[comms] rail refresh after a gone ask failed', e); }
+    syncStatus();
+  }
   function permissionRow(p, ws) {
     if (p && p.tool === 'brief.ask') return clarifyRow(p, ws);   // a question, not a grade — its own card
     // ONE PLACE PER STATUS: a delegated worker's ask is answered on that worker's row of the delegation card
@@ -4275,6 +4300,11 @@ const Chat = (() => {
       try { res = await answerConsent(p, ws, decision); }
       catch (e) {
         submitting = false;
+        // the station no longer holds this ask: answerConsent retired this card in neutral words (or this card does it here)
+        if (e && e.gone) {
+          if (!decided) { decided = true; btns.remove(); releaseCard(r.d); const tag = document.createElement('span'); tag.className = 'consent-result err'; tag.textContent = '■ no longer waiting on you'; r.body.appendChild(tag); syncStatus(); }
+          return;
+        }
         if (received && applyElsewhere) { applyElsewhere(received); return; }
         for (const b of btns.querySelectorAll('button')) b.disabled = false;
         if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('Could not answer: ' + ((e && e.message) || e), 'warn');
