@@ -59,12 +59,24 @@ A.eq(D.rowsForRun(runRows, 'missing', '').length, 0, 'a missing run never falls 
   A.eq([wsr.agentId, wsr.path], ['cypher', 'workshop/run-7/site/index.html'], 'a sandboxed workshop page maps to its real workshop folder, not the bare display path');
   const abs = loc('/api/file?agent=a&path=' + encodeURIComponent('D:/elsewhere/out.txt'), 'C:\\work\\acme');
   A.eq([abs.path, abs.inProject], ['D:/elsewhere/out.txt', false], 'an absolute path outside the project is proven outside');
+  /* P24 wiring: an absolute path outside the project is NOT proven to be the agent's workspace — a path: grant can let a run write
+     to the Desktop. The note says 'workspace' only where the URL proves it or the agent's real workspace root holds the path. */
+  A.eq([ws.inWorkspace, abs.inWorkspace, wsr.inWorkspace, pr.inWorkspace], [true, null, true, false], 'inWorkspace: relative = proven, workshop run = proven, absolute = unknown, project file = no');
+  A.eq(D.outsideNote(ws, 'C:\\work\\acme', 'ULTRON', ''), 'saved in ULTRON workspace, not in acme', 'a relative workspace file of a project item: the workspace note');
+  const desk = loc('/api/file?agent=nova&path=' + encodeURIComponent('C:\\Users\\me\\Desktop\\report.md'), 'C:\\work\\my-app');
+  A.eq(D.outsideNote(desk, 'C:\\work\\my-app', 'NOVA', ''), 'saved outside my-app', 'a granted Desktop file is said as outside the project, never as the workspace (no root known yet)');
+  A.eq(D.outsideNote(desk, 'C:\\work\\my-app', 'NOVA', 'C:\\Users\\me\\StarNet\\workspaces\\nova\\'), 'saved outside my-app', '…nor once the real workspace root is known and does not hold it');
+  const outp = loc('/api/file?agent=nova&path=' + encodeURIComponent('C:\\Users\\me\\StarNet\\workspaces\\nova\\.output\\r.md'), 'C:\\work\\my-app');
+  A.eq(D.outsideNote(outp, 'C:\\work\\my-app', 'NOVA', 'C:\\Users\\me\\StarNet\\workspaces\\nova\\'), 'saved in NOVA workspace, not in my-app', 'an absolute .output/ file inside the real workspace root keeps the workspace note');
+  A.eq(D.outsideNote(pr, 'C:\\work\\acme', 'ULTRON', ''), '', 'a file inside the project carries no outside note');
+  A.eq(D.outsideNote(nop, '', 'A', ''), '', 'an item with no project carries no outside note');
   A.eq(D.savedLocation({ agentId: 'a' }, { path: '', openUrl: '' }, ''), null, 'no path = no key');
   const src = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'app', 'deliverables.js'), 'utf8');
   // P24 polish: the name keeps the row — the keys are glyph-only and ride the row's END, after the size and the main marker
   A.ok(/OPEN<\/a><span class="dlv-fname">' \+ esc\(f\.path\) \+ '<\/span><span class="dlv-fsize">[\s\S]{0,140}<span class="dlv-floc" data-floc="' \+ fi \+ '"><\/span><\/li>/.test(src), 'every openable FILES row carries a key slot at its end');
   A.ok(/tauriCore\(\) \? Chat\.folderButton\(loc\.agentId, loc\.path\) : Chat\.copyPathButton\(loc\.agentId, loc\.path\)/.test(src) && /if \(tauriCore\(\)\) keys\.push\(Chat\.copyPathButton\(loc\.agentId, loc\.path\)\)/.test(src), 'desktop gets the folder key plus copy path; a browser gets the one copy-path key (its own glyph)');
-  A.ok(/k\.removeAttribute\('title'\); k\.setAttribute\('data-tip-path', ''\); k\.setAttribute\('data-tip', \[verbs\[ki\], lead, breakable\(p\)\]/.test(src) && /'saved in ' \+ agentLabel\(loc\.agentId\) \+ ' workspace, not in ' \+ projLeaf\(r\.project\)/.test(src), 'the full path rides a path data-tip (not title=): what the key does, the outside-the-project note, then the path');
+  A.ok(/k\.removeAttribute\('title'\); k\.setAttribute\('data-tip-path', ''\); k\.setAttribute\('data-tip', \[verbs\[ki\], lead, breakable\(p\)\]/.test(src) && /let lead = sentence\(outsideNote\(loc, r\.project, agentLabel\(loc\.agentId\), ''\)\)/.test(src)
+    && /Chat\.fullSavedPath\(loc\.agentId, ''\)\)\.then\(root => \{\s*const proven = sentence\(outsideNote\(loc, r\.project, agentLabel\(loc\.agentId\), root\)\)/.test(src), 'the full path rides a path data-tip (not title=): what the key does, the outside-the-project note, then the path');
   A.ok(/\.dlv-floc \.dlv-loc-key \.fb-label \{ display: none; \}/.test(fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'css', 'deliverables-glass.css'), 'utf8')), 'the row keys are glyph-only (their words ride the tip and aria-label)');
   A.ok(/if \(folderKey && folderKey\.click\) \{ folderKey\.click\(\);/.test(src), 'a failed desktop OPEN runs the folder key instead of the old hunt-for-it sentence');
   // a TO REVIEW FILES row (outbox.js) shares this OPEN seam but has no key slot: its fallback must name the library row

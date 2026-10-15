@@ -85,15 +85,19 @@
   /* WHERE A LIBRARY FILE IS SAVED (org pass 10-14, P24), read off the backend's own openUrl — never rebuilt from display
      fields: { agentId, path, inProject }. 'path' is what the shared folder / copy-path keys take (relative = the agent's
      workspace, absolute as is); 'inProject' is true only when the URL proves the file sits in that project folder
-     (?project=), false only when it proves the file is NOT in it (an agent-workspace path), null when there is no project. */
+     (?project=), false only when it proves the file is NOT in it, null when there is no project. 'inWorkspace' is true only
+     where the URL proves the agent's own workspace (a relative path with no ?project=, a workshop run) and null for an absolute
+     path: that can be any granted folder (a path: grant on the Desktop, say), so only outsideNote's check against the agent's
+     real workspace root may call it the workspace. */
+  const normPath = p => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const pathWithin = (root, p) => !!root && normPath(p).indexOf(normPath(root) + '/') === 0;
   function savedLocation(r, f, project) {
     const url = String((f && f.openUrl) || '');
     const isAbs = p => /^(?:[A-Za-z]:[\\/]|\/)/.test(p);
-    const norm = p => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
     const dec = s => { try { return decodeURIComponent(s); } catch (_) { return ''; } };
-    const within = full => project ? norm(full).indexOf(norm(project) + '/') === 0 : null;
+    const within = full => project ? pathWithin(project, full) : null;
     const ws = /^\/workshop-run\/([^/?#]+)\/([^/?#]+)\/([^?#]+)/.exec(url);
-    if (ws) return { agentId: dec(ws[1]) || r.agentId || 'agent', path: 'workshop/' + dec(ws[2]) + '/' + ws[3].split('/').map(dec).join('/'), inProject: project ? false : null };
+    if (ws) return { agentId: dec(ws[1]) || r.agentId || 'agent', path: 'workshop/' + dec(ws[2]) + '/' + ws[3].split('/').map(dec).join('/'), inProject: project ? false : null, inWorkspace: true };
     const agent = dec((/[?&]agent=([^&#]*)/.exec(url) || [])[1] || '') || r.agentId || 'agent';
     const rel = artifactPath(f);
     if (!rel) return null;
@@ -101,10 +105,19 @@
     if (root && !isAbs(rel)) {
       const sep = root.indexOf('\\') >= 0 ? '\\' : '/';
       const full = root.replace(/[\\/]+$/, '') + sep + rel.replace(/^[\\/]+/, '').replace(/[\\/]/g, sep);
-      return { agentId: agent, path: full, inProject: within(full) };
+      return { agentId: agent, path: full, inProject: within(full), inWorkspace: false };
     }
-    if (isAbs(rel)) return { agentId: agent, path: rel, inProject: within(rel) };
-    return { agentId: agent, path: rel, inProject: project ? false : null };   // relative, no project: the agent's own workspace
+    if (isAbs(rel)) return { agentId: agent, path: rel, inProject: within(rel), inWorkspace: null };   // any folder the run was let write
+    return { agentId: agent, path: rel, inProject: project ? false : null, inWorkspace: true };   // relative, no project: the agent's own workspace
+  }
+  /* the outside-the-project note a FILES row's keys carry (P24): '<AGENT> workspace' only where that is PROVEN, by savedLocation's
+     inWorkspace or by an absolute path inside the agent's real workspace root (wsRoot, from Chat.fullSavedPath(agent, '')). Any other
+     absolute path outside the project (a granted Desktop folder) is said as outside the project, never as the workspace. */
+  function outsideNote(loc, project, who, wsRoot) {
+    if (!loc || loc.inProject !== false) return '';
+    const s = String(project || '').replace(/[\\/]+$/, ''), leaf = s.split(/[\\/]/).pop() || s;
+    const inWs = loc.inWorkspace === true || (loc.inWorkspace == null && pathWithin(wsRoot, loc.path));
+    return inWs ? 'saved in ' + who + ' workspace, not in ' + leaf : 'saved outside ' + leaf;
   }
   function revokePreview(state) {
     if (!state) return;
@@ -638,7 +651,6 @@
     function wireLocations(card) {
       if (typeof Chat === 'undefined' || !Chat.folderButton || !Chat.copyPathButton) return;
       const r = rows[Number(card.dataset.i)]; if (!r) return;
-      const projLeaf = p => { const s = String(p || '').replace(/[\\/]+$/, ''); return s.split(/[\\/]/).pop() || s; };
       card.querySelectorAll('.dlv-floc[data-floc]').forEach(slot => {
         if (slot.dataset.wired === '1') return;
         const f = r.files && r.files[Number(slot.dataset.floc)];
@@ -651,7 +663,7 @@
         if (tauriCore()) keys.push(Chat.copyPathButton(loc.agentId, loc.path));
         // each tip line reads as a sentence, like the window's other key tips ('Copy the full saved path.') — P24 polish 2
         const sentence = t => { const v = String(t || '').trim(); return v ? v.charAt(0).toUpperCase() + v.slice(1) + (/[.!?…]$/.test(v) ? '' : '.') : ''; };
-        const lead = loc.inProject === false ? sentence('saved in ' + agentLabel(loc.agentId) + ' workspace, not in ' + projLeaf(r.project)) : '';
+        let lead = sentence(outsideNote(loc, r.project, agentLabel(loc.agentId), '')), shown = loc.path;
         /* ICON KEYS (org pass 10-14, P24 polish): the row's width belongs to the file NAME — labelled keys squeezed it to nothing.
            Each key is its glyph alone at the row's end; what it does rides its tip and aria-label, and its feedback word
            ('path copied', 'opened', 'no path') still shows on the key while it lasts (.fb-live). */
@@ -659,7 +671,7 @@
         /* the tip is a PATH card (data-tip-path → tooltip.js widens it and keeps these line breaks): what the key does, the
            outside-the-project note, then the path on lines of its own — breaking only after a folder separator, never mid-name */
         const breakable = p => String(p || '').replace(/([\\/])(?=.)/g, '$1\u200b');
-        const tip = p => keys.forEach((k, ki) => { k.removeAttribute('title'); k.setAttribute('data-tip-path', ''); k.setAttribute('data-tip', [verbs[ki], lead, breakable(p)].filter(Boolean).join('\n')); });
+        const tip = p => { shown = p; keys.forEach((k, ki) => { k.removeAttribute('title'); k.setAttribute('data-tip-path', ''); k.setAttribute('data-tip', [verbs[ki], lead, breakable(p)].filter(Boolean).join('\n')); }); };
         keys.forEach((k, ki) => {
           k.classList.add('bb', 'sm', 'dlv-loc-key');
           if (verbs[ki]) k.setAttribute('aria-label', verbs[ki]);
@@ -669,6 +681,11 @@
         });
         tip(loc.path);
         if (Chat.fullSavedPath) Promise.resolve(Chat.fullSavedPath(loc.agentId, loc.path)).then(full => { if (full) tip(full); }, () => tip(loc.path));
+        // an absolute path outside the project: the workspace wording only once the agent's real workspace root proves it holds the file
+        if (Chat.fullSavedPath && loc.inProject === false && loc.inWorkspace == null) Promise.resolve(Chat.fullSavedPath(loc.agentId, '')).then(root => {
+          const proven = sentence(outsideNote(loc, r.project, agentLabel(loc.agentId), root));
+          if (proven !== lead) { lead = proven; tip(shown); }
+        }, () => {});
       });
     }
     /* ONE READING OF AN ANSWER (walk 10-14): WHAT CAME BACK is drawn by COMMS' own renderer (Chat.renderProse — escape-first;
@@ -766,5 +783,5 @@
     if (!runId || !body || typeof body._deliverablesShowRun !== 'function') return false;
     body._deliverablesShowRun(runId, label); return true;
   }
-  return { esc, safeMarkdown, plainLine, safeCsv, openUrl, fileHref, artifactPath, savedLocation, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, showStatus, rowsForRun, BUCKETS };
+  return { esc, safeMarkdown, plainLine, safeCsv, openUrl, fileHref, artifactPath, savedLocation, outsideNote, handleOpenClick, bucketOf, pillOf, agentLabel, agoOf, fmtSize, mount, showRun, showStatus, rowsForRun, BUCKETS };
 });
