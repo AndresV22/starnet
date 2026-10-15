@@ -49,6 +49,11 @@ const NeedsYou = (() => {
     try { const s = dismissed(); s.add(key); localStorage.setItem(DISMISS_KEY, JSON.stringify([...s].slice(-300))); } catch (_) { /* storage blocked: the item stays, never lost */ }
   }
   function nameOf(id) { return (has(App, 'agentName') && App.agentName(id)) || id || 'an agent'; }
+  // the rail names an agent in its own colour, as its session rows and CREW card do
+  function colorOf(id) {
+    if (!id || !has(App, 'agents')) return '';
+    try { const a = (App.agents() || []).find(x => x && x.id === id); return (a && a.color) || ''; } catch (_) { return ''; }
+  }
   function titleOf(ws) { return (ws && (ws.title || (typeof Workstreams !== 'undefined' && Workstreams.generalId && ws.id === Workstreams.generalId() ? 'General' : ''))) || 'a conversation'; }
   function questionOf(p) {
     try { const j = JSON.parse(p.argsSummary || '{}'); if (j && typeof j.question === 'string' && j.question.trim()) return j.question.trim(); } catch (_) { /* a plain-text ask */ }
@@ -76,21 +81,21 @@ const NeedsYou = (() => {
     if (typeof StepIn !== 'undefined' && StepIn.live) {
       for (const h of StepIn.live()) {
         if (!h || !h.id) continue;
-        out.push({ key: 'stepin:' + h.id, kind: 'stepin', handoffId: String(h.id), who: nameOf(h.agentId),
+        out.push({ key: 'stepin:' + h.id, kind: 'stepin', handoffId: String(h.id), who: nameOf(h.agentId), aid: h.agentId,
           what: 'needs you to ' + (STEPIN_WHY[h.reason] || STEPIN_WHY.other) + (h.where ? ' at ' + h.where : ''), where: 'STEP-IN', since: Number(h.requestedAt) || 0 });
       }
     }
     if (typeof QuestLedgerStore !== 'undefined' && QuestLedgerStore.pendingAttests) {
       for (const q of QuestLedgerStore.pendingAttests()) {
         if (!q || !q.id || !q.attest) continue;
-        out.push({ key: 'attest:' + q.id + '@' + (Number(q.attest.at) || 0), kind: 'attest', questId: String(q.id), who: nameOf(q.attest.agentId || 'agent'),
+        out.push({ key: 'attest:' + q.id + '@' + (Number(q.attest.at) || 0), kind: 'attest', questId: String(q.id), who: nameOf(q.attest.agentId || 'agent'), aid: q.attest.agentId || 'agent',
           what: 'says "' + String(q.title || 'a quest') + '" is done', tip: String(q.attest.evidence || ''), where: 'QUESTS', since: Number(q.attest.at) || 0 });
       }
     }
     if (typeof LoopsReview !== 'undefined' && LoopsReview.waiting) {
       for (const l of LoopsReview.waiting()) {
         if (!l || !l.id || !(l.count > 0)) continue;
-        out.push({ key: 'loop:' + l.id, kind: 'loop', who: nameOf(l.agentId || 'agent'),
+        out.push({ key: 'loop:' + l.id, kind: 'loop', who: nameOf(l.agentId || 'agent'), aid: l.agentId || 'agent',
           what: 'has ' + plural(l.count, 'result', 'results') + ' waiting on your review from "' + String(l.name || 'a goal loop') + '"', where: 'GOAL LOOPS', since: Number(l.since) || 0 });
       }
     }
@@ -98,7 +103,8 @@ const NeedsYou = (() => {
     // no time: the sidecar's pending lists carry none, so the row shows no age rather than a guessed one
     if (feeds.extensions > 0) out.push({ key: 'extensions', kind: 'extension', who: 'STATION', what: 'has ' + plural(feeds.extensions, 'extension', 'extensions') + ' awaiting your approval', where: 'EXTENSIONS', since: 0 });
     for (const m of (feeds.builds || [])) {
-      out.push({ key: 'build:' + m.runId, kind: 'build', who: nameOf(m.agentId), what: 'built "' + String(m.title || 'a build') + '": keep or discard it', where: 'DELIVERABLES', since: Number(m.builtAt) || 0 });
+      out.push({ key: 'build:' + m.runId, kind: 'build', who: nameOf(m.agentId), aid: m.agentId, what: 'built "' + String(m.title || 'a build') + '": keep or discard it',
+        rail: { verb: 'keep or discard', text: String(m.title || 'a build') }, where: 'DELIVERABLES', since: Number(m.builtAt) || 0 });
     }
   }
   /* (org P01) THE STORED WAITS — what the station filed as waiting on you with no live source behind it (a finished reply's
@@ -118,16 +124,17 @@ const NeedsYou = (() => {
       const goWs = n.go && n.go.ws ? String(n.go.ws) : '';
       if (goWs && covered.has(goWs)) continue;
       const ws = goWs ? Workstreams.get(goWs) : null;
-      let what = String(n.txt || '').trim(), who = '';
+      let what = String(n.txt || '').trim(), who = '', aid = '';
       if (ws) {
         // chat.js wrote whoOf(ws) + the line + sessionNote(ws): who and where show on their own, so the line is said once
         const name = nameOf(ws.agentId || 'agent');
         if (name && what.indexOf(name + ' ') === 0) { who = name; what = what.slice(name.length + 1); }
+        aid = ws.agentId || 'agent';
         const t = String(ws.title || '').trim(), note = t ? ' — ' + (t.length > 56 ? t.slice(0, 53) + '…' : t) : '';
         if (note && what.length > note.length && what.slice(-note.length) === note) what = what.slice(0, -note.length);
       }
       out.push({ key: 'asked:' + n.id, kind: 'asked', storedId: String(n.id), wsId: ws ? ws.id : '', noDoor: !ws,
-        who, what: what || 'is waiting on you', where: ws ? titleOf(ws) : 'NOTIFICATIONS', since: Number(n.t) || 0 });
+        who, aid, what: what || 'is waiting on you', where: ws ? titleOf(ws) : 'NOTIFICATIONS', since: Number(n.t) || 0 });
     }
   }
   const settleStored = i => !!(i && i.kind === 'asked' && typeof StationUI !== 'undefined' && StationUI.settleStoredWait && StationUI.settleStoredWait(i.storedId));
@@ -168,7 +175,7 @@ const NeedsYou = (() => {
         const ws = Workstreams.get(wsId); if (!ws || !p || !p.promptId) continue;
         const question = p.tool === 'brief.ask';
         out.push({ key: 'ask:' + p.promptId, kind: question ? 'question' : 'approval', wsId, workerWsId: p.workerStreamId || '',
-          who: nameOf(p.workerAgentId || ws.agentId || p.agentId), what: question ? questionOf(p) : (typeof Chat !== 'undefined' && Chat.consentPhrase ? Chat.consentPhrase(p) : String(p.tool || '')),
+          who: nameOf(p.workerAgentId || ws.agentId || p.agentId), aid: p.workerAgentId || ws.agentId || p.agentId, what: question ? questionOf(p) : (typeof Chat !== 'undefined' && Chat.consentPhrase ? Chat.consentPhrase(p) : String(p.tool || '')),
           where: titleOf(ws), since: Number(p.askedAt) || 0, p });
       }
     }
@@ -187,11 +194,11 @@ const NeedsYou = (() => {
       const at = Number(w.completedAt) || Number(w.startedAt) || 0, key = 'worker:' + w.runId;
       if (gone.has(key) || (at && now - at > KEEP_FAILED_MS)) continue;
       const tip = typeof Delegated !== 'undefined' && Delegated.tipOf ? Delegated.tipOf(w) : '';   // the sidecar's own sentence, on hover
-      out.push({ key, kind: 'failed', wsId: parent.id, workerWsId: w.streamId || '', who: nameOf(w.agentId), what: reasonOf(w), tip, where: titleOf(parent), since: at });
+      out.push({ key, kind: 'failed', wsId: parent.id, workerWsId: w.streamId || '', who: nameOf(w.agentId), aid: w.agentId, what: reasonOf(w), tip, where: titleOf(parent), since: at });
     }
     for (const ws of Workstreams.list()) {
       if (!/^cron-/.test(String(ws.id)) || ws.lastRunOk !== false || !(Workstreams.unread && Workstreams.unread(ws))) continue;
-      out.push({ key: 'routine:' + ws.id, kind: 'routine', wsId: ws.id, who: nameOf(ws.agentId), what: 'routine "' + ((ws.automation && ws.automation.name) || ws.title || 'routine') + '" failed',
+      out.push({ key: 'routine:' + ws.id, kind: 'routine', wsId: ws.id, who: nameOf(ws.agentId), aid: ws.agentId, what: 'routine "' + ((ws.automation && ws.automation.name) || ws.title || 'routine') + '" failed',
         where: 'routines', since: Number(ws.lastActiveAt) || 0, routineId: (ws.automation && ws.automation.id) || '' });
     }
     blockingWaits(out, now);
@@ -235,25 +242,33 @@ const NeedsYou = (() => {
       // (a direct-chat ask's Review is its row's own open action: reviewRow above)
       return k('once', 'Approve once', 'primary', sending) + k('deny', 'Deny', 'deny', sending);
     }
+    // (Andrew 10-15) THE ROW IS THE DOOR, as a session row is: a click anywhere on it opens where the wait is, so a wait
+    // whose only action was Open has no key at all. Keys stay only for what is NOT opening: answer, retry, dismiss.
     if (i.kind === 'question') return k('open', 'Answer', 'primary');
     // a quest an agent says is done: the QUESTS card's own verdict keys (Confirm → done; Not yet keeps it open, the agent sees why)
     // (the rail's key drops the card's ✓: a symbol glyph is a fallback font in a VT323 label and overran the key's edge)
     if (i.kind === 'attest') return k('attest-yes', 'Confirm', 'primary', sending) + k('attest-no', 'Not yet', 'deny', sending);
-    if (i.kind === 'routine' && i.routineId) return k('retry', 'Retry', 'primary') + k('open', 'Open');
-    if (i.kind === 'failed') return k('open', 'Open') + k('dismiss', 'Dismiss', 'quiet');
+    if (i.kind === 'routine' && i.routineId) return k('retry', 'Retry', 'primary');
+    if (i.kind === 'failed') return k('dismiss', 'Dismiss', 'quiet');
     if (i.kind === 'asked' && i.noDoor) return k('dismiss', 'Dismiss', 'quiet');   // no conversation to open: only its Dismiss
-    return k('open', 'Open');
+    return '';
+  }
+  // the row's line, the ask first so a clamp never cuts it: "wants to …", "asks …", "keep or discard · <build>"
+  function lineHtml(i) {
+    if (i.rail) return '<span class="ny-verb">' + esc(i.rail.verb) + '</span> · ' + esc(i.rail.text);
+    return (KIND[i.kind] ? '<span class="ny-verb">' + esc(KIND[i.kind]) + '</span> ' : '') + esc(i.what);
   }
   function html(list, now) {
     if (!list.length) return '';
     const shown = expanded ? list : list.slice(0, SHOW);
     return '<div class="ny-head"><span class="ny-lamp" aria-hidden="true"></span><span class="ny-title">Needs you</span><span class="ny-count">' + list.length + '</span></div>'
-      + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i); return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '">'
-        // the rail is narrow: who · where · how long (where wraps under who rather than being cut), what exactly on its own
-        // (an ask three lines at most, any other wait in full), keys below
-        + '<div class="ny-line">' + (i.who ? '<span class="ny-who">' + esc(i.who) + '</span>' : '') + '<button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
-        + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + esc((KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what) + '</div>'
-        + '<div class="ny-keys">' + keysFor(i) + '</div>'
+      + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i), keys = keysFor(i), color = colorOf(i.aid); return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '">'
+        // (Andrew 10-15) the SAME row as a session's: the lamp, then WHO (in the agent's colour) · where · how long, then
+        // the line (the ask first; two lines at most, the whole of it on hover), then keys only when there is more than Open
+        + '<span class="ny-dot" aria-hidden="true"></span>'
+        + '<div class="ny-line">' + (i.who ? '<span class="ny-who"' + (color ? ' style="color:' + esc(color) + '"' : '') + '>' + esc(i.who) + '</span>' : '') + '<button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
+        + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + lineHtml(i) + '</div>'
+        + (keys ? '<div class="ny-keys">' + keys + '</div>' : '')
         + '</li>'; }).join('') + '</ul>'
       + (list.length > SHOW ? '<button type="button" class="ny-more" data-ny-act="more" aria-expanded="' + expanded + '">' + (expanded ? 'Show fewer' : (list.length - SHOW) + ' more') + '</button>' : '');
   }

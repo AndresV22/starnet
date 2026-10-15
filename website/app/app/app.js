@@ -4320,9 +4320,11 @@ const App = (() => {
     const headers = new Map();
     // delegated workers' threads are never rows (Workstreams.list hides them): their work is on the asking
     // conversation's delegation card, and a running crew shows on that conversation's own lamp (railRowState reads the ledger)
+    const olderRuns = new Set();   // a routine's runs listed under its newest one, while its history is open
     const rows = grouped.flatMap(item => {
       if (item.type === 'session') return [item.w];
       headers.set(item.visible[0].id, item);
+      item.visible.slice(1).forEach(w => olderRuns.add(w.id));
       return item.visible;
     });
     const filters = el('ws-kind-filter');
@@ -4352,13 +4354,17 @@ const App = (() => {
       const title = titles[i];   // only the General home reads "General"; an untitled other session is a "New session"
       const st = railRowState(w);
       const group = headers.get(w.id);
-      const groupHead = group ? '<li class="ws-auto-group" role="presentation"><button type="button" data-ws-group="' + U.esc(group.key) + '" aria-expanded="' + railExpanded.has(group.key) + '"><span>' + U.esc(group.name) + '</span><small>' + U.esc(railAgentName(w)) + ' · ' + group.rows.length + ' run' + (group.rows.length === 1 ? '' : 's') + ' · ' + (railExpanded.has(group.key) ? 'collapse' : 'show history') + '</small></button></li>' : '';
+      // a routine is ONE row (Andrew 10-15: a header over its own newest run said the name twice, in an older style): its
+      // newest run, with the run count as its fold key; its older runs list under it, set in, while the history is open
+      const open = !!group && railExpanded.has(group.key), runs = group ? group.rows.length : 0;
+      const runsKey = group && runs > 1 ? '<button type="button" class="ws-runs" data-ws-group="' + U.esc(group.key) + '" aria-expanded="' + open + '" aria-label="' + U.esc((open ? 'Hide the older runs of ' : 'Show every run of ') + group.name) + '">' + runs + ' runs</button>' : '';
+      const runAttr = group ? ' data-runs="head"' : olderRuns.has(w.id) ? ' data-runs="older"' : '';
       const tip = railRowTip(w, st);
-      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (i + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '"' + runAttr + ' tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (i + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + st.dot + '" aria-hidden="true"></span>' +
         (w.pinned ? '<span class="ws-pin" aria-hidden="true">★</span>' : '') +
         '<span class="ws-agent' + (w.conversationMode === 'group' ? ' ws-agent-group' : '') + '" aria-hidden="true"' + railAgentColorAttr(w) + '>' + railAgentLine(w) + '</span>' +
-        '<span class="ws-title">' + U.esc(title) + '</span>' +
+        '<span class="ws-title">' + U.esc(title) + '</span>' + runsKey +
         '<span class="ws-meta">' + U.esc(st.meta) + '</span>' +
         '<span class="ws-receipt" aria-hidden="true">' + U.esc(railReceipt(w)) + '</span>' +
         '<button class="ws-kebab" tabindex="-1" aria-label="session actions" title="session actions">⋯</button>' +
@@ -4377,7 +4383,8 @@ const App = (() => {
     }
     fitRailAgentLines();
     ul.querySelectorAll('[data-ws-group]').forEach(button => {
-      button.onclick = () => {
+      button.onclick = e => {
+        e.stopPropagation();   // the key sits on the routine's row: folding its runs never also opens that run
         const key = button.dataset.wsGroup;
         if (railExpanded.has(key)) railExpanded.delete(key); else railExpanded.add(key);
         saveRailView();
