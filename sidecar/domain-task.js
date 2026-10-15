@@ -42,8 +42,9 @@
   const MIXED_SUFFIXES = new Set(['ai', 'so']);
   // words that put a sentence in a file/code task (tested with the token itself cut out, so "code.py" proves nothing)
   const FILE_WORD_RE = /\b(?:files?|file\s?names?|scripts?|modules?|source|code|codebase|repo|repository|folders?|director(?:y|ies)|workspace|bugs?|fix|debug|refactor|compile|lint|tests?|functions?|class(?:es)?|methods?|imports?|edit|rewrite|write|create|save|rename|append|update|modify|delete|run|execute|line\s+\d+|diff|commit|traceback|stack\s?trace|syntax|crash(?:es)?|errors?)\b/i;
-  // words that say the token is a place on the web
-  const WEB_WORD_RE = /\b(?:web\s?sites?|sites?|web\s?pages?|home\s?pages?|landing\s+pages?|urls?|links?|domains?|online|internet|visit(?:ing)?|brows(?:e|ing)|docs?|documentation)\b/i;
+  // words that say the token is a place on the web ("links", "urls" and "domain" are not: a markdown file has links,
+  // a config lists urls, a models.py holds the domain model)
+  const WEB_WORD_RE = /\b(?:web\s?sites?|sites?|web\s?pages?|home\s?pages?|landing\s+pages?|online|internet|visit(?:ing)?|brows(?:e|ing)|docs?|documentation)\b/i;
   const IN_FILE_BEFORE_RE = /\b(?:in|into|inside|within)\s+(?:the\s+)?[`'"([]?$/i;      // "in guide.md", "into notes.md"
   const NAMED_FILE_BEFORE_RE = /\bfiles?\s+(?:(?:named|called)\s+)?[`'"([]?$/i;        // "a file named x.md", "the file x.md"
   const FILE_AFTER_RE = /^[`'")\]]?\s+files?\b/i;                                         // "the notes.md file"

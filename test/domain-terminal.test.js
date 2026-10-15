@@ -52,6 +52,9 @@ for (const [text, host, why] of [
   ['open song.mp3 and review it', null, 'an .mp3 is not the host song.mp'],
   ['check backup.bz2', null, 'a .bz2 archive is not the host backup.bz'],
   ['review libfoo.so.6', null, 'a versioned shared object'],
+  ['check notes.md for broken links', null, '"links" in a markdown check is not web evidence'],
+  ['check models.py for the domain model', null, 'a "domain model" is not web evidence'],
+  ['check the urls listed in readme.md', null, '"urls" listed in a file is not web evidence'],
   // real sites: still one exact host
   ['check example.com', 'example.com', 'a bare .com'],
   ['open starnetos.com', 'starnetos.com', 'the product site'],
