@@ -8936,27 +8936,38 @@ const Chat = (() => {
      goalBlocked() — never drive a continuation while a beat / consent card is pending approval (the one-beat
      discipline) or while an interview owns the input; the continuation waits for a free moment (it re-fires from
      the next send() teardown, or from /goal resume). A pending permission approval on THIS stream also blocks —
-     the human must decide the tool call before we pile on the next turn. */
-  function goalBlocked(ws) {
-    if (interview) return true;
-    if (activeTurnin || activeNudge || studyBusy() || threadBusy()) return true;   // a visible review/beat is up
-    if (taskQuestionLive()) return true;   // an unanswered task question is up — the human decides it before the loop piles on
-    if (typeof Dialogue !== 'undefined' && Dialogue.isOpen && Dialogue.isOpen()) return true;
-    if (ws && typeof Channels !== 'undefined' && Channels.pendingOf && Channels.pendingOf(ws.id)) return true;   // a tool approval is pending
-    return false;
+     the human must decide the tool call before we pile on the next turn.
+     A GENTLE NUDGE IS NOT A DECISION (live walk 10-14): an optional curiosity/suggestion aside ('✦ one curious thing … SURE /
+     NOT NOW') owes no answer and never takes typed text, so it no longer holds the loop — /goal said 'Working toward it…' and
+     then sat silent for as long as the aside stayed up. Only a nudge that must be decided (keepUntilDecision) still waits.
+     goalWaitReason() names what the loop waits for, so a wait is SAID (kickGoal), never a silent stall. */
+  function goalWaitReason(ws) {
+    if (interview) return 'the interview to finish';
+    if (activeTurnin) return 'your decision on the memory card above';
+    if (activeNudge && activeNudge.keepUntilDecision) return 'your choice on the card above';
+    if (studyBusy() || threadBusy()) return 'your decision on the card above';
+    if (taskQuestionLive()) return 'your answer to the question above';   // the human decides it before the loop piles on
+    if (typeof Dialogue !== 'undefined' && Dialogue.isOpen && Dialogue.isOpen()) return 'the open dialogue to close';
+    if (ws && typeof Channels !== 'undefined' && Channels.pendingOf && Channels.pendingOf(ws.id)) return 'your approval on the card above';
+    return '';
   }
+  function goalBlocked(ws) { return !!goalWaitReason(ws); }
   // kick the loop forward on `ws`: if the stream is free + unblocked and the loop is active, send the next
   // continuation as a real turn (routed through send(), so it walks the desk / bills / streams like any turn).
   // Called after a set/resume and after each judged turn. Idempotent + safe when there's no active loop.
   const goalRetry = new Set();   // wsIds with a blocked-moment retry armed (one pending re-check per stream, never stacked)
+  const goalWaitSaid = new WeakMap();   // goal object → the wait reasons already said for it (each said once per goal, never repeated)
   function kickGoal(ws) {
     const s = goalOf(ws);
     if (!s || !GoalLoop.isActive(s)) return;
     if (!isActiveWs(ws)) return;                 // the continuation drives the DISPLAYED stream (send()'s DOM writes)
     if (isBusy()) return;                        // a run is already in flight — the teardown judge re-drives the loop
-    if (goalBlocked(ws)) {
+    const wait = goalWaitReason(ws);
+    if (wait) {
       // a beat/consent card owns the moment — "deferred" must not become "stalled": re-check on a slow cadence
-      // (one armed retry per stream; gives up silently when the loop is paused/cleared meanwhile).
+      // (one armed retry per stream; gives up silently when the loop is paused/cleared meanwhile) and SAY what it waits for
+      const said = goalWaitSaid.get(s) || new Set();
+      if (!said.has(wait)) { said.add(wait); goalWaitSaid.set(s, said); localLine('⏸ session goal waiting for ' + wait + ' — the next step starts once that is settled.'); }
       if (!goalRetry.has(ws.id)) { goalRetry.add(ws.id); setTimeout(() => { goalRetry.delete(ws.id); kickGoal(ws); }, 7000); }
       return;
     }

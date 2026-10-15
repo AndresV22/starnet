@@ -150,6 +150,34 @@ A.ok(/function noteStopReason\(/.test(chat) && /m\.stopped && m\.stopNote\) tool
   A.eq(kicked, 1, 'the session goal still starts working');
   A.ok(!/goal loop (paused|resumed|set)|No goal loop to|Cleared the goal loop|No paused goal loop/.test(src), 'every /goal control line says session goal');
 }
+// (live walk 10-14) /goal said 'Working toward it…' then sat silent while an optional curiosity nudge was up: a gentle nudge no
+// longer holds the loop, and any real wait is SAID once
+{
+  const body = A.fnBody(chat, 'function goalWaitReason(') + '\n' + A.fnBody(chat, 'function goalBlocked(') + '\n'
+    + 'const goalRetry = new Set();\nconst goalWaitSaid = new WeakMap();\n' + A.fnBody(chat, 'function kickGoal(') + '\nreturn { kickGoal, goalBlocked };';
+  const mk = (st) => {
+    const lines = [], sent = [], timers = [];
+    const g = { status: 'active' };
+    const f = new Function('S', 'goalOf', 'GoalLoop', 'isActiveWs', 'isBusy', 'studyBusy', 'threadBusy', 'taskQuestionLive', 'localLine', 'send', 'setTimeout',
+      'let interview = S.interview, activeTurnin = S.turnin, activeNudge = S.nudge;\n' + body)(
+      st, () => g, { isActive: x => x.status === 'active', continuationPrompt: () => 'NEXT STEP' }, () => true, () => false, () => false, () => false,
+      () => !!st.question, t => lines.push(t), (p, o) => sent.push([p, o]), (fn) => timers.push(fn));
+    return { f, lines, sent, timers };
+  };
+  const gentle = mk({ nudge: { row: {}, choiceRow: {}, dim: 'tone', beat: null } });
+  gentle.f.kickGoal({ id: 'w' });
+  A.eq(gentle.sent, [['NEXT STEP', { goalContinuation: true }]], 'an unanswered curiosity nudge does not hold the goal loop: the step is sent');
+  A.eq(gentle.lines, [], '…and nothing claims a wait');
+  const held = mk({ nudge: { keepUntilDecision: true } });
+  held.f.kickGoal({ id: 'w' }); held.timers.shift()(); held.f.kickGoal({ id: 'w' });
+  A.eq(held.sent, [], 'a nudge that must be decided still holds the loop');
+  A.eq(held.lines, ['⏸ session goal waiting for your choice on the card above — the next step starts once that is settled.'], 'the wait is said ONCE, naming what it waits for: ' + held.lines.join(' | '));
+  A.eq(held.timers.length, 1, '…and one re-check stays armed');
+  const q = mk({ question: true });
+  q.f.kickGoal({ id: 'w' });
+  A.ok(q.sent.length === 0 && /waiting for your answer to the question above/.test(q.lines[0] || ''), 'an unanswered task question holds the loop and says so');
+  A.ok(/goalBlocked\(activeWs\)/.test(chat.slice(chat.indexOf('function loopTick'), chat.indexOf('function loopCommand'))), '/loop ticks keep the same discipline (goalBlocked)');
+}
 // a goal-loop step that stopped pauses the loop WITH the reason, instead of leaving it "active" with nothing firing
 {
   const src = A.fnBody(chat, 'async function judgeGoalTurn(');
