@@ -3214,7 +3214,10 @@ const Marketplace = (() => {
     const body = {
       name: r.name, prompt, schedule, agentId,
       enabled: true, deliver: 'local', repeat: { times: null },
-      meta: { recipeId: r.id }
+      meta: { recipeId: r.id },
+      // ONE ARM RULE (org wire AUTO-P16-1): SCHEDULE IT is a save like the SCHEDULES form's — a scheduling switch nobody ever set is
+      // turned on; one the Commander turned off stays off (POST /api/cron arm:true → armOnSaveIfUnset). The reply's `scheduler` says which.
+      arm: true
     };
     // SOP recipes: the acceptance contract rides the routine's meta bag (additive provenance) so every scheduled
     // tick is held to the same host-checked postconditions as an interactive launch (cron-driver passes it through).
@@ -3232,7 +3235,11 @@ const Marketplace = (() => {
         if (d && d.duplicate) { sfx('bad'); note('a similar routine already exists' + (d.job && d.job.name ? (': "' + d.job.name + '"') : '') + ' — nothing new was created', 'warn'); if (btn) { btn.disabled = false; btn.textContent = '◷ SCHEDULE IT'; } return; }
         cronJobs = null;   // invalidate the cache so the dossier's live-routine badge refreshes
         sfx('click');
-        note('routine scheduled: ' + r.name + ' as ' + runAsName() + ' — ' + cadenceLabel(launchCadence === 'custom' ? null : launchCadence).replace('one-shot', 'on your schedule') + '. find it in AUTOMATE › SCHEDULES.', 'good');
+        // said as it happened (the server's verdict, never assumed): a routine that cannot fire never reads as scheduled
+        const sch = (d && d.scheduler) || null, said = r.name + ' as ' + runAsName() + ' — ' + cadenceLabel(launchCadence === 'custom' ? null : launchCadence).replace('one-shot', 'on your schedule');
+        if (sch && sch.halted) note('routine saved: ' + said + ' — scheduling is stopped (E-STOP), so it will not run until you press ▶ TURN SCHEDULING ON in AUTOMATE › SCHEDULES › Scheduled jobs.', 'warn');
+        else if (sch && !sch.armed) note('routine saved: ' + said + ' — scheduling is off' + (sch.offByChoice ? ' (you turned it off)' : '') + ', so it will not run until you press ▶ TURN SCHEDULING ON in AUTOMATE › SCHEDULES › Scheduled jobs.', 'warn');
+        else note('routine scheduled: ' + said + (sch && sch.armedNow ? ' · scheduling is now on' : '') + '. find it in AUTOMATE › SCHEDULES.', 'good');
         launchId = null; launchMode = 'run'; close();
       })
       .catch(() => { sfx('bad'); note('could not reach the scheduler', 'bad'); if (btn) { btn.disabled = false; btn.textContent = '◷ SCHEDULE IT'; } });

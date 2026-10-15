@@ -1995,9 +1995,10 @@ const WorkflowPanel = (() => {
        ledger is read again (ReturnStore.pendingRows); a page with no ledger loaded keeps what the fold said. */
     const waits = !!mine.folded && (typeof ReturnStore === 'undefined' || !ReturnStore.pendingRows || ReturnStore.pendingRows().some(r => r && runs.some(x => x && x.runId === r.runId)));
     /* (org D9 polish) where the job is (TO REVIEW, not counted in SHIPPED) is ONE unbreakable unit: when the row is too long it moves to
-       the next line whole, never stranding '· not counted in SHIPPED' alone under the stats */
-    const ns = notShippedNote(mine);
-    const where = (waits ? '<button type="button" class="wf-link" data-to-review data-tip="Opens DELIVERABLES at TO REVIEW, where finished work waits for your rating.">waiting in DELIVERABLES › TO REVIEW</button>' + ns : ns.replace(/^ · /, ''));
+       the next line whole, never stranding '· not counted in SHIPPED' alone under the stats. Only the ✓ DELIVERED header reads it, so
+       a job that FINISHED WITH A PROBLEM never asks for its SHIPPED note (org wire AUTO-GATE-1). */
+    const ns = v.ok ? notShippedNote(mine) : '';
+    const where = !v.ok ? '' : (waits ? '<button type="button" class="wf-link" data-to-review data-tip="Opens DELIVERABLES at TO REVIEW, where finished work waits for your rating.">waiting in DELIVERABLES › TO REVIEW</button>' + ns : ns.replace(/^ · /, ''));
     return '<div class="wf-job' + (v.ok ? '' : ' problem') + '">'
       /* DELIVERED AND SHIPPED SAY ONE THING (rc walk #30: "✓ DELIVERED" sat under TODAY "SHIPPED 0"): a job the server says was not
          counted in SHIPPED says so here, with the rule as its tip (notShippedNote: the reason only when the server proved it). The

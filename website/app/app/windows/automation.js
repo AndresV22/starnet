@@ -33,6 +33,19 @@
     }
   };
 
+  /* A DRAFT IS AN AGENT'S TASK (org wire AUTO-P16-3): RUN BY is set to the draft's agent; a draft whose agent has no button on this roster
+     (none named, or one not aboard) puts RUN BY back on an agent when it sits on a WORKFLOW — routines.js keeps that pick as window state
+     (routineLineKey), and a stale one would save the draft's prompt as runsLine at that workflow's first BAY. The select's own change
+     handler clears the pick, so the form and the save read one choice. */
+  function applyDraftAgent(body, agentId) {
+    const agentButton = Array.from(body.querySelectorAll('.rt-agent-btn')).find(b => b.dataset.agent === agentId);
+    if (agentButton) { agentButton.click(); return; }
+    const sel = body.querySelector('#rt-agent-select');
+    if (!sel || String(sel.value || '').indexOf('line:') !== 0) return;
+    const first = Array.from(sel.options || []).find(o => o && !o.disabled && String(o.value || '').indexOf('line:') !== 0);
+    if (first) { sel.value = first.value; sel.dispatchEvent(new Event('change')); }
+  }
+
   function buildAutomation(body) {
     const built = lanes.map(fn => fn(body)).filter(b => b && Array.isArray(b.sections));
     const sections = built.reduce((acc, b) => acc.concat(b.sections), []);
@@ -110,8 +123,7 @@
       for (const [selector, key] of [['#rt-name','name'],['#rt-prompt','prompt'],['#rt-workdir','workdir']]) {
         const el = body.querySelector(selector); if (el) el.value = String(draft[key] || '');
       }
-      const agentButton = Array.from(body.querySelectorAll('.rt-agent-btn')).find(b => b.dataset.agent === draft.agentId);
-      if (agentButton) agentButton.click();
+      applyDraftAgent(body, draft.agentId);
       // REPEAT SENSE: a takeover carries the rhythm read off when the Commander actually asked. It only
       // pre-selects the picker; nothing is scheduled until the existing ADD click.
       const sug = draft.suggest;

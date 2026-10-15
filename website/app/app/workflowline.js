@@ -693,7 +693,7 @@
   const entryAgentsOf = flow => entryDocksOf(flow).map(p => flow.docks[p].agentId);
   const dockAgentsOf = flow => flow ? flow.order.map(p => flow.docks[p].agentId).filter(Boolean) : [];
   function lineStarts(flow, facts) {
-    const x = facts || {}, out = { schedules: [], channels: [], routines: [], chanRows: [], events: [], paused: [], offSchedules: [] };
+    const x = facts || {}, out = { schedules: [], channels: [], routines: [], chanRows: [], events: [], paused: [], offSchedules: [], held: [] };
     if (!flow) return out;
     const said = d => (x.human ? x.human(d) : String(d == null ? '' : d));
     // LINE TRIGGERS: only the ones the server reports enabled with nothing blocking them start the line; an enabled one
@@ -701,8 +701,15 @@
     if (x.lt) {
       const ev = lineEventTriggers(x.lt.triggers, x.lineKey);
       out.events = ev.sentences;
-      for (const t of ev.mine) if (t && t.enabled && t.blockedBy) out.paused.push((t.kind === 'folder' ? 'its folder trigger (' + ((t.config && t.config.path) || 'a folder') + ')'
-        : 'its webhook' + (t.name ? ' "' + t.name + '"' : '')) + ' is waiting: ' + t.blockedBy);
+      for (const t of ev.mine) if (t && t.enabled && t.blockedBy) {
+        out.paused.push((t.kind === 'folder' ? 'its folder trigger (' + ((t.config && t.config.path) || 'a folder') + ')'
+          : 'its webhook' + (t.name ? ' "' + t.name + '"' : '')) + ' is waiting: ' + t.blockedBy);
+        /* …and as the START it is, held with the server's own reason (org wire AUTO-P15-1): WORKFLOWS' STARTS line said 'by hand only'
+           for a line whose folder trigger the E-STOP or the day cap held. `held` = the trigger and channel starts the server holds back
+           (a routine held by the switch is offSchedules), each in the words of the start it is. */
+        out.held.push((t.kind === 'folder' ? 'when a file lands in ' + ((t.config && t.config.path) || 'its folder') : 'when its webhook' + (t.name ? ' "' + t.name + '"' : '') + ' is called')
+          + ' (waiting: ' + String(t.blockedBy).replace(/ · /g, ' — ') + ')');
+      }
     }
     if (x.cron && Array.isArray(x.cron.jobs)) {
       out.routines = lineRoutines(x.cron.jobs, dockAgentsOf(flow), entryAgentsOf(flow), entryDocksOf(flow));
@@ -723,7 +730,7 @@
       for (const c of out.chanRows) {
         if (c.feeds !== true) continue;
         if (c.connected) { if (out.channels.indexOf(c.label.split(' ')[0]) < 0) out.channels.push(c.label.split(' ')[0]); }
-        else out.paused.push('its ' + c.label + ' channel answers as its first step but is not connected');
+        else { out.paused.push('its ' + c.label + ' channel answers as its first step but is not connected'); out.held.push('when a ' + c.label.split(' ')[0] + ' message arrives (not connected)'); }
       }
     }
     return out;
