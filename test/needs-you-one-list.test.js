@@ -162,6 +162,10 @@ const NY = require('../frontend/app/needsyou.js');
   const hist = h.slice(h.indexOf('</section>'));
   A.ok(!/STEP-IN: MIRA|2 extensions|loop results|VEX needs approval/.test(hist), 'a stored entry a live row already shows is not listed twice');
   A.ok(/NOVA has a question for you/.test(hist) && /answered/.test(hist), 'a stored wait no live row covers, and the handled history, stay below');
+  // only the live section says NEEDS YOU: a history row tagged NEEDS YOU below it (outside the section, absent from the rail)
+  // contradicted the one-list promise (wiring review 2026-10-14)
+  A.ok(!/<span class="nf-kind">NEEDS YOU</.test(hist), 'no history row carries the NEEDS YOU tag');
+  A.ok(/<span class="nf-kind">Asked you<\/span>[\s\S]{0,200}NOVA has a question for you/.test(hist), 'the uncovered stored wait says what it was: Asked you');
   A.ok(/>All · 10</.test(h) && />New · 8</.test(h), 'All / New count the live rows plus the history (New = 6 live + 1 stored wait + 1 unread result)');
   ctx.api.badges();
   A.eq(badge.textContent, '8', 'the bell: unread history (1 result + 1 uncovered wait) PLUS the live NEEDS YOU count (6) — never one instead of the other');
