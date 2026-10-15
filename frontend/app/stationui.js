@@ -5240,10 +5240,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // asynchronously-arriving status feels laggy, and each merged trigger saves a whole pane fan-out.
   const SETTINGS_REPAINT_COALESCE_MS = 120;
   let settingsRepaintQueued = false;
+  /* A BACKGROUND repaint keeps the reader's place (org P03 wiring): a status check / provider probe landing rebuilt the whole
+     console with a fresh .con-pane at scrollTop 0, so a Commander reading a card halfway down AI & MODELS (or a card an
+     error door just landed on) was thrown back to the top 5-15s after opening — a first-open probe may take its full 15s
+     credential check. The same section's pane gets its scroll back; a section change (a tab click) is not a background poke. */
   function scheduleSettingsRepaint() {
     if (settingsRepaintQueued || !open.settings) return;
     settingsRepaintQueued = true;
-    setTimeout(() => { settingsRepaintQueued = false; if (open.settings) rerender('settings'); }, SETTINGS_REPAINT_COALESCE_MS);
+    setTimeout(() => {
+      settingsRepaintQueued = false;
+      const w = open.settings;
+      if (!w) return;
+      const before = w.querySelector('.con-pane'), section = consoleSection.settings, top = before ? before.scrollTop : 0;
+      rerender('settings');
+      const after = open.settings && open.settings.querySelector('.con-pane');
+      if (after && top > 0 && consoleSection.settings === section) after.scrollTop = top;
+    }, SETTINGS_REPAINT_COALESCE_MS);
   }
 
   // the REAL connected providers: OpenRouter from the BYOK store, Codex from sidecar OAuth status.
@@ -11826,18 +11838,25 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      minimum scroll) and marks it for a moment. `signin` presses the card's own ⏼ SIGN IN / ⏼ RECONNECT — the same
      prov-oauth-signin flow a click starts; on a card that shows no such key (a sign-in still listed as connected) it
      starts that same card flow itself (startCardSignin), so a RECONNECT door always reconnects.
-     The section can paint a beat after openTerm, so the card is looked up again for up to ~3s. */
+     The section can paint a beat after openTerm, so the card is looked up again for up to ~3s; a repaint that replaces
+     the landed card re-lands on the new one until the Commander takes over the window (or ~20s). */
   function focusProvider(pid, opts) {
     const o = opts || {};
     const id = String(pid || '').replace(/[^a-z0-9_-]/gi, '');
     openTerm('settings', 'providers');
     if (!id) return;
-    let tries = 0, pressed = false;
-    const until = Date.now() + 4000;
+    // the landing holds until the Commander takes over the window (pointer, wheel, key) or ~20s pass: a first-open probe
+    // can repaint Settings up to its 15s credential check + the model-list fetch after the door opened it (org P03 wiring;
+    // a 4s window let a slow probe drop the view off the card). scheduleSettingsRepaint keeps the scroll; this re-marks.
+    let tries = 0, pressed = false, touched = false, watched = null;
+    const until = Date.now() + 20000;
+    const TAKE_OVER = ['pointerdown', 'wheel', 'keydown'];
+    const touch = () => { touched = true; if (watched) TAKE_OVER.forEach(t => watched.removeEventListener(t, touch, true)); watched = null; };
     const land = () => {
       const w = open.settings;
       const card = w && w.querySelector('.prov-card[data-provider="' + id + '"]');
       if (!card) { if (++tries < 12) setTimeout(land, 250); return; }
+      if (!watched && !touched) { watched = w; TAKE_OVER.forEach(t => w.addEventListener(t, touch, true)); }
       const pane = card.closest('.con-pane');
       // a quarter-pane lift, not flush to the top: the cards above stay in view, so the landing reads as a place in
       // AI & MODELS rather than a lone card with no context
@@ -11858,7 +11877,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // the first open of Settings starts background checks whose answers repaint the whole window (a fresh pane at the
       // top); while the landing is new, a repaint that replaced this card lands on the new one instead of the top
       const stay = () => {
-        if (Date.now() > until || !open.settings) return;
+        if (touched) return;
+        if (Date.now() > until || !open.settings) { touch(); return; }
         if (!card.isConnected) { land(); return; }
         setTimeout(stay, 200);
       };

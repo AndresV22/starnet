@@ -108,6 +108,26 @@ ok(/return !isOAuthProvider\(provider\) && provider !== 'ollama' && provider !==
   ok(/The selected provider, OPENROUTER, has no key yet\./.test(or) && /data-act="to-prov-card" data-provider="openrouter">▸ ADD IT ON THE OPENROUTER CARD</.test(or), 'a key provider keeps "has no key yet" + ADD IT, landing on its card');
 }
 ok(/body\.querySelectorAll\('\[data-act="to-prov-card"\]\[data-provider\]'\)\.forEach\(b => b\.addEventListener\('click', \(\) => \{ sfx\('click'\); focusProvider\(b\.dataset\.provider\); \}\)\);/.test(station), 'that door lands on the provider\'s card through focusProvider');
+// (org P03 wiring) a BACKGROUND repaint (a probe / status check landing) keeps the reader's place: the console rebuild made a
+// fresh .con-pane at scrollTop 0, throwing a Commander — or an error door's landed card — back to the top of AI & MODELS
+{
+  const at = station.indexOf('  function scheduleSettingsRepaint() {');
+  const src = station.slice(at, station.indexOf('\n  }\n', at) + 4);
+  const mk = top => ({ scrollTop: top });
+  let pane = mk(640), section = 'providers';
+  const open = {}, consoleSection = { settings: 'providers' };
+  const win = { querySelector: sel => sel === '.con-pane' ? pane : null };
+  open.settings = win;
+  const rerender = () => { pane = mk(0); consoleSection.settings = section; };   // the rebuild: a fresh pane at the top
+  const run = new Function('open', 'consoleSection', 'rerender', 'setTimeout', 'SETTINGS_REPAINT_COALESCE_MS',
+    'let settingsRepaintQueued = false;\n' + src + '\nreturn scheduleSettingsRepaint;')(open, consoleSection, rerender, fn => fn(), 120);
+  run();
+  ok(pane.scrollTop === 640, 'a background repaint restores the pane scroll (got ' + pane.scrollTop + ')');
+  pane = mk(300); section = 'autonomy'; run();
+  ok(pane.scrollTop === 0, 'a repaint that changed the section never carries the old scroll across');
+}
+ok(/const until = Date\.now\(\) \+ 20000;/.test(station) && !/const until = Date\.now\(\) \+ 4000;/.test(station), 'the landing outlasts a first-open probe (15s credential check), not 4s');
+ok(/const TAKE_OVER = \['pointerdown', 'wheel', 'keydown'\];/.test(station) && /if \(touched\) return;/.test(station), 'the landing stops re-landing the moment the Commander takes over the window');
 // (wiring) one key box per provider card: the STARNET credits notice sends "your own key" to the cards (add, then select),
 // never to API KEYS, which has no add box for another provider and no switch
 ok(!/switch to your own key under API KEYS above/.test(station) && (station.match(/You can always switch to your own key: add it on a provider card above, then select that card\./g) || []).length === 2, 'both credits notices point your own key at a provider card');
