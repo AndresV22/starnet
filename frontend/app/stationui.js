@@ -2073,7 +2073,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // ORG P21: VOICE and SKILLS are per-agent settings that live OUTSIDE the dossier (SETTINGS › LOOK & SOUND's VOICE FOR,
     // ABILITIES › AGENT SKILLS) — the strip is the index, so it names them too. Each row's tip says where its click lands.
     let voice = '';
-    try { voice = (typeof Voice !== 'undefined' && Voice.voiceChoice && a && a.id) ? Voice.voiceChoice(a.id) : ''; } catch (_) { voice = ''; }
+    // the picker's word for the stored choice (HEART, never the engine id af_heart) — Voice.voiceLabel
+    try { voice = (typeof Voice !== 'undefined' && Voice.voiceChoice && a && a.id) ? Voice.voiceChoice(a.id) : ''; if (voice && Voice.voiceLabel) voice = Voice.voiceLabel(voice); } catch (_) { voice = ''; }
     const rows = [
       { lbl: 'MODEL',     val: pin || 'station default', dim: !pin,                 go: 'ag-model-card',     tip: 'change it in CONFIG › MODEL' },
       { lbl: 'PERSONALITY',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card',   tip: 'change it in CONFIG › PERSONALITY' },
