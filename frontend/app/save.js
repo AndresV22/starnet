@@ -127,15 +127,20 @@ const Save = (() => {
 
   // returns the persisted doc (so callers can mirror the EXACT envelope to the durable sidecar), or null on
   // failure. The doc carries a fresh updatedAt stamp, which the sidecar uses to reject stale write-throughs.
+  // writeError() names why the last write failed (null after a success), so the UI only says "full" when the
+  // browser said quota (QuotaExceededError / NS_ERROR_DOM_QUOTA_REACHED / "exceeded the quota").
+  let lastWriteError = null;
   function write(state) {
     const doc = envelope(state);
-    try { localStorage.setItem(KEY, JSON.stringify(doc)); return doc; }
-    catch (e) { console.warn('[save] write failed:', e); return null; }
+    try { localStorage.setItem(KEY, JSON.stringify(doc)); lastWriteError = null; return doc; }
+    catch (e) { lastWriteError = String((e && (e.name || e.code)) || 'error') + (e && e.message ? ': ' + e.message : ''); console.warn('[save] write failed:', e); return null; }
   }
+  function writeError() { return lastWriteError; }
+  function writeQuotaFull() { return /quota/i.test(String(lastWriteError || '')); }
 
   function clear() { try { localStorage.removeItem(KEY); } catch (e) {} }
   function has() { try { return !!localStorage.getItem(KEY); } catch (e) { return false; } }
 
-  return { load, loadStatus, isFuture, write, envelope, fromDoc, clear, has, CURRENT, PRE_MIGRATE_BACKUP_KEY };
+  return { load, loadStatus, isFuture, write, writeError, writeQuotaFull, envelope, fromDoc, clear, has, CURRENT, PRE_MIGRATE_BACKUP_KEY };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Save;

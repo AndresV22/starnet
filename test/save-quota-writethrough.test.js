@@ -14,7 +14,9 @@
    small station saves → history grows past the quota → the Commander refits the room → the page reloads.
    C1 control: an offline-only edit in the cache still wins over an older durable copy (no regression).
    G guards: re-entry and startCreation never read the stale/removed cache after the cache failed.
-   B boot: a stale CLEAN cache plus a newer station file the cache cannot hold resumes the station file in memory. */
+   B boot: a stale CLEAN cache plus a newer station file the cache cannot hold resumes the station file in memory.
+   T truthful status: the notice and the shipped save light (stationui.js) say where the latest change really is —
+     NOT saved yet / NOT saved (red) / confirmed in the station file — and say "full" only for the browser's quota. */
 'use strict';
 const A = require('./_assert.js');
 const fs = require('node:fs');
@@ -161,6 +163,73 @@ async function scenario(label, opts) {
   return { store, ls, fetch, room };
 }
 
+// I121-3: the save light (stationui.js) and the notice say where the latest change really is
+const ui = src('frontend/app/stationui.js');
+const dotStart = ui.indexOf('  let degradedNotified = false;');
+const dotEnd = ui.indexOf('  // relative-time formatter', dotStart);
+A.ok(dotStart > 0 && dotEnd > dotStart, 'the shipped save-light renderer is found in stationui.js');
+function saveLight(c) {
+  const dot = { title: '', cls: new Set() };
+  dot.classList = { add: (...k) => k.forEach(x => dot.cls.add(x)), remove: (...k) => k.forEach(x => dot.cls.delete(x)) };
+  Object.assign(c, { $: sel => (sel === '#save-dot' ? dot : null), document: { getElementById: () => null }, notify() {} });
+  vm.runInContext('(function () {' + ui.slice(dotStart, dotEnd) + '\nreturn refreshSaveDurability; })()', c)(dot);
+  return { cls: Array.from(dot.cls).join(' ') || 'plain', title: dot.title };
+}
+const healthOf = c => vm.runInContext('CloudSave.health()', c);
+
+async function truthfulStatus() {
+  const store = makeStore();
+  const limitRef = { limit: 0 };
+  const ls = quotaStorage(limitRef);
+  const gate = { down: false };
+  const fetch = makeFetch(store, gate);
+  const station = M.create();
+  const room = station.spawnRoomId();
+  const ws = { slice: { workstreams: [{ id: 'general', history: [] }], activeId: 'general', generalId: 'general' } };
+  const page = livePage(ls, fetch, station, ws);
+  station.setFloor(room, 'amber'); await tick();
+  await vm.runInContext('CloudSave.flush({ force: true })', page.c);
+  A.eq(saveLight(page.c), { cls: 'plain', title: 'autosave' }, 'T0: a healthy save shows the plain autosave light');
+
+  limitRef.limit = Array.from(ls._map).reduce((n, [k, v]) => n + k.length + v.length, 0) + 4000;
+  ws.slice = { workstreams: [{ id: 'general', history: [{ role: 'user', content: 'z'.repeat(20000) }] }], activeId: 'general', generalId: 'general' };
+  gate.down = true;
+  station.setFloor(room, 'verdant'); await tick();
+  const notice = String((page.notices.find(n => n[3] && n[3].key === 'save-failed') || [])[0] || '');
+  A.ok(/browser storage for this window is full/i.test(notice) && /station file/i.test(notice), 'T1: the notice names the full browser storage and the station file (got: ' + notice + ')');
+  A.ok(!/free storage/i.test(notice), 'T1: the notice no longer asks the user to free storage (disk space cannot raise a browser cap)');
+  let h = healthOf(page.c);
+  A.ok(h.cacheFailed === true && h.cacheFailedConfirmed === false && /quota/i.test(String(h.cacheFailedReason)), 'T2: health carries the quota cache failure, not yet confirmed');
+  let light = saveLight(page.c);
+  A.ok(light.cls === 'stale' && /browser cache full/.test(light.title) && /NOT saved yet/.test(light.title), 'T2: while the change travels to the station file the light says NOT saved yet (got ' + light.cls + ': ' + light.title + ')');
+
+  await vm.runInContext('CloudSave.flush({ force: true })', page.c);   // the station file is unreachable
+  light = saveLight(page.c);
+  A.ok(light.cls === 'degraded' && /NOT saved/.test(light.title) && /station file has not confirmed/.test(light.title), 'T3: a failed station-file write turns the light red: NOT saved (got ' + light.cls + ': ' + light.title + ')');
+  A.eq(cachedFloor(ls, room), 'amber', 'T3: the stale cache is never dropped before the station file confirms');
+  A.eq(floorOf(reentrySave(page.c).doc, room), 'verdant', 'T3: the live station is held in memory meanwhile');
+
+  gate.down = false;
+  await vm.runInContext('CloudSave.flush({ force: true })', page.c);
+  h = healthOf(page.c);
+  A.ok(h.cacheFailed === true && h.cacheFailedConfirmed === true, 'T4: health records the station file confirmation');
+  light = saveLight(page.c);
+  A.ok(light.cls === 'stale' && /saving to the station file only/.test(light.title) && /confirmed in the station file/.test(light.title), 'T4: once confirmed the light says: browser cache full, saving to the station file only (got ' + light.title + ')');
+  A.eq(ls.getItem('starnet.save'), null, 'T4: the superseded cache entry is removed only after that confirmation');
+
+  const reload = await reloadPage(ls, fetch);
+  light = saveLight(reload.c);
+  A.ok(floorOf(reload.doc, room) === 'verdant' && /saving to the station file only/.test(light.title) && /confirmed/.test(light.title), 'T5: a station-file resume shows the confirmed station-file-only light from the first frame');
+
+  // a refusal that is NOT the browser's quota is never called "full"
+  const refusing = { getItem: () => null, setItem() { const e = new Error('denied'); e.name = 'SecurityError'; throw e; }, removeItem() {} };
+  const other = livePage(refusing, makeFetch(makeStore()), M.create(), { slice: { workstreams: [], activeId: null, generalId: null } });
+  vm.runInContext('persist()', other.c);
+  const otherNotice = String((other.notices[0] || [])[0] || '');
+  A.ok(/refused/i.test(otherNotice) && !/full/i.test(otherNotice), 'T6: a non-quota refusal is named as a refusal, not "full" (got: ' + otherNotice + ')');
+  A.ok(/refused the save/.test(saveLight(other.c).title), 'T6: the light names a non-quota refusal as a refusal');
+}
+
 async function controlOfflineEdit() {
   // C1: an edit made while the sidecar was down lives only in the cache; it must still win at boot (no regression).
   const store = makeStore();
@@ -233,5 +302,6 @@ async function bootFromStationFile() {
   await scenario('S2 dirty stale cache', { dirtyCache: true });
   await controlOfflineEdit();
   await bootFromStationFile();
+  await truthfulStatus();
   A.report('save-quota-writethrough');
 })().catch(e => { console.log('FAIL: unhandled ' + (e && e.stack || e)); process.exit(1); });

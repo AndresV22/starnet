@@ -1618,10 +1618,13 @@ const App = (() => {
     // froze BOTH copies at the first failure, so every restart reverted the station.
     const envelope = Save.envelope ? Save.envelope(saveState) : saveState;
     const doc = Save.write(envelope);
-    if (typeof CloudSave !== 'undefined') CloudSave.push(doc || envelope, { cacheFailed: !doc });   // durable write-through to the sidecar (debounced, best-effort)
+    if (typeof CloudSave !== 'undefined') CloudSave.push(doc || envelope, { cacheFailed: !doc, cacheError: doc ? null : (Save.writeError ? Save.writeError() : null) });   // durable write-through to the sidecar (debounced, best-effort)
     if (rosterPushFailed) pushRoster();   // a prior roster POST failed — retry it opportunistically on this persist
     if (!doc) {
-      if (!saveFailureNotified && typeof StationUI !== 'undefined') StationUI.notify('Could not save station changes. Keep this window open and free storage before trying again.', 'warn', undefined, { kind: 'alert', key: 'save-failed' });
+      // #121: the cache refused this save (the browser's per-site cap). It was queued for the station file above; the save
+      // light tracks the station file's confirmation. Freeing disk space never helps, so the notice no longer asks for it.
+      const why = (!Save.writeQuotaFull || Save.writeQuotaFull()) ? 'Browser storage for this window is full (a browser limit — freeing disk space will not help).' : 'Browser storage refused this window’s save.';
+      if (!saveFailureNotified && typeof StationUI !== 'undefined') StationUI.notify(why + ' Station changes now go to the station file only; the ● save light in the top bar says whether your latest change is confirmed there.', 'warn', undefined, { kind: 'alert', key: 'save-failed' });
       saveFailureNotified = true;
       return false;
     }

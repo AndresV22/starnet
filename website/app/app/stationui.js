@@ -10013,6 +10013,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         degradedNotified = true;
         try { notify('This station’s data was written by a newer StarNet — update the app. Until you do, your changes are NOT being backed up.', 'bad'); } catch (_) {}
       }
+    } else if (h && h.cacheFailed) {
+      // #121: the browser cache is full (its per-site cap), so every change rides on the station file alone. The words
+      // follow the station file's confirmation of the NEWEST save, never the cache: amber while it is confirmed or on
+      // its way, red once a write to the station file has failed and the latest change is held only in this window.
+      // "full" only when the browser reported its quota; any other refusal is named as a refusal
+      const cache = /quota/i.test(String(h.cacheFailedReason || '')) ? 'browser cache full' : 'browser cache refused the save';
+      if (h.cacheFailedConfirmed) {
+        d.classList.add('stale');
+        d.title = cache + ' — saving to the station file only. Your latest change is confirmed in the station file.';
+      } else if ((h.consecutiveFailures || 0) > 0) {
+        d.classList.add('degraded');
+        d.title = cache + ' and the station file has not confirmed your latest change — it is NOT saved. Keep StarNet open; it keeps retrying.';
+      } else {
+        d.classList.add('stale');
+        d.title = cache + ' — your latest change is NOT saved yet; it is on its way to the station file.';
+      }
     } else if (h && h.stale) {
       d.classList.add('stale');
       const since = h.lastPushOkAt ? new Date(h.lastPushOkAt).toLocaleString() : 'never';

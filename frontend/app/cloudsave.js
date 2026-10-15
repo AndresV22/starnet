@@ -39,6 +39,7 @@ const CloudSave = (() => {
   let cacheFailed = false;             // this page's newest save is not in the browser cache
   let cacheFailedConfirmed = false;    // ...and the station file has confirmed exactly that save (nothing newer queued)
   let memoryDoc = null;                // that newest save, while cacheFailed
+  let cacheFailedReason = null;        // the browser's error name for that failure ('QuotaExceededError' = the cap)
   let health = Core ? Core.freshHealth() : { lastPushOkAt: 0, lastPushFailAt: 0, consecutiveFailures: 0, nextRetryAt: 0 };
   let warnedStale = false;             // ONE console warn per failing↔healthy transition, never per attempt
   // EL-11 FIX 1: the sidecar REFUSES writes when the workspace was stamped by a NEWER StarNet — as an HTTP 200
@@ -220,7 +221,8 @@ const CloudSave = (() => {
 
   // queue a write-through; coalesces a burst of persists into one POST after the debounce settles.
   //   opts.cacheFailed (#121): the browser cache could not hold this doc. It is queued all the same (the station file is
-  //   the store of record) and held in memory until a later doc lands in the cache again.
+  //   the store of record) and held in memory until a later doc lands in the cache again. opts.cacheError: the
+  //   browser's error name, so the UI says "full" only when the browser reported its quota.
   function push(doc, opts) {
     if (!isSave(doc)) return;
     doc = JSON.parse(JSON.stringify(doc));
@@ -231,6 +233,7 @@ const CloudSave = (() => {
     pendingCacheFailed = !!(opts && opts.cacheFailed);
     cacheFailed = pendingCacheFailed; cacheFailedConfirmed = false;
     memoryDoc = cacheFailed ? doc : null;
+    cacheFailedReason = cacheFailed ? (String((opts && opts.cacheError) || '') || null) : null;
     if (timer) return;
     timer = setTimeout(() => { timer = null; flush(); }, DEBOUNCE_MS);
   }
@@ -327,12 +330,12 @@ const CloudSave = (() => {
       // an OLDER schema (v1/v2) than this build. resumeInto() assumes a current-schema doc (reads .workstreams,
       // expects .agent.stats); adopting a raw v1/v2 remote would silently drop history + skip the XP seed.
       const priorLocalRaw = (() => { try { return localStorage.getItem('starnet.save'); } catch (_) { return null; } })();
-      let adopted = false;
+      let adopted = false, adoptError = null;
       try {
         const raw = JSON.stringify(remote);
         localStorage.setItem('starnet.save', raw);
         adopted = localStorage.getItem('starnet.save') === raw;
-      } catch (_) {}
+      } catch (e) { adoptError = String((e && (e.name || e.code)) || 'error') + (e && e.message ? ': ' + e.message : ''); }
       try {
         // re-validate through Save.load(): it re-checks the forward-version guard on the just-adopted doc and
         // runs the migration ladder. A migrated, current-schema save is the only thing we hand back.
@@ -350,6 +353,7 @@ const CloudSave = (() => {
         if (mem && mem.status === 'ok' && isSave(mem.doc) && num(mem.doc.version) <= currentVersion()) {
           if (priorLocalRaw != null) { try { localStorage.removeItem('starnet.save'); } catch (_) {} }
           cacheFailed = true; cacheFailedConfirmed = true; memoryDoc = mem.doc;   // it came FROM the station file
+          cacheFailedReason = adoptError;
           try { console.warn('[cloudsave] browser storage cannot hold this station; resumed it from the station file.'); } catch (_) {}
           return JSON.parse(JSON.stringify(mem.doc));
         }
@@ -419,6 +423,11 @@ const CloudSave = (() => {
       : { lastPushOkAt: health.lastPushOkAt, lastPushFailAt: health.lastPushFailAt, consecutiveFailures: health.consecutiveFailures, nextRetryAt: 0, warn: false, stale: false };
     s.conflict = conflict;
     s.degraded = degraded;   // EL-11 FIX 1: refused-by-newer-StarNet is its own persistent, renderable state
+    // #121: the browser cache could not hold this page's newest save, so the station file is its only durable copy.
+    // cacheFailedConfirmed is true only once the station file acknowledged exactly that save with nothing newer queued.
+    s.cacheFailed = cacheFailed;
+    s.cacheFailedConfirmed = cacheFailed && cacheFailedConfirmed && !isSave(pending) && !activeFlushes.size;
+    s.cacheFailedReason = cacheFailed ? cacheFailedReason : null;
     return s;
   }
 
