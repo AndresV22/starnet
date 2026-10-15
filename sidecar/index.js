@@ -348,7 +348,7 @@ const MemoryStore = require('./memory-store.js');                               
 const { makeMemoryStore, resetAgentMemory, restoreDeclined } = MemoryStore;
 const { makeWorkshopStore } = require('./workshop-store.js'); // durable per-agent away-workshop grant + backlog + discard denylist
 const { makeDeliverableStore } = require('./deliverable-store.js'); // durable kept/discarded/failed Workshop lifecycle index
-const { makeSteerBuffers } = require('./steer-buffer.js'); // h1: live-steer buffers + the run-end close (an honest 409 once a run can no longer apply a note)
+const { makeSteerBuffers, steerNoteStatus } = require('./steer-buffer.js'); // h1: live-steer buffers + the run-end close (an honest 409 once a run can no longer apply a note)
 const { makeIdempotencyLedger } = require('./idempotency-ledger.js'); // SOP lane: durable connector-WRITE idempotency (no double-send on retry/resume)
 const TrustedLearning = require('./trusted-learning.js');
 const LearningEvidence = require('./learningevidence.js');
@@ -11538,6 +11538,7 @@ const ROUTES = [
   ...browserViewRoutes.routes,      // BROWSER window: /api/browser/view* (sidecar/browser-view.js)
   ...browserHandoffRoutes.routes,   // STEP-IN: /api/browser/handoff* + /api/browser/signins* (sidecar/browser-handoff-routes.js)
   { m: 'POST', exact: '/api/run/steer', h: handleRunSteer },
+  { m: 'GET', qsplit: '/api/run/steer', h: handleRunSteerStatus },   // which of the page's SEND NOW notes a run read (steer-buffer ledger, then the run record)
   { m: 'GET', exact: '/api/version', h: handleVersion },
   { m: 'GET', exact: '/api/diagnostics', h: handleDiagnostics },   // T3.9 paste-ready bug report
   { m: 'POST', exact: '/api/diagnostics/live', h: handleLiveDoctor }, // opt-in live model/execution/MCP/channel proof
@@ -23086,7 +23087,7 @@ async function runOnceCore(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort: internalEffortRan() || reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
+      runStore.record({ runId, parentRunId: o.parentRunId || '', delegatedBy: o.delegatedBy || '', agentId, provider: activeProviderId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.syntheticTrigger ? '' : (o.sessionPrompt || ''), deliveryText, dispatchDelivery: o.dispatchDelivery, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort: internalEffortRan() || reasoningEffort, unmetered: runUnmetered && mediaUsd === 0, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal, surface, ownerDirective, recoveryOf: o.recovery ? String(o.recovery.sourceRunId || '') : '', handoffEdited: o.handoffEdited === true, stepTest: o.stepTest === true, lineId: o.lineId || '', dockId: o.dockId || '', cronJobId: trigger === 'schedule' ? String(o.cronJobId || '') : '', pageClosed: pageClosedRuns.get(runId) || null, steerNotes: steerBufs.ledgerOf(runId), taintedBy: execution.taintedBy() || '' });   // execution terminal stays separate from the neutral Task Brief outcome used by progression; recoveryOf links a continuation to the interrupted run it resumed
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new
@@ -24277,8 +24278,25 @@ async function handleRunSteer(req, res) {
   const runId = String(body.runId || '');
   const text = String(body.text == null ? '' : body.text).trim();
   // in flight = a desk run (`runs`) or any run runOnce is still driving (a routine/line/hub run has a stop handle, QA 2026-10-02)
-  const out = steerBufs.post(runId, text, !!runId && (runs.has(runId) || runStopHandles.has(runId)));
+  // noteId: the page's own id for a SEND NOW line, so it can ask afterwards whether the run read it (GET below)
+  const out = steerBufs.post(runId, text, !!runId && (runs.has(runId) || runStopHandles.has(runId)), body.noteId);
   json(out.status, out.body);
+}
+
+/* GET /api/run/steer?runId= — WHICH SEND NOW NOTES A RUN READ (0.13.5 live walk, 2026-10-14). A page that lost its memory
+   (a reload — which also cancels its run —, a closed window, a crash, DISCONNECT and re-entry) still holds the lines it
+   handed to a run, and asks here before it shows one as read or gives it back. The steer buffer's ledger answers while
+   this process holds the run; after that (a restart) the run's durable record does (runstore steerNotes); with neither
+   the answer is source 'none', never a guess. live = the same in-flight test the POST uses. Read-only; ids only. */
+function handleRunSteerStatus(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let runId = '';
+  try { runId = String(new URL(req.url, 'http://127.0.0.1').searchParams.get('runId') || ''); } catch (e) { failNote('run.steer.status.url', e); }
+  if (!/^[A-Za-z0-9_.:-]{1,128}$/.test(runId)) return json(400, { error: 'runId required' });
+  const memory = steerBufs.status(runId);
+  let record = null;
+  if (!memory) { try { record = runStore.latest(runId); } catch (e) { failNote('run.steer.status.record', e); return json(500, { error: 'could not read the run record' }); } }   // unknown is not "none": the page asks again
+  json(200, steerNoteStatus(runId, { live: runs.has(runId) || runStopHandles.has(runId), memory, record }));
 }
 
 // GET /api/version — the honest build/version surface for /version. Resolves the harness build id and the Tauri

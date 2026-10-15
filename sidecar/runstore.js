@@ -136,6 +136,19 @@
     return { at: nonnegative(v.at), waitingOn };
   }
 
+  // the run's SEND NOW ledger (record's `steerNotes`, from steer-buffer ledgerOf): which page-made note ids it read.
+  // Ids only (the page keeps the words); bounded like every other host field.
+  function steerNotesOf(v) {
+    if (!Array.isArray(v)) return [];
+    const out = [];
+    for (const n of v.slice(0, 256)) {
+      if (out.length >= 32) break;
+      if (!n || typeof n !== 'object' || !/^[A-Za-z0-9_-]{1,64}$/.test(str(n.id))) continue;
+      out.push({ id: str(n.id), applied: n.applied === true });
+    }
+    return out;
+  }
+
   function toolTraceList(v) {
     if (!Array.isArray(v)) return [];
     const out = [];
@@ -337,6 +350,10 @@
         // still open at that moment — the disconnect denied them, so none of them was granted. Set only by the host that
         // saw its stream close (index.js handleRun); present only on such a run, so every other row stays byte-identical.
         ...(pageClosedOf(e.pageClosed) ? { pageClosed: pageClosedOf(e.pageClosed) } : {}),
+        // SEND NOW LEDGER (additive, 0.13.5 live walk 2026-10-14): which of the page's tracked steering notes this run
+        // read (applied) or ended without reading — so GET /api/run/steer still answers a page that lost its memory after
+        // a station restart. Present only on a run that took a tracked note, so every other row stays byte-identical.
+        ...(steerNotesOf(e.steerNotes).length ? { steerNotes: steerNotesOf(e.steerNotes) } : {}),
         toolTrace: toolTraceList(e.toolTrace),
         failureStage: str(e.failureStage).trim().slice(0, FAILURE_FIELD_MAX),
         failureCode: str(e.failureCode).trim().slice(0, FAILURE_FIELD_MAX),
