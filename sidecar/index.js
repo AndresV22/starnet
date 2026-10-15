@@ -48,7 +48,8 @@ const fallbackChain = require('./fallbackchain.js');   // pure resolve(env,saved
 const voiceChatRoute = require('./voice-chat-route.js');   // pure planner — SETTINGS→Models voice chat model (a spoken turn's own model)
 const { makeConcurrencyGate } = require('./concurrency.js');
 const { makeWorkspaceLease } = require('./workspace-lease.js');
-const { makeWorkspaceOwner, makeBootedAt } = require('./workspace-owner.js');
+const { makeWorkspaceOwner, makeBootedAt, describeIdentity: describeOwnerIdentity } = require('./workspace-owner.js');
+const { makeProcessIdentity } = require('./process-identity.js');
 const { classifyWorkspace, workspaceCandidates } = require('./workspace-safety.js');
 const { inspectWorkspaceLineage, startFresh: startFreshWorkspace } = require('./workspace-lineage.js');
 const workspaceRecovery = require('./workspace-recovery.js');
@@ -592,12 +593,16 @@ const RECOVERY_CANDIDATE_ROOTS = workspaceCandidates({
   path: path, env: process.env, platform: process.platform, homedir: () => os.homedir()
 }).concat([path.resolve(__dirname, 'workspaces'), path.resolve(__dirname, '..', 'workspaces')]);
 
+// One identity reader for every ownership check this boot makes (recovery election + lock, then the owner claim):
+// it proves a stamped PID recycled when Windows handed a hard-killed holder's PID to another process (soak 2026-10-15).
+const processIdentity = makeProcessIdentity();
 // Recovery activation must precede the owner claim and every store constructor. With no explicit request,
 // production may self-heal only one unambiguous valid legacy root; conflicts stay read-only for the picker.
 const startupWorkspaceRecovery = workspaceRecovery.applyPendingRecovery({
   fs, path, platform: process.platform, home: os.homedir(), workspaceRoot: WORKSPACES,
   candidateRoots: DEV_MODE ? [] : RECOVERY_CANDIDATE_ROOTS, auto: !DEV_MODE, now: Date.now,
-  lockBootedAt: makeBootedAt(() => Date.now())   // a recovery lock left by a pre-reboot crash must not brick every boot (exit 73)
+  lockBootedAt: makeBootedAt(() => Date.now()),   // a recovery lock left by a pre-reboot crash must not brick every boot (exit 73)
+  lockProcessIdentity: processIdentity            // ...nor one whose holder PID was recycled within this boot
 });
 if (startupWorkspaceRecovery && startupWorkspaceRecovery.lockUnavailable) {
   // A LIVE concurrent process holds the parent-level recovery lock — it may be renaming this very
@@ -637,8 +642,11 @@ if (devWorkspaceSafety.protected) {
 // Claim that root BEFORE pricing cache, runtime knobs, roster, station save, or any other persisted state
 // is read. A second writer fails closed; a crash-killed holder is reclaimed only when its PID is provably
 // dead (never merely because the claim is old). The desktop shell's uncatchable Windows force-kill leaves
-// this file behind by design; the next legitimate boot performs that proven-dead recovery.
-const workspaceOwner = makeWorkspaceOwner({ fs: fs, path: path, now: () => Date.now(), bootedAt: makeBootedAt(() => Date.now()) });
+// this file behind by design; the next legitimate boot performs that proven-dead recovery. processIdentity
+// proves a recycled PID dead too: a stamped PID whose CURRENT process was created after the claim (soak
+// 2026-10-15: the dead holder's PID had become a cmd.exe) is not the holder; an unreadable identity stays busy.
+const workspaceOwner = makeWorkspaceOwner({ fs: fs, path: path, now: () => Date.now(), bootedAt: makeBootedAt(() => Date.now()),
+  processIdentity: processIdentity });
 /* CRASH-LOOP CIRCUIT BREAKER (crash-ledger.js, 2026-09-03 audit). Every fault exit (uncaught exception → exit 1,
    owner refusal → exit 73) is appended to <WORKSPACES>/.crash-ledger.json. The THIRD fault exit inside 10 minutes
    TRIPS the breaker: the process stays alive in DEGRADED mode (health 503 naming the loop) instead of exiting
@@ -659,6 +667,7 @@ if (!workspaceOwnerClaim.ok) {
   console.error('✗ StarNet refused to open this workspace because another process may own it.');
   console.error('  workspace: ' + WORKSPACES);
   console.error('  holder PID: ' + holderPid);
+  if (workspaceOwnerClaim.identity) console.error('  holder process: ' + describeOwnerIdentity(workspaceOwnerClaim.identity));
   console.error('  safety code: ' + ownerCode);
   console.error('  Close the other StarNet process and retry. StarNet will not risk concurrent writes.');
   // The refusal itself is a fault exit for the breaker. NOTHING here weakens the owner safety: the claim is never
