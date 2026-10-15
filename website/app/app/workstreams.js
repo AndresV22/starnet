@@ -252,6 +252,16 @@
     const wantedRoot = scoped && opts.projectRoot != null ? String(opts.projectRoot) : null;
     const sameScope = !scoped || ((cur && cur.projectRoot) || null) === wantedRoot;
     if (opts.reuseActive !== false && isUntouched(cur) && sameScope) return cur;
+    /* …and an untouched blank already in the rail, just not the open one, is the same blank line (org live walk 10-14:
+       +NEW from another session minted a SECOND empty 'New session' row beside it). Same untouched test, same scope rule
+       — scoped: the exact stored root; unscoped (+NEW on the sessions rail): an unanchored blank only. Never the General
+       home (its own row, not a 'New session'), a worker's hidden thread or an automation's session. The newest wins and
+       is focused here, exactly as create() focuses a fresh one (activate:false leaves the focus to the caller). */
+    if (opts.reuseActive !== false) {
+      const blank = ws.filter(w => w !== cur && w.id !== generalId && !w.worker && !w.parentStreamId && !w.automation
+        && isUntouched(w) && ((w.projectRoot || null) === wantedRoot) && (!opts.agentId || (w.agentId || 'agent') === opts.agentId)).pop();
+      if (blank) { if (opts.activate !== false) switchTo(blank.id); return blank; }
+    }
     return create(null, opts);
   }
   // UNTOUCHED = a plain chat nobody has used or shaped yet: no messages, runs, deliverables or spend, and no

@@ -275,6 +275,23 @@ const StationCommands = (() => {
     return true;
   }
 
+  /* ONE ANSWER, ONE ROW (org live walk 2026-10-14: a delegated report that finished while the app was closed showed twice,
+     and the copy persisted). Opening the session merges its durable transcript (Chat.reconcileServerHistory), which files
+     the run's answer as an assistant row stamped with its sourceRunId but never touches ws.runIds; the /api/runs recovery
+     below then saw no runId and spliced the same answer in again. A run is filed when the session's run list names it OR
+     its history already holds that run's answer. */
+  function answerFiled(ws, runId) {
+    const id = String(runId || '');
+    if (!id) return false;
+    return (Array.isArray(ws.history) ? ws.history : []).some(m => m && !m.sys && m.role === 'assistant'
+      && String(m.sourceRunId || '') === id && String(m.content == null ? '' : m.content).trim());
+  }
+  // a run whose answer the transcript merge filed joins the session's run list, so its outcome and run count are true
+  function recordFiledRun(ws, runId, ts, beforeRunId) {
+    if (!runId || !Workstreams.appendRun || (ws.runIds || []).map(String).indexOf(String(runId)) >= 0) return false;
+    return !!Workstreams.appendRun(ws.id, String(runId), ts, beforeRunId);
+  }
+
   function foldDelivery(a, opts) {
     opts = opts || {};
     const hit = resolveDelivery(a);
@@ -283,8 +300,9 @@ const StationCommands = (() => {
     const text = String((a && a.text) || '').trim();
     if (!text) throw new Error('nothing to deliver — the worker returned no text');
     const runId = String((a && a.runId) || '');
-    if (runId && (ws.runIds || []).indexOf(runId) >= 0) {
-      if (noteOutcome(ws, runId, a.reason)) refreshAndPersist(ws, !!opts.quiet);
+    if (runId && ((ws.runIds || []).indexOf(runId) >= 0 || answerFiled(ws, runId))) {
+      const recorded = recordFiledRun(ws, runId, a.ts, opts.beforeRunId);
+      if (noteOutcome(ws, runId, a.reason) || recorded) refreshAndPersist(ws, !!opts.quiet);
       try { endDeliveredRun(ws, runId); } catch (_) {}
       return { folded: false, reason: 'already delivered', session: sessionName(ws), resolvedBy: hit.resolvedBy };
     }
@@ -1188,7 +1206,13 @@ const StationCommands = (() => {
         // Ordinary conversations retain their existing recovery policy. A worker's record also retains failed
         // or interrupted attempts: even an empty result needs its truthful outcome and inspection link.
         if (!hit.w.worker && ['done', 'max_iters', 'budget'].indexOf(String(reason || 'done')) < 0) continue;
-        if (row.runId && (hit.w.runIds || []).indexOf(String(row.runId)) >= 0) {
+        // An earlier missed attempt can be recovered after a newer answer was already filed locally.
+        // Use the server's run order to insert it before that known successor, preserving current truth.
+        const liveRunId = typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(hit.w.id) && Channels.runIdOf && Channels.runIdOf(hit.w.id);
+        const beforeRunId = (hit.w.runIds || []).find(id => rank.has(String(id)) && rank.get(String(id)) < rank.get(String(row.runId)))
+          || (liveRunId && liveRunId !== row.runId && (hit.w.runIds || []).includes(liveRunId) ? liveRunId : undefined);
+        if (row.runId && ((hit.w.runIds || []).indexOf(String(row.runId)) >= 0 || answerFiled(hit.w, row.runId))) {
+          if (recordFiledRun(hit.w, String(row.runId), row.ts, beforeRunId)) outcomes++;
           if (noteOutcome(hit.w, String(row.runId), reason)) outcomes++;
           continue;
         }
@@ -1205,11 +1229,6 @@ const StationCommands = (() => {
           } catch (_) { continue; }
         }
         args.text = text;
-        // An earlier missed attempt can be recovered after a newer answer was already filed locally.
-        // Use the server's run order to insert it before that known successor, preserving current truth.
-        const liveRunId = typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(hit.w.id) && Channels.runIdOf && Channels.runIdOf(hit.w.id);
-        const beforeRunId = (hit.w.runIds || []).find(id => rank.has(String(id)) && rank.get(String(id)) < rank.get(String(row.runId)))
-          || (liveRunId && liveRunId !== row.runId && (hit.w.runIds || []).includes(liveRunId) ? liveRunId : undefined);
         if (!String(text || '').trim()) {
           if (hit.w.worker && row.runId && reason && Workstreams.appendRun) {
             if (Workstreams.appendRun(hit.w.id, String(row.runId), row.ts, beforeRunId)) outcomes++;
