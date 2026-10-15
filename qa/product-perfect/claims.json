@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "715dc2ab52dc7006c7e62ab3275ef27c00d924e5",
+    "sourceCommit": "4010d92d475f586f4b260603cb1d1ffda4bb40f4",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 831031,
-        "sha256": "85ca91285258f3ae7f6dac4a496d7cd24fd6930ca2b253f54ba30c62d2ad5bf6"
+        "bytes": 832733,
+        "sha256": "aaab84db69da5245b2b4e62e891c1c47dc040b9cbabc21b39d15d389f3f8078c"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -438,8 +438,8 @@
       },
       {
         "path": "frontend/app/deliverables.js",
-        "bytes": 60172,
-        "sha256": "494848b0c9bbffb40f921726d3b7325f7a726d56e8c4bc65f129f093377e504d"
+        "bytes": 60469,
+        "sha256": "b3ba799ed8f98d835f4b6eb3328e337547d10c1dff1748f5938e20ad46b4a8f7"
       },
       {
         "path": "frontend/app/deskscreen.js",
@@ -538,8 +538,8 @@
       },
       {
         "path": "frontend/app/glossary.js",
-        "bytes": 10661,
-        "sha256": "ddb1ff7ddfb392e249f6413e4e930b93816c2e86c5a62c0fc1f0744570f9f60f"
+        "bytes": 10667,
+        "sha256": "f240e6c265f997696f2639213e0f86891e554c7809d5c83198eb04e7fe7c9332"
       },
       {
         "path": "frontend/app/goalloop.js",
@@ -708,8 +708,8 @@
       },
       {
         "path": "frontend/app/needsyou.js",
-        "bytes": 29361,
-        "sha256": "2206a87eee64ce132484ab81c7a811362f2d766845e215e970797c2846fa448b"
+        "bytes": 34085,
+        "sha256": "3c587094755d20fe7c1a590bb6c303e2e4f7eee590d6f5da898160347d27190e"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -1163,8 +1163,8 @@
       },
       {
         "path": "frontend/app/stationcommands.js",
-        "bytes": 100645,
-        "sha256": "d93c355c8391808b1cbb3d6bd0d9ad54bc40a80a1604221228c042101161e832"
+        "bytes": 102107,
+        "sha256": "847218ce24b149cd3e73e3ddce8df29bbacbc702ced5a54c62489734b041b291"
       },
       {
         "path": "frontend/app/stationquests.js",
@@ -1183,8 +1183,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 923645,
-        "sha256": "b0585cce9b563c1ec67212894b86930be7a6144717f9dc2ace38639495c2108b"
+        "bytes": 925423,
+        "sha256": "efe175b6837b5abd6e34f2f6ad2d4f12180257d255982f0fac9548ac3b8bbd40"
       },
       {
         "path": "frontend/app/stepin.js",
@@ -1273,8 +1273,8 @@
       },
       {
         "path": "frontend/app/tutorial.js",
-        "bytes": 106783,
-        "sha256": "1d909d8b01ac69b1c7d8deafbdc5943384c514979f3063e0850a5d1da72e6758"
+        "bytes": 106803,
+        "sha256": "c084649fa54f86fad241fe4897e96a3514bd0c5c93f41749614ecc56fbe35583"
       },
       {
         "path": "frontend/app/understanding.js",
@@ -1368,8 +1368,8 @@
       },
       {
         "path": "frontend/app/windows/outbox.js",
-        "bytes": 28406,
-        "sha256": "5ef4188cbdfc44169945cebcac3e178a2c2978d58486be5c13768811f9d8583c"
+        "bytes": 28785,
+        "sha256": "ccbfe321204ce582c39364d64f72af67c5a1d5be84cb27fb2e73b30ffe30f27a"
       },
       {
         "path": "frontend/app/windows/rewind.js",
@@ -1398,8 +1398,8 @@
       },
       {
         "path": "frontend/app/workflowpanel.js",
-        "bytes": 216877,
-        "sha256": "4dd2d2d5a16a9e20c45e3eedab50e0c7ef044ce60a9af1c62803558558032ad6"
+        "bytes": 217713,
+        "sha256": "2e9729b47144ce01cc5ce8b55dfe3d8d348bf68f2cacb578a510e5dc01d334ad"
       },
       {
         "path": "frontend/app/workflowtakeoverstore.js",
@@ -1438,8 +1438,8 @@
       },
       {
         "path": "frontend/app/workstreams.js",
-        "bytes": 51577,
-        "sha256": "908766399c72f49133f3c9efd31c3f65bf4e5fd93b485bce37f6aa9659dd0761"
+        "bytes": 52568,
+        "sha256": "5798844325267ab575708a05b0064cecb2115882983f9f761ff778be56ab2315"
       },
       {
         "path": "frontend/app/workview.js",
@@ -1693,8 +1693,8 @@
       },
       {
         "path": "frontend/css/settings.css",
-        "bytes": 21626,
-        "sha256": "7ad04f2d60cda20775e6d6115eadb0b8c23e655a8934269366e00c14f18409d0"
+        "bytes": 21932,
+        "sha256": "63088ff1bbf272c976d9c35a8f210a78a7168eb3d000b30ee349455d07a5ad47"
       },
       {
         "path": "frontend/css/stepin.css",
