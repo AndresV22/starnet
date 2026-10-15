@@ -100,6 +100,27 @@ const mkRow = () => { const cls = new Set(); return { d: { classList: { add: c =
   A.ok(/ws\.history\.push\(attsIn\.length \? \{ role: 'user', content: text, attachments: attsIn, ts: uts \} : \{ role: 'user', content: text, ts: uts \}\)/.test(send),
     'the continuation still enters history as the same user-role turn (nothing new on the wire)');
   A.ok(/send\(prompt, \{ goalContinuation: true \}\)/.test(A.fnBody(chat, 'function kickGoal(')), 'kickGoal still sends GoalLoop.continuationPrompt as the turn');
+  // the session's name: a goal step titles it from its GOAL (the rail row + the P26 COMMS title), never the marker prompt
+  A.ok(/Workstreams\.autoTitle\(ws\.id, goalContinuation \? \(goalStepOf\(text\) \|\| \(goalOf\(ws\) \|\| \{\}\)\.goal \|\| ''\) : text\)/.test(send),
+    'send() names an untitled session from the goal when the turn is a goal step');
+}
+
+/* ---------- 4b. /goal names an untitled session from its goal BEFORE the first step (which may wait on a busy stream) ---------- */
+{
+  const src = A.fnBody(chat, 'function goalCommand(');
+  const W = require('../frontend/app/workstreams.js');
+  W.reset();
+  const ws = W.create(null);
+  const order = [];
+  const goal = new Function('GoalLoop', 'activeWs', 'goalOf', 'localLine', 'persistGoal', 'kickGoal', 'StationUI', 'Workstreams', 'App', 'paintTitle', src + '\nreturn goalCommand;')(
+    GoalLoop, ws, () => null, () => null, () => {}, () => order.push('kick'), undefined, W, { refreshRail: () => order.push('rail') }, () => order.push('title'));
+  goal('ship the landing page');
+  A.eq(W.titleOf(ws), 'ship the landing page', '/goal on an untitled session names it from the goal');
+  A.eq(order, ['rail', 'title', 'kick'], '…and repaints the rail + COMMS title before the first step is sent');
+  ws.title = 'My launch'; ws.titleAuto = false; order.length = 0;
+  goal('ship the pricing page');
+  A.eq(W.titleOf(ws), 'My launch', 'a session that already has a name keeps it');
+  A.eq(order, ['kick'], '…with no extra repaint');
 }
 
 /* ---------- 5. /history names a goal step as the station's, not "You" ---------- */

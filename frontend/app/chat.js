@@ -8895,6 +8895,12 @@ const Chat = (() => {
     if (set && typeof StationUI !== 'undefined' && StationUI.openTerm) {
       systemDoor(set, '▸ AUTOMATE › GOAL LOOPS', () => StationUI.openTerm('automation', 'loops'), { cls: 'goal-loops-door', lead: 'Lasting goal loops:' });
     }
+    // an untitled session is named from its goal NOW (no-op when it already has a name): the first step may wait on a busy
+    // stream or a pending card, and the rail row + COMMS title must never wear the continuation prompt meanwhile
+    if (typeof Workstreams !== 'undefined' && Workstreams.autoTitle && Workstreams.autoTitle(activeWs.id, s.goal)) {
+      if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail();
+      paintTitle();
+    }
     kickGoal(activeWs);
   }
   // /subgoal <text>          — append a criterion the loop must ALSO satisfy before it's done
@@ -10261,8 +10267,9 @@ const Chat = (() => {
     // a goal-loop continuation shows as ONE station line (goalStepLine); its history turn — what the model receives — is unchanged
     if (!retry) { const uts = Date.now(); if (goalContinuation) goalStepLine(goalStepOf(text) || ((goalOf(ws) || {}).goal) || ''); else addUser(text, attsIn, uts); ws.history.push(attsIn.length ? { role: 'user', content: text, attachments: attsIn, ts: uts } : { role: 'user', content: text, ts: uts }); capHistory(ws); }   // on RETRY the user turn is already in the thread + on screen
     const retryDirectiveTurn = ws.history.slice().reverse().find(m => m.role === 'user');
-    // name an untitled stream from its first real message (no-op on General / already-titled)
-    if (typeof Workstreams !== 'undefined' && Workstreams.autoTitle(ws.id, text)) {
+    // name an untitled stream from its first real message (no-op on General / already-titled) — a goal step names it from
+    // its GOAL, never the station's continuation prompt (the rail row and the COMMS title both show this name)
+    if (typeof Workstreams !== 'undefined' && Workstreams.autoTitle(ws.id, goalContinuation ? (goalStepOf(text) || (goalOf(ws) || {}).goal || '') : text)) {
       if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail();
     }
 

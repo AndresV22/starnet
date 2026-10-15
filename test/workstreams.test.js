@@ -132,6 +132,25 @@ const basis = W.titleBasis(tb.id);
 A.ok(basis.indexOf('starnessos.com') >= 0 && basis.indexOf('www subdomain') >= 0, 'basis = founding directive + latest substantive turns');
 A.ok(basis.indexOf('hey') !== 0 && basis.indexOf('thanks\n') < 0, 'small-talk turns are skipped from the basis');
 
+/* ---------- a /goal session is named from its GOAL, never the station's continuation prompt (org P29-sys x P26) ---------- */
+{
+  const GL = require('../frontend/app/goalloop.js');
+  W.reset();
+  const gs = W.create(null);
+  const step = GL.continuationPrompt(GL.create('ship the landing page', { now: 1 }));
+  gs.history.push({ role: 'user', content: step, ts: 1 });
+  A.eq(W.titleBasis(gs.id), 'ship the landing page', 'a goal step feeds the model title its goal, not the marker prompt');
+  A.eq(W.titleBasis(W.create(null).id, step), 'ship the landing page', '…also as the not-yet-stored fallback turn');
+  A.ok(W.autoTitle(gs.id, 'ship the landing page') && W.titleOf(gs) === 'ship the landing page', 'the instant placeholder is the goal');
+  A.eq(W.needsModelTitle(gs.id), true, '…and it is still the placeholder, so the model upgrade still runs on it');
+  const legacy = W.create(null);
+  legacy.history.push({ role: 'user', content: '[Continuing toward your standing goal]\nGoal: fix the build\n\nContinue working toward this goal. ', ts: 1 });
+  A.eq(W.titleBasis(legacy.id), 'fix the build', 'a pre-org-pass step counts as its goal too');
+  const brief = W.create(null);
+  brief.history.push({ role: 'user', content: step, from: 'nova', ts: 1 });
+  A.eq(W.titleBasis(brief.id), step.replace(/\s+/g, ' ').trim().slice(0, 300), 'a delegated brief keeps its own words');
+}
+
 /* ---------- healing: a weak model title (minted from a small-talk opener) upgrades ONCE real work appears ---------- */
 W.reset();
 const hw = W.create(null);

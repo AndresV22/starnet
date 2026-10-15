@@ -168,6 +168,14 @@
     const goal = rest.slice(0, Math.min.apply(null, cuts)).trim();
     return goal || null;
   }
+  /* THE ONE TURN-LEVEL PREDICATE every history reader shares (org P29-sys wiring, 2026-10-14): the goal a stored history
+     turn works toward when it is a goal step, else null. Only a user-role turn the Commander's own page sent can be one —
+     a delegated brief (m.from) keeps its own speaker. COMMS, the rail excerpt, export, the HUD + desk screen task and
+     station.read_session all ask THIS, so a goal step never reads as the Commander's words on any surface. */
+  function stepOfTurn(m) {
+    if (!m || m.role !== 'user' || m.from || typeof m.content !== 'string') return null;
+    return continuationGoal(m.content);
+  }
 
   /* ============================ THE JUDGE PROMPT ============================
      A reason-only aux call (chat.js runs it through the same internal:true Harness.chat path pitchstore/goalstore
@@ -273,6 +281,6 @@
     DEFAULT_MAX_TURNS, MAX_PARSE_FAILS,
     parseVerdict, create, normalize, isActive, hasGoal,
     addSubgoal, pause, resume, clear,
-    continuationPrompt, continuationGoal, judgeSystem: () => JUDGE_SYSTEM, judgeUser, evaluate, statusLine
+    continuationPrompt, continuationGoal, stepOfTurn, judgeSystem: () => JUDGE_SYSTEM, judgeUser, evaluate, statusLine
   };
 });
