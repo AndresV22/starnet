@@ -90,8 +90,23 @@ ok(/set your fallback models to/.test(fs.readFileSync(path.join(__dirname, '..',
 ok(!/while keeping your ChatGPT sign-in connected/.test(station), 'the add-key copy never claims a ChatGPT sign-in');
 // org P04 (g4 final round): "Add it on its card above" pointed at whatever card sat above it — the no-key line is a real door
 // that lands ON the selected provider's card (focusProvider: the error doors' scroll + mark), in reading-size words
-ok(/rows\.push\('<div class="key-empty key-goto"><p>The selected provider, ' \+ esc\(provName\(addProvider\)\) \+ ', has no key yet\.<\/p>'\s*\+ '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-prov-card" data-provider="' \+ esc\(addProvider\) \+ '">▸ ADD IT ON THE ' \+ esc\(provName\(addProvider\)\) \+ ' CARD<\/button><\/div><\/div>'\);/.test(station)
+ok(/else if \(addProvider === active && \(providerAcceptsKey\(addProvider\) \|\| addProvider === 'starnet'\) && !hasAddProvider\) rows\.push\(selectedSetupLineHtml\(addProvider, provName\(addProvider\), creditsProv\.state\)\);/.test(station)
   && !/Add it on its card above/.test(station), 'the selected provider\'s no-key line names its card as a door, never "its card above"');
+// (wiring) the line names what THAT card is missing: STARNET MANAGED takes no key (its card offers ↗ LINK STATION), CUSTOM's
+// key is optional and its card reads ○ NO ENDPOINT — "has no key yet" + "ADD IT" sent both to a card with no such field
+ok(/return !isOAuthProvider\(provider\) && provider !== 'ollama' && provider !== 'claude-cli' && provider !== 'starnet';/.test(station), 'STARNET MANAGED never counts as a key provider (agrees with harness providerNeedsKey)');
+{
+  const at = station.indexOf('  function selectedSetupLineHtml(');
+  const src = station.slice(at, station.indexOf('\n  }\n', at) + 4);
+  const line = new Function('esc', src + '\nreturn selectedSetupLineHtml;')(s => String(s));
+  const sn = line('starnet', 'STARNET MANAGED', 'linkable');
+  ok(/The selected provider, STARNET MANAGED, isn’t linked yet\./.test(sn) && /▸ LINK IT ON THE STARNET MANAGED CARD/.test(sn) && !/no key|ADD IT/.test(sn), 'unlinked STARNET MANAGED: "isn’t linked yet" + LINK IT, never a key');
+  ok(line('starnet', 'STARNET MANAGED', 'linked') === '' && line('starnet', 'STARNET MANAGED', 'saved') === '', 'a linked or saved StarNet link owes no line');
+  const cu = line('custom', 'CUSTOM', 'absent');
+  ok(/The selected provider, CUSTOM, has no endpoint yet\./.test(cu) && /▸ SET IT ON THE CUSTOM CARD/.test(cu) && !/no key/.test(cu), 'CUSTOM without an endpoint: "has no endpoint yet"');
+  const or = line('openrouter', 'OPENROUTER', 'absent');
+  ok(/The selected provider, OPENROUTER, has no key yet\./.test(or) && /data-act="to-prov-card" data-provider="openrouter">▸ ADD IT ON THE OPENROUTER CARD</.test(or), 'a key provider keeps "has no key yet" + ADD IT, landing on its card');
+}
 ok(/body\.querySelectorAll\('\[data-act="to-prov-card"\]\[data-provider\]'\)\.forEach\(b => b\.addEventListener\('click', \(\) => \{ sfx\('click'\); focusProvider\(b\.dataset\.provider\); \}\)\);/.test(station), 'that door lands on the provider\'s card through focusProvider');
 ok(/\.settings-console \.key-empty\.key-goto p \{ font-size: 16px;[^}]*opacity: 1; \}/.test(fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'settings.css'), 'utf8')), 'the no-key line reads at the paragraphs\' size, not the dim 12px empty-state voice');
 {

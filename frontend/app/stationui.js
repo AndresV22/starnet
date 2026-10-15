@@ -5584,9 +5584,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     return out;
   }
   function keysFor(id) { return connectedKeys().filter(x => x.provider === id); }
+  // org P04 wiring: STARNET MANAGED takes no key — its bearer is the linked device token (harness.js providerNeedsKey
+  // excludes it too); its card offers ↗ LINK STATION, never a key field
   function providerAcceptsKey(provider) {
     provider = provider || activeProv();
-    return !isOAuthProvider(provider) && provider !== 'ollama' && provider !== 'claude-cli';
+    return !isOAuthProvider(provider) && provider !== 'ollama' && provider !== 'claude-cli' && provider !== 'starnet';
+  }
+  /* The selected provider's "not set up yet" line under API KEYS (org P04) names what ITS card is missing: a key for a key
+     provider, the ENDPOINT for CUSTOM (its key is optional; the card reads ○ NO ENDPOINT), the LINK for STARNET MANAGED (the
+     card reads ○ NOT LINKED and offers ↗ LINK STATION). A saved or live StarNet link owes no line — the card says its state. */
+  function selectedSetupLineHtml(pid, name, creditsState) {
+    const what = pid === 'starnet' ? (creditsState === 'linked' || creditsState === 'saved' ? '' : ' isn’t linked yet.')
+      : pid === 'custom' ? ', has no endpoint yet.' : ', has no key yet.';
+    if (!what) return '';
+    const verb = pid === 'starnet' ? 'LINK IT' : pid === 'custom' ? 'SET IT' : 'ADD IT';
+    return '<div class="key-empty key-goto"><p>The selected provider, ' + esc(name) + (pid === 'starnet' ? ',' : '') + what + '</p>'
+      + '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-prov-card" data-provider="' + esc(pid) + '">▸ ' + verb + ' ON THE ' + esc(name) + ' CARD</button></div></div>';
   }
   /* A CUSTOM ENDPOINT NEEDS ITS ADDRESS (GitHub #113, confirmed live 2026-10-13): the CUSTOM card promised "any /v1 base
      URL", but every add form offered only "paste CUSTOM key…" — the endpoint could be set only during onboarding. The
@@ -5948,8 +5961,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // (only when addProvider IS the selection: under CHATGPT it is the openrouter stand-in, which is not selected).
     // (g4 final round) "its card above" pointed at whatever card sat above (CLAUDE CODE, OPENROUTER): the line is a real DOOR —
     // its key lands ON that provider's card (focusProvider: scrolls to it and marks it), in reading-size words
-    else if (addProvider === active && providerAcceptsKey(addProvider) && !hasAddProvider) rows.push('<div class="key-empty key-goto"><p>The selected provider, ' + esc(provName(addProvider)) + ', has no key yet.</p>'
-      + '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-prov-card" data-provider="' + esc(addProvider) + '">▸ ADD IT ON THE ' + esc(provName(addProvider)) + ' CARD</button></div></div>');
+    // (wiring) the line names what that card is missing — a key, CUSTOM's endpoint, STARNET MANAGED's link (selectedSetupLineHtml)
+    else if (addProvider === active && (providerAcceptsKey(addProvider) || addProvider === 'starnet') && !hasAddProvider) rows.push(selectedSetupLineHtml(addProvider, provName(addProvider), creditsProv.state));
     return rows.join('');
   }
   // edit-in-place / guarded remove for a stored key. Mirrors the CLEAR arm/confirm pattern
