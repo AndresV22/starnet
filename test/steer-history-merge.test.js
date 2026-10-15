@@ -132,6 +132,32 @@ A.ok(/classList\.add\('tool', 'steer-echo'\)/.test(rh), 'a replayed steering not
       A.eq(saved.filter(m => m.role === 'user').length, 1, who + ' load ' + load + ': the directive stays one row');
     }
   }
+  // LIVE WALK (2026-10-14, this lane): a reload mid-run saves no copy of the run's own directive, so the transcript
+  // INSERTS it after the last row it matched — which put the next run's directive between an earlier run and its filed
+  // echo ("do the slow job" · "do the slow job again" · [steering] use the blue folder). A run's own station rows stay
+  // with that run; a later run's turns go after them. Its own turns still come first.
+  for (const [who, fn] of [['desk', merge], ['phone', phoneMerge]]) {
+    const saved = [
+      { role: 'user', content: 'do the slow job', sourceRunId: 'rA', rowId: 1 },
+      { role: 'assistant', sys: true, steerEcho: true, content: '[steering] use the blue folder', sourceRunId: 'rA', ts: 4 }
+    ];
+    const turns = [
+      { role: 'user', content: 'do the slow job', sourceRunId: 'rA', rowId: 1 },
+      { role: 'assistant', content: 'Halfway there.', sourceRunId: 'rA', rowId: 2 },
+      { role: 'user', content: 'do the slow job again', sourceRunId: 'rB', rowId: 5 },
+      { role: 'assistant', content: 'On it.', sourceRunId: 'rB', rowId: 6 }
+    ];
+    let out = saved;
+    for (let load = 1; load <= 2; load++) {
+      out = JSON.parse(JSON.stringify(fn(out, turns)));
+      A.eq(out.map(m => m.content), ['do the slow job', 'Halfway there.', '[steering] use the blue folder', 'do the slow job again', 'On it.'],
+        who + ' load ' + load + ': the echo stays with its own run, ahead of the next run\'s directive');
+    }
+    // a station row with no run (and a row of another run) keeps the old placement
+    const plain = fn([{ role: 'user', content: 'go', sourceRunId: 'rC', rowId: 1 }, { role: 'system', sys: true, content: '⚒ built while you were away' }],
+      [{ role: 'user', content: 'go', sourceRunId: 'rC', rowId: 1 }, { role: 'user', content: 'next', sourceRunId: 'rD', rowId: 2 }]);
+    A.eq(plain.map(m => m.content), ['go', 'next', '⚒ built while you were away'], who + ': a station row without a run keeps its old place');
+  }
   // the real renderHistory over that row
   const made = [], toolLines = [];
   const ctx = require('vm').createContext({

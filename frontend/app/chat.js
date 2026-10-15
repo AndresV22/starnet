@@ -1889,7 +1889,15 @@ const Chat = (() => {
     for (const turn of inserts.get(-1) || []) merged.push(turn);
     for (let i = 0; i < kept.length; i++) {
       merged.push(kept[i].row);
-      for (const turn of inserts.get(i) || []) merged.push(turn);
+      const list = inserts.get(i) || [], run = String(kept[i].row.sourceRunId || '');
+      /* A RUN KEEPS ITS OWN STATION ROWS (SEND NOW reload lane, 2026-10-14): a reload mid-run saves no copy of that run's
+         directive, so the transcript inserts it here, after the last row it matched — which put the NEXT run's directive
+         between an earlier run and the steer echo filed for it. This row's run gets its own inserted turns first, then
+         the station rows of the same run that follow it, then everyone else's. */
+      let k = 0;
+      if (run) while (k < list.length && String(list[k].sourceRunId || '') === run) merged.push(list[k++]);
+      while (run && k < list.length && i + 1 < kept.length && kept[i + 1].row.sys && String(kept[i + 1].row.sourceRunId || '') === run && !(inserts.get(i + 1) || []).length) merged.push(kept[++i].row);
+      for (; k < list.length; k++) merged.push(list[k]);
     }
     return merged;
   }
