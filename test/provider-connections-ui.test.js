@@ -108,6 +108,9 @@ ok(/return !isOAuthProvider\(provider\) && provider !== 'ollama' && provider !==
   ok(/The selected provider, OPENROUTER, has no key yet\./.test(or) && /data-act="to-prov-card" data-provider="openrouter">▸ ADD IT ON THE OPENROUTER CARD</.test(or), 'a key provider keeps "has no key yet" + ADD IT, landing on its card');
 }
 ok(/body\.querySelectorAll\('\[data-act="to-prov-card"\]\[data-provider\]'\)\.forEach\(b => b\.addEventListener\('click', \(\) => \{ sfx\('click'\); focusProvider\(b\.dataset\.provider\); \}\)\);/.test(station), 'that door lands on the provider\'s card through focusProvider');
+// (wiring) one key box per provider card: the STARNET credits notice sends "your own key" to the cards (add, then select),
+// never to API KEYS, which has no add box for another provider and no switch
+ok(!/switch to your own key under API KEYS above/.test(station) && (station.match(/You can always switch to your own key: add it on a provider card above, then select that card\./g) || []).length === 2, 'both credits notices point your own key at a provider card');
 ok(/\.settings-console \.key-empty\.key-goto p \{ font-size: 16px;[^}]*opacity: 1; \}/.test(fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'settings.css'), 'utf8')), 'the no-key line reads at the paragraphs\' size, not the dim 12px empty-state voice');
 {
   const src = station.slice(station.indexOf('  function normEndpoint(raw) {'), station.indexOf('  function addKeyHtml('));
