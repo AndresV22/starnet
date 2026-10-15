@@ -543,6 +543,60 @@ module.exports = (async () => {
       A.eq(error && error.payload.transient, false, 'and is terminal');
       A.ok(!seq.some(row => row.name === 'provider.retry'), 'no retry is reported');
     }
+    /* THE CUSTOM CARD'S GUESS (review 10-15). A CUSTOM endpoint borrows the native wire only because its URL LOOKED like
+       Ollama (port 11434, or "ollama" in the host name; factory.js looksLikeOllama). When that server is LM Studio, the
+       wrong guess is StarNet's, not the user's: CUSTOM is already the card that speaks to it. The OLLAMA-card sentence
+       told that user to do what they had done, on every run (the provider is rebuilt per run). The same turn goes once
+       on the /v1 wire instead, the way the 404 path does, and no OLLAMA-card advice reaches a CUSTOM user. */
+    for (const baseUrl of ['http://127.0.0.1:11434/v1', 'http://my-ollama.lan:1234/v1']) {
+      for (const shape of ['compact', 'compact-nl', 'pretty']) {
+        const tag = 'CUSTOM ' + baseUrl + ' ' + shape;
+        const s = lmStudio(shape);
+        const p = factory.selectProvider({ provider: 'custom', baseUrl, fetch: s.fetch });
+        let err = null, ev = [];
+        try { ev = await collect(p, { model: 'qwen2.5-7b-instruct', messages: [{ role: 'user', content: 'hi' }] }); } catch (e) { err = e; }
+        A.ok(!err, tag + ': a CUSTOM card on a non-Ollama server is not an error (got ' + (err && err.message) + ')');
+        A.eq(ev.filter(e => e.type === 'text').map(e => e.delta).join(''), 'via v1', tag + ': the same turn is answered on the /v1 wire');
+        A.eq(ev.filter(e => e.type === 'done').length, 1, tag + ': with exactly one terminal event');
+        A.eq(s.urls.filter(u => u.endsWith('/api/chat')).length, 1, tag + ': the guessed native chat was asked once');
+        A.eq(s.urls.filter(u => u.endsWith('/v1/chat/completions')).length, 1, tag + ': and the /v1 chat once');
+        s.urls.length = 0;
+        await collect(p, { model: 'qwen2.5-7b-instruct', messages: [{ role: 'user', content: 'again' }] });
+        A.ok(!s.urls.some(u => u.endsWith('/api/chat')), tag + ': the guess is not repeated on this instance');
+      }
+    }
+    // A CUSTOM card whose /v1 then fails reports the /v1 failure in its own words, never the OLLAMA-card advice.
+    {
+      const s = lmStudio('compact');
+      const fetch = async (url, init) => (url.endsWith('/v1/chat/completions')
+        ? new Response(JSON.stringify({ error: { message: 'Invalid API key' } }), { status: 401 })
+        : s.fetch(url, init));
+      let err = null;
+      try { await collect(factory.selectProvider({ provider: 'custom', baseUrl: 'http://127.0.0.1:11434/v1', fetch }), { model: 'q', messages: [{ role: 'user', content: 'hi' }] }); } catch (e) { err = e; }
+      A.ok(err && err.status === 401 && /Invalid API key/.test(err.message), 'the /v1 failure is what a CUSTOM card reports: ' + (err && err.message));
+      A.ok(err && !/OLLAMA card|is not an Ollama server/.test(err.message) && !err.endpointMismatch, 'and it carries no OLLAMA-card advice');
+    }
+    // The real host loop on a CUSTOM card: one run, answered, no retry wait and no error event.
+    {
+      const s = lmStudio('pretty');
+      const seq = [], waits = [];
+      const result = await require('../sidecar/loop.js').runAgentLoop({ provider: factory.selectProvider({ provider: 'custom', baseUrl: 'http://localhost:11434/v1', fetch: s.fetch }),
+        model: 'qwen2.5-7b-instruct', agentId: 'lms-custom', runId: 'lms-custom',
+        messages: [{ role: 'user', content: 'hello' }], emit: (name, payload) => seq.push({ name, payload }), sleep: async ms => { waits.push(ms); } });
+      A.eq(result.reason, 'done', 'a CUSTOM run on LM Studio completes: ' + JSON.stringify([result.reason, result.failureCode]));
+      A.eq(waits, [], 'without a retry wait');
+      A.ok(!seq.some(row => row.name === 'agent.run.error' || row.name === 'provider.retry'), 'and without an error or retry event');
+      A.eq([s.urls.filter(u => u.endsWith('/api/chat')).length, s.urls.filter(u => u.endsWith('/v1/chat/completions')).length], [1, 1], 'one guessed native ask, one /v1 answer');
+    }
+    // The server named in the OLLAMA-card sentence is the URL's host:port as a URL parser reads it: credentials (even a
+    // password with a raw "@") never reach COMMS, history or the diagnostics users paste into GitHub.
+    {
+      const s = lmStudio('compact');
+      let err = null;
+      try { await collect(makeOpenAICompatibleProvider({ fetch: s.fetch, baseUrl: 'http://user:p@ss@10.0.0.5:1234/v1', nativeOllama: true }), { model: 'q', messages: [{ role: 'user', content: 'hi' }] }); } catch (e) { err = e; }
+      A.ok(err && err.message.includes('(10.0.0.5:1234)'), 'the sentence names host:port: ' + (err && err.message));
+      A.ok(err && !err.message.includes('ss@') && !err.message.includes('user:'), 'and no part of the credentials');
+    }
   }
 
   A.report('provider.ollama-native.test');

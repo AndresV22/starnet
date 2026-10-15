@@ -434,11 +434,14 @@
        route that way): the native wire goes off for this instance and the run is told which server it reached and which
        card speaks to it. Content-type is never consulted (Ollama proxies vary). Terminal, not retried: errorClass reads
        `endpointMismatch` as its own reason, so no retry ladder re-sends the turn into a silent /v1 success and hides
-       the misconfiguration. */
+       the misconfiguration. That sentence is for the OLLAMA card only: a CUSTOM card that merely BORROWED the native
+       wire on its URL's look (opts.nativeOllamaBorrowed) is already the right card, so wireStream re-asks /v1 instead. */
     const NOT_OLLAMA_RE = /unexpected endpoint or method/i;
     const NATIVE_LEFTOVER_MAX = 65536;   // bounded: only an error body that never parsed line by line is ever re-read
-    // host[:port] of the configured URL, without any credentials it may carry (the port is what tells 1234 from 11434)
-    const endpointHostPort = (String(baseUrl || '').match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^@\/?#]*@)?([^\/?#]+)/i) || [])[1] || '';
+    const nativeBorrowed = opts.nativeOllamaBorrowed === true;
+    /* host[:port] of the configured URL as a URL parser reads it (the port is what tells 1234 from 11434). URL.host never
+       carries userinfo, even a password with a raw "@", so no credential reaches COMMS, history or pasted diagnostics. */
+    const endpointHostPort = (() => { try { return new URL(String(baseUrl || '')).host || ''; } catch (_) { return ''; } })();
     function nativeErrorText(j) {
       if (!j || !j.error) return '';
       if (typeof j.error === 'string') return j.error;
@@ -537,7 +540,24 @@
     // the loop sees them; with no such tool this is the raw stream itself.
     function stream(req) { return toolschema.withRestoredArgKeys(wireStream(req), req && req.tools); }
 
+    /* A CUSTOM card's BORROWED native wire (GH#111 review): its URL only looked like Ollama, so a server that answers the
+       native chat as a different server (notOllamaError, thrown on the FIRST native object, before this turn yielded
+       anything) is StarNet's own wrong guess, and CUSTOM is already the card that speaks to it. nativeWire is off by
+       then; the same turn goes once on the /v1 wire, the way the 404 path does, and a /v1 failure reports itself.
+       Every other route streams wireStreamOnce untouched. */
     async function* wireStream(req) {
+      if (!nativeBorrowed || !nativeWire) { yield* wireStreamOnce(req); return; }
+      let yielded = false;
+      try {
+        for await (const ev of wireStreamOnce(req)) { yielded = true; yield ev; }
+      } catch (e) {
+        if (yielded || nativeWire || !e || e.endpointMismatch !== true) throw e;
+        failNote('providers.openai_compatible.custom_not_ollama', 'the CUSTOM endpoint at ' + endpointHostPort + ' looked like Ollama but is not (' + (e.body && e.body.error && e.body.error.message) + '): the turn moves to its /v1 wire');
+        yield* wireStreamOnce(req);
+      }
+    }
+
+    async function* wireStreamOnce(req) {
       req = req || {};
       maybeRewarmCatalog();
       const dropped = droppedParams.get(String(req.model || ''));
