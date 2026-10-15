@@ -175,7 +175,7 @@ function selectProvider(opts) {
    "this meter is nearly spent" BEFORE the wall instead of after it. */
 const rateLimits = require('./providers/ratelimits.js').makeRateLimits({ clock: { now: () => Date.now() } });
 attachRateLimits(rateLimits);
-const { DEFAULT_MODEL: CODEX_DEFAULT_MODEL } = require('./providers/codex.js');
+const { DEFAULT_MODEL: CODEX_DEFAULT_MODEL, liveDefaultModel: codexLiveDefaultModel, memoLiveModelIds: codexMemoLiveModelIds } = require('./providers/codex.js');
 const codexAuth = require('./providers/codex-auth.js');
 const codexTokenStore = require('./providers/codex-token-store.js');
 const codexAuthState = require('./providers/codex-auth-state.js');
@@ -9760,7 +9760,8 @@ async function runQuestRefreshCycle(why) {
   const baseUrl = providerRuntimeBaseUrl(providerId, '');
   const key = cronKeyFor(providerId);
   if (!cronHasCredential(providerId, key)) { questRefreshNote({ outcome: 'skipped', reason: cronCredentialError(providerId, 'the quest refresh') }); return; }
-  const model = resolveAuxModel() || (usingCodex ? CODEX_DEFAULT_MODEL : CRON_DEFAULT_MODEL);   // aux-tier: the ONE aux-model resolution (STARNET_AUX_MODEL, legacy REFLECT_MODEL)
+  const auxModel = resolveAuxModel();
+  let model = auxModel || (usingCodex ? CODEX_DEFAULT_MODEL : CRON_DEFAULT_MODEL);   // aux-tier: the ONE aux-model resolution (STARNET_AUX_MODEL, legacy REFLECT_MODEL)
   if (!model) { questRefreshNote({ outcome: 'skipped', reason: 'no default model configured (set DEFAULT_MODEL)' }); return; }
   const ac = new AbortController();
   const timer = setTimeout(() => { try { ac.abort(); } catch (_) {} }, QUESTREFRESH_TIMEOUT_MS);
@@ -9838,6 +9839,10 @@ async function runQuestRefreshCycle(why) {
     else if (usingCodex) { const token = await ensureCodexAccessToken(); provider = selectProvider({ provider: providerId, fetch: globalThis.fetch, token, renewToken: forceRefreshCodexAccessToken, baseUrl }); }
     else if (usingDeviceOAuth) { const token = await ensureOAuthAccessToken(providerId); provider = selectProvider({ provider: providerId, fetch: globalThis.fetch, token, headers: oauthInferenceHeaders(providerId), baseUrl }); }
     else provider = selectProvider({ provider: providerId, fetch: globalThis.fetch, key, baseUrl });
+    // #118: the pinned Codex default can be a slug this account refuses. The SAME sign-in's live list keeps the pinned
+    // slug while it still offers it (no silent move to a costlier flagship), names its top model only when it does not,
+    // and the pinned slug stays when the list is offline, empty or silent. An explicit aux model is the Commander's and wins.
+    if (usingCodex && !auxModel) model = await codexLiveDefaultModel(() => provider.listModels(), CODEX_DEFAULT_MODEL, 10000);
     const cost = makeCostEngine({ priceOf: provider.priceOf });
     const directive = QuestRefresh.buildDirective(evidenceCtx);
     // ONE streamed completion (the scout/reflection aux plumbing), spend reconciled + booked below.
@@ -20273,9 +20278,15 @@ async function runOnceCore(o) {
       if (usage) { try { recordMediaUsage(usage, model); } catch (e) { failNote('aux.vision.usage', e); } }
     }
   };
+  // #118: the plan's image host follows the live Codex list of the SAME sign-in image.js posts with (the primary, never an
+  // extra account's list), read only after ChatGPT refused the historical host and kept for the run once it proves
+  // something (codex.js memoLiveModelIds: the offline fallback list yields no ids; a failed or empty read is asked again).
+  const codexHostModels = codexMemoLiveModelIds(async () => selectProvider({ provider: 'codex', fetch: globalThis.fetch, token: await ensureCodexAccessToken(), renewToken: forceRefreshCodexAccessToken, baseUrl: studioRoute.baseUrl || '' }).listModels());
   const imageTools = makeImageTools({ openrouter: studioRoute.ok ? { apiKey: studioRoute.key, model, baseUrl: studioRoute.baseUrl, provider: studioRoute.provider, protocol: studioRoute.protocol,
     getToken: studioRoute.protocol === 'codex-responses' ? ensureCodexAccessToken : undefined,
     renewToken: studioRoute.protocol === 'codex-responses' ? forceRefreshCodexAccessToken : undefined } : null, fsp, pathMod: path, root: WORKSPACES, imageModel: String(ENV('IMAGE_MODEL') || '').trim() || undefined, auxVision: auxVisionCall, signal, onUsage: recordMediaUsage,
+    // #118: the host list above (plan route only) and the run's own model, read at tool time (a Codex run only)
+    codexHostModels: studioRoute.protocol === 'codex-responses' ? codexHostModels : undefined, codexRunModel: () => (usingCodex ? model : ''),
     // issue #77: the SAME path-trust guard fs.* gets (runPathTrust is bound below; this thunk only runs at tool time), so a
     // project-scoped run's relative image path lands in the project folder, not the private workspace the lead cannot read
     pathTrust: (abs, o2) => runPathTrust(abs, o2) });
