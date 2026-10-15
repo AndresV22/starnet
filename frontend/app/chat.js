@@ -698,15 +698,48 @@ const Chat = (() => {
   }
 
   let lastDegradedLine = '';   // the degraded reason already named in COMMS (once per reason, reset when the service answers)
+  let reconnectProbeInFlight = false;
   async function probeReconnect() {
-    if (!interruptedStreams.size) { reconnectTimer = 0; return; }
+    if (reconnectProbeInFlight) return;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = 0;
+    if (!interruptedStreams.size) return;
+    reconnectProbeInFlight = true;
     let alive = false, degraded = '';
+    let deadlineTimer = 0, response = null, expired = false;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    // A timed-out answer's body is dropped unread. Cancel runs a tick later so it can never throw into the
+    // deadline; a refused cancel (the stream is already locked or closed) changes nothing about the probe.
+    const cancelBody = () => {
+      const body = response && response.body;
+      if (body && typeof body.cancel === 'function') Promise.resolve().then(() => body.cancel()).catch(() => {});
+    };
     try {
-      const r = await fetch('/api/health', { cache: 'no-store' }); alive = !!(r && r.ok);
-      // A service that is up but holding itself degraded (crash-loop breaker, workspace-owner hold) says why in its
-      // 503 text. Name it once instead of polling silently forever (link-down 2026-10-07).
-      if (r && r.status === 503) { const t = String(await r.text() || '').trim(); if (/^degraded/i.test(t)) degraded = t; }
+      // Same 4s local-health budget as Harness.engineState, including the 503 body. Do not use that
+      // helper's broader HTTP success rule or its separate desktop-status lookup here.
+      const deadline = new Promise(resolve => {
+        deadlineTimer = setTimeout(() => {
+          expired = true;
+          resolve({ alive: false, degraded: '' });   // settle first: nothing below can keep the poll from re-arming
+          if (controller) controller.abort();
+          cancelBody();
+        }, 4000);
+      });
+      const answer = (async () => {
+        const r = response = await fetch('/api/health', Object.assign({ cache: 'no-store' }, controller ? { signal: controller.signal } : {}));
+        if (expired) { cancelBody(); return { alive: false, degraded: '' }; }
+        let reason = '';
+        // Only the existing 503 degraded prefix is eligible for the unchanged once-per-reason notice.
+        if (r && r.status === 503) { const t = String(await r.text() || '').trim(); if (/^degraded/i.test(t)) reason = t; }
+        if (expired) return { alive: false, degraded: '' };
+        return { alive: !!(r && r.ok), degraded: reason };
+      })();
+      ({ alive, degraded } = await Promise.race([answer, deadline]));
     } catch (_) { alive = false; }
+    finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      reconnectProbeInFlight = false; // only health is single-flight; recovery preparation may remain pending
+    }
     if (alive) {
       lastDegradedLine = '';
       // report each interrupted stream once. Only the DISPLAYED stream draws a line (same rule as tool/error
@@ -724,14 +757,14 @@ const Chat = (() => {
         lastDegradedLine = degraded;
         toolLine('station service ' + degraded + (Harness.canRestartEngine && Harness.canRestartEngine() ? ' — restart it from LINK DOWN at the top.' : ''), true);
       }
-      reconnectTimer = setTimeout(probeReconnect, 3000);   // still down — keep watching
+      if (interruptedStreams.size) reconnectTimer = setTimeout(probeReconnect, 3000);   // still down — keep watching
     }
   }
   function armReconnectWatch() {
-    if (reconnectTimer) return;
+    if (reconnectTimer || reconnectProbeInFlight) return;
     // if the browser signals it's back online, probe immediately; otherwise poll on a slow cadence.
     reconnectTimer = setTimeout(probeReconnect, 2000);
-    try { if (typeof window !== 'undefined' && !window.__runtruthOnlineHook) { window.__runtruthOnlineHook = true; window.addEventListener('online', () => { if (interruptedStreams.size && !reconnectTimer) probeReconnect(); }); } } catch (_) {}
+    try { if (typeof window !== 'undefined' && !window.__runtruthOnlineHook) { window.__runtruthOnlineHook = true; window.addEventListener('online', () => { if (interruptedStreams.size && !reconnectTimer && !reconnectProbeInFlight) probeReconnect(); }); } } catch (_) {}
   }
 
   // RETIRE A SETTLED BEAT: a decided memory card / answered nudge fades + collapses, then drops out of the

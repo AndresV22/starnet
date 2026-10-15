@@ -74,6 +74,7 @@ process.once('beforeExit', () => { if (!controlsCompleted) { console.error('reco
       A.eq(lines.length, mode === 'quiet' ? 0 : 1, mode + ': no invented started/success announcement');
     }
   }
+  await require('./helpers/reconnect-health-controls.js')(A, chat);
   controlsCompleted = true;
   A.report('run-recovery-ui.test');
 })().catch(error => { console.error(error); process.exitCode = 1; });
