@@ -2,20 +2,28 @@
 
 **Before you update:** if you might ever go back to 0.13.3 or older, save a station backup first (SETTINGS › APP & BACKUP › STATION BACKUP). Older versions don't know SEND TO or SPLIT THE JOB and delete those settings the next time they save your station. If agents are working when you install, choose WAIT FOR AGENTS.
 
-The big one. 0.13.3 was security only; this is the feature update that was promised with it, polished end to end. Your agents can bring crew into a chat and hand work to each other, conveyor lines can hand finished jobs to other lines, building is drag-and-drop, the station draws smoothly even when StarNet isn't focused, and Claude Code runs are faster and cheaper. Plus a long list of fixes from walking the whole app as one product.
+The big one. 0.13.3 was security only; this is the feature update that was promised with it, polished end to end. Your agents can bring crew into a chat and hand work to each other, conveyor lines can hand finished jobs to other lines, building is drag-and-drop, the station draws smoothly even when StarNet isn't focused, and Claude Code runs are faster and cheaper. The whole app also got an organization pass: one place for each job, one name for each thing, and plain, true wording wherever people got stuck. Plus a long list of fixes from walking the whole app as one product.
 
 ## Agents & chat
 
 - **Bring crew into a conversation by asking.** Say "add FORGE to this chat" and your lead adds them. They join the moment its reply ends, or the chat says why they couldn't. ADD AGENTS shows each agent's portrait.
-- **Delegated work has its own home.** Work your lead hands off gets its own threads, folded under the conversation that asked, and one live card in that conversation: who is doing what, Stop while it runs, Approve or Deny when a worker asks, and See work to unfold each worker's answer and what it did.
+- **Delegated work has its own home.** Work your lead hands off gets its own threads, folded under the conversation that asked, and one live card in that conversation: who is doing what, Stop while it runs, Approve once or Deny when a worker asks, and See work to unfold each worker's answer and what it did.
 - **Workers build on each other.** When workers run one after another, the next one starts from what the earlier ones returned and the files they saved, and can open those files.
-- **NEEDS YOU at the top of SESSIONS** gathers what's waiting on you in one list: approvals and questions from your conversations, group chats that need you, delegated work that failed and routine runs that failed, each with its action right there.
+- **NEEDS YOU is one list of everything waiting on you.** It sits at the top of SESSIONS, and NOTIFICATIONS › NEEDS YOU shows the same list. It holds approvals and questions from your conversations, group chats that need you, delegated work and routine runs that failed, an agent waiting at STEP-IN, extensions to approve, builds to keep or discard, quests an agent says are done and goal-loop results to review, each with its action right there.
 - **Asking your lead to hand work to a named crew member now does it.**
 - **Group chats:** the lead can build and change lines from the group, each agent keeps its own room's gear (a researcher can search the web there), replies show their tool calls like one-on-one chats, and the bottom strips share one tray.
-- **Question and approval cards read at a glance.** The question comes first, long ones fold behind "Show the whole question", answers are full-width keys with the agent's ★ suggestion lit, and the reasoning folds last. A one-time grant reads "Approve once" everywhere.
+- **Question and approval cards read at a glance.** The question comes first, long ones fold behind "Show the whole question", answers are full-width keys with the agent's ★ suggestion lit, and the reasoning folds last. A one-time grant reads "Approve once" on every approval card in the app. When an agent asks for the same tool again in a chat, the card says what Always does.
 - **SEND NOW.** A message you type while an agent works still waits its turn. Each waiting message now has a send now key that hands it to the running task, so the agent reads it before its next step.
-- **STOP gives your words back.** Messages waiting behind a stopped run go back into the message box instead of disappearing, and open approval cards say "the run ended before an answer — nothing was approved".
+- **STOP gives your words back.** Messages waiting behind a stopped run go back into the message box instead of disappearing, and so does one you sent now that the agent hadn't read yet. Open approval cards say "the run ended before an answer — nothing was approved".
 - **Typing an answer answers.** A reply typed in COMMS while the lead is asking you something answers that question instead of starting the job over.
+- **COMMS says which conversation you're in.** The title reads "COMMS ·" and the session's name, and two untitled sessions read "New session · NOVA" and "New session · MIRA" instead of looking the same.
+- **Fewer empty sessions.** An agent your lead or a workflow hires doesn't get an empty session until you pick it ON THE LINE in COMMS, and a starter idea fills the blank chat you're in. When an agent is busy somewhere else, the chat says where ("NOVA IS BUSY IN …").
+- **Keys say what they do.** In a group chat the stop key says "Stop every agent in this chat", and an @ from General says it opens a group chat beside General.
+- **/goal is a session goal, and says so.** It works while StarNet is open and stays through a reload, a GOAL LOOPS key sits right there for goals that should last, and each step shows as a station message, not as words you typed. /loop, /routine, /cron and /away answer with a key into the right AUTOMATE tab.
+- **RECRUIT speaks one language.** RECRUIT NOVA adds a new agent; RE-SPEC MIRA INSTEAD changes the one you have.
+- **The AGENT DOSSIER says where each setting lives,** and switches that change every agent say so ("for every agent", "all agents"). An agent's PURPOSE and house rules say only that agent follows them; your standing orders say every agent does.
+- **Autonomy says what will happen, not what unlocks.** You read "While you're away I'll do up to 3 small jobs a day", the dial says SMALL JOBS, and REACH says LOCAL ONLY for work that never leaves this machine.
+- **Moving PACE or REACH no longer lifts an E-STOP,** and any settings click that does lift one says what runs again.
 - **A worker running in the background keeps its approval open** after the lead's turn ends, instead of being denied a second later where you couldn't see it.
 - **Telegram, Discord and other chat apps:** in a direct chat, a plain follow-up joins the running task instead of cancelling it. "stop" or /stop still stops it.
 - **Long chats keep your earlier instructions.** Messages that no longer fit the model's window are carried forward in your own words, instructions first, instead of silently disappearing.
@@ -24,7 +32,7 @@ The big one. 0.13.3 was security only; this is the feature update that was promi
 - **Skill changes wait for you.** A skill an agent creates or changes becomes a proposal in CONNECT › ABILITIES › AGENT SKILLS. It needs a passing evaluation and your approval before it's used; the current version keeps working meanwhile.
 - **Spoken turns can use their own model.** Pick it under Voice chat model in SETTINGS › AI & MODELS. It answers COMMS with the speaker on and Telegram voice notes, without changing your typed-chat model.
 - **API jobs run hands-off.** After an agent reads a response from a web API, it can keep calling that same API with the keys it already used there, without an approval card for every call. Reading anything else still locks commands for that run, as before.
-- **Chats from before this update count as unverified when an agent looks them up.** StarNet can't prove those old messages came only from you, so a run that recalls one works like a run that read a web page: in a chat you're watching it asks before running commands, and an unattended run skips them. Full Power runs you start yourself aren't affected. Chats from this version on are stamped and recall normally.
+- **Chats from before this update count as unverified when an agent looks them up.** StarNet can't prove those old messages came only from you, so a run that recalls one works like a run that read a web page: in a chat you're watching it asks before running commands, and an unattended run skips them. FULL POWER runs you start yourself aren't affected. Chats from this version on are stamped and recall normally.
 - **Coming back** is your lead's own report of what happened, with a way into the delegated work. A reload or restart doesn't count as being away.
 - **Replies read properly everywhere.** Markdown answers render in DELIVERABLES, TO REVIEW and WORKFLOWS as they do in COMMS, *italics* included, and a text or markdown file the crew made opens as a readable page.
 
@@ -40,6 +48,11 @@ The big one. 0.13.3 was security only; this is the feature update that was promi
 - **Agents build lines in a few steps.** Ask for a line and the agent lays it out, routes and staffs it, then tells you anything it left unstaffed. BUILD YOUR OWN LINE hands you an INBOX to place.
 - **SHIPPED counts saved job records.** Older deliveries with no saved record aren't counted, so the number can be lower than before.
 - **BUILD MODE is much faster.** Placing pieces, undo, belts and renames no longer redraw the whole station, room edits redraw far less, and SAVE & EXIT hands the floor straight back.
+- **WORKFLOWS and the Workflow panel use the same words:** ▶ SEND A JOB, ✓ DELIVERED, ✎ NEEDS CHANGES, ★ KEEP THIS STYLE, ↻ SEND IT AGAIN. On the example and TEST cards the paid key reads SEND A REAL JOB, so a real run never looks like a free test.
+- **A workflow's page says how it starts** ("STARTS: by hand or every day at 9:00 AM") with a MAKE IT AUTOMATIC key, or CHANGE STARTS once it has one. An empty LAST JOBS says where scheduled runs are filed.
+- **Saving a schedule follows one rule.** Your first saved schedule turns scheduling on. If you turned scheduling off, a save keeps it off and says so, and a save never lifts an E-STOP. The switch has one name, TURN SCHEDULING ON / OFF, and a new schedule's "Run by" can pick a whole workflow.
+- **SET IT UP FOR ME picks from every ready-made workflow,** not just the 4 starters, and NEW WORKFLOW leads with the one that fits your goal. The Conveyors tab's LINES shelf opens on FOR YOUR GOAL and ANY JOB, with the other shelves one click away.
+- **Click a floor OUTBOX to see that line's result,** with its rating right there. Results land in the line's OUTBOX and are filed in DELIVERABLES, and rating a job in WORKFLOWS takes it off TO REVIEW.
 
 ## Look & feel
 
@@ -47,14 +60,24 @@ The big one. 0.13.3 was security only; this is the feature update that was promi
 - **Built-in voices sound natural** instead of always going through the machine effect, and no longer drop the end of long replies. Pick AUTO, NATURAL, COMMS or MACHINE under VOICE EFFECT in LOOK & SOUND.
 - **Cleaner rails and cards.** Group rows read whole names ("ULTRON, CYPHER +3"), crew cards fit their rail, and delegated work wears the same glass as approval cards.
 - **Menus and toasts stay out of the way.** Dock menus open above every window, and a toast never covers an open dock menu.
-- **DELIVERABLES can be cleared when you're done.** ✓ DONE · CLEAR and CLEAR ALL take items out of the library, can be undone, and leave the files on disk. TO REVIEW folds.
+- **CONNECT and RECRUIT are in the dock from day one.** AUTOMATE and STEP-IN still show up when you need them.
+- **The first screens count what they ask.** Quick setup says how many questions it asks and numbers them, each pace choice says how deep it goes, and the dock hint no longer talks over the arrival, the tour or the setup conversation.
+- **MY WORK opens on DELIVERABLES the first time,** then on the tab you used last.
+- **DELIVERABLES can be cleared when you're done.** ✓ DONE · CLEAR and CLEAR ALL take items out of the library, can be undone, and leave the files on disk.
+- **Find your files.** Each file row in DELIVERABLES ends with a folder key and a copy-path key. REFRESH and the cleanup key fold behind MORE, and the kind chips read FILES, WORKFLOW JOBS and so on.
+- **TO REVIEW says what it holds:** away runs and workflow jobs waiting for your rating (chats are rated in COMMS). It folds, and its clear key now reads MARK ALL REVIEWED with the number of runs in it (for example "MARK ALL 3 REVIEWED"), because it never deleted anything.
+- **AI & MODELS has one key box per provider:** add a key on the provider's card. ✎ ENDPOINT URL, ↻ SPARE KEYS and FALLBACK MODELS say what they are, and other services are pointed to CONNECT › ABILITIES: SAVED API CONNECTIONS for a key, CATALOG for Gmail, Notion and other sign-ins.
+- **Help names screens that exist.** The FIELD MANUAL, the glossary and the agents' own manual point at the real windows, like SETTINGS › AI & MODELS for model keys and NEEDS YOU for what's waiting.
+- **QUESTS › PROGRESS shows the station's XP once,** as STATION XP, with OPEN THE TROPHY CASE on its milestones row. QUESTS tabs read in caps like every other tab strip.
+- **Starter-room machines say what they are** when you hover them (INTEL CAB · FILES, DISH · WEB).
+- **Station messages in COMMS sit in one quiet column,** with their keys in one row under them.
 - **New crew skins.**
 
 ## Speed & cost
 
 - **The station draws smoothly whether or not StarNet has focus**: up to 60 frames a second while it's on screen, faster while you move the camera, nothing while minimized. The idle camera never takes over while you're working.
 - **Leaner prompts.** The fixed part of every prompt now stays the same from turn to turn so providers can cache it, and a lead with no crew carries a shorter tool list. Fewer tokens per turn.
-- **Claude Code runs are faster and cheaper.** One Claude Code process stays open for the whole run and gets only the new messages each turn, turns reuse the prompt cache, and a finished turn is no longer thrown away by the idle timeout.
+- **Claude Code runs are faster and cheaper.** One Claude Code process stays open for the whole run and gets only the new messages each turn, and turns reuse the prompt cache.
 - **Claude Code runs have a token ceiling.** A subscription turn costs $0, so the $ limits never stopped a runaway one. Each run now stops at 2,000,000 tokens by default (cache re-reads count 1/10); change it under CLAUDE CODE TOKEN CEILING in SETTINGS › APP & BACKUP › Runtime limits.
 - **Background thinking costs less.** The station's own self-talk and after-run learning passes use the lowest reasoning effort the model offers.
 - **Less freezing on busy stations.** Most prop edits no longer rebuild the whole station image, and a struggling computer draws less crew detail to stay responsive.
@@ -63,6 +86,14 @@ The big one. 0.13.3 was security only; this is the feature update that was promi
 ## Reliability
 
 - **Fewer silent stops.** An agent that says "I'll build that" and then does nothing is pushed to continue, an empty reply is retried once, and a file write too big for the output limit says to split it. Every stop says what happened and what to do, in COMMS (still there after a reload) and on Telegram and Discord.
+- **Errors take you to the fix.** A key or credit error's key reads OPEN AI & MODELS and lands on that provider's card. SIGN IN and RECONNECT really start the sign-in, a billing error names the provider, and a used-up ChatGPT, Grok or Kimi plan says it resets on its own schedule instead of telling you to top up.
+- **Claude Code never throws away a finished turn.** A reply that was already done is delivered instead of being counted as a timeout and run again.
+- **STOP frees the conversation right away.** It ends a retry wait at once instead of sleeping it out, and on a message still waiting its turn it also stops the automatic report on delegated work that was holding the chat, so your next message doesn't sit on connecting.
+- **A delegated report that finished while StarNet was closed shows once,** not twice.
+- **The DELEGATED card no longer says "stopped" before the station has answered.** It reads checking… until it knows, or status unknown if the station can't be reached.
+- **A question an agent asked in a conversation you weren't looking at shows in NEEDS YOU** until you open that conversation.
+- **/goal no longer stalls silently** behind an optional curiosity card. If it really has to wait, it says what for.
+- **+NEW no longer makes a second blank session.** It opens the blank one already in your list.
 - **A damaged spending record no longer blocks every capped run.** It's listed as DAMAGED RECORD in SETTINGS › SPENDING LIMITS, where you settle it; capped work waits until you do.
 - **Interrupted runs that never recorded how they were billed** say BILLING SOURCE UNKNOWN instead of pointing you to your provider's dashboard.
 - **Skills you approved and shared reach every crew member,** including workers that had drafted their own version.
