@@ -276,6 +276,14 @@
       el.className = 'msg' + (kind === 'ok' ? ' ok' : kind === 'info' ? ' info' : '');
       el.textContent = text || '';
     }
+    // A thrown request never got an answer. Say that in words — the browser's bare "Failed to fetch" read like the
+    // user's own network or a bad token, so people regenerated tokens and restarted for nothing (2026-10-15).
+    function noAnswerText(e, fallback) {
+      const raw = String((e && e.message) || '');
+      if (!raw) return fallback;
+      if (/failed to fetch|networkerror|load failed/i.test(raw)) return 'StarNet did not answer this request (the connection dropped) — try again; if it keeps happening, restart StarNet';
+      return raw;
+    }
 
     // ---- multi-bot telegram: paint the AGENT BOTS list from status.bots (per-instance transport truth) ----
     function paintTelegramBots(bots) {
@@ -572,7 +580,7 @@
             sfx('click');
             try { c.clear(body); } catch (_) {}
           }
-        } catch (e) { delete pendingConnect[c.id]; setMsg(msgEl, '✕ ' + ((e && e.message) || 'failed to reach the sidecar'), ''); sfx('bad'); }
+        } catch (e) { delete pendingConnect[c.id]; setMsg(msgEl, '✕ ' + noAnswerText(e, 'failed to reach the sidecar'), ''); sfx('bad'); }
         refreshAll();
       });
       // DISCONNECT — armed (2s) so a stray click can't drop a live channel; never fires on a never-connected card
@@ -587,7 +595,7 @@
             const j = r.j;
             if (!r.ok || !j || j.connected !== false || j.persisted !== true) throw new Error((j && j.error) || 'disconnect was not durably confirmed — refresh and retry');
             setMsg(msgEl, 'disconnected — token kept; RESUME to reconnect', 'info'); sfx('click');
-          } catch (e) { setMsg(msgEl, '✕ ' + ((e && e.message) || 'could not confirm disconnect'), ''); }
+          } catch (e) { setMsg(msgEl, '✕ ' + noAnswerText(e, 'could not confirm disconnect'), ''); }
           refreshAll();
         });
       });
@@ -754,7 +762,7 @@
               setMsg(msgEl, '✓ @' + (j.username || 'bot') + (j.rebound ? ' re-bound' : ' added') + ' — connecting as the paired owner' + (localFallback ? ' (token saved locally, not the OS keychain)' : ''), 'ok');
             }
           }
-        } catch (e) { sfx('bad'); setMsg(msgEl, '✕ ' + ((e && e.message) || 'failed to reach the sidecar'), ''); }
+        } catch (e) { sfx('bad'); setMsg(msgEl, '✕ ' + noAnswerText(e, 'failed to reach the sidecar'), ''); }
         refreshAll();
       });
       // row actions by delegation (rows re-render on every status paint)

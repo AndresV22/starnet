@@ -200,6 +200,15 @@ const WorkspaceReserved = require('./workspace-reserved.js');   // agent ids tha
 const { runRouteFailure } = require('./runroute.js');   // a failure escaping handleRun must never read as an empty 200
 const { json: respondJson, readJsonBody, isAgentId } = require('./respond.js');   // canonical json()/body/agent-id helpers — adopt incrementally, don't mass-migrate
 const { readBody, readBodyBuffer } = require('./http-body.js');
+// Channel connect/sync bodies carry the agent's COMPOSED system prompt (identity + purpose + context + standing
+// orders + Commander dossier — all user-written, none capped). The old 64 KB cap cut real users off: their CONNECT
+// died as "Failed to fetch" and the identity sync failed silently (2026-10-15). 4 MB holds any prompt a model can take.
+const CHANNEL_BODY_MAX = 4 << 20;
+function channelBodyError(e) {
+  return (e && e.tooLarge)
+    ? "this agent's setup text is too large to send (over 4 MB) — shorten its CONFIG docs (context, standing orders, purpose) and try again"
+    : 'bad json';
+}
 const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveDeliverable, parseRange, isTextDocument, documentViewHtml, DOC_VIEW_CSP, DOC_VIEW_MAX_BYTES } = require('./file-response.js');
 const { reflect, reflectSalient, recordFromProposal, feedbackFor, highStakes } = require('./reflect.js');
 const FeedbackMemory = require('./feedbackmemory.js');   // THE COMMANDER'S TASTE: verdicts + corrections -> durable like/dislike memory
@@ -24802,7 +24811,7 @@ function handleHalt(req, res) {
 // works even with no browser open. The secrets are NEVER echoed back.
 async function handleChannelConnect(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
-  let body; try { body = JSON.parse(await readBody(req, 1 << 16)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }   // room for the composed system prompt
+  let body; try { body = JSON.parse(await readBody(req, CHANNEL_BODY_MAX)) || {}; } catch (e) { return json(e && e.tooLarge ? 413 : 400, { error: channelBodyError(e) }); }   // room for the composed system prompt
   // reuse the saved values when the request omits them, so RECONNECT is one click (no re-pasting the token).
   const saved = (channelSecrets && channelSecrets.telegram) || {};
   const provider = normalizeProvider(body.provider || saved.provider);
@@ -24846,7 +24855,7 @@ async function handleChannelConnect(req, res) {
 // The hub reads channelSecrets.telegram live, so the next inbound uses the updated prompt. No-op if unconfigured.
 async function handleChannelSync(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
-  let body; try { body = JSON.parse(await readBody(req, 1 << 16)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
+  let body; try { body = JSON.parse(await readBody(req, CHANNEL_BODY_MAX)) || {}; } catch (e) { return json(e && e.tooLarge ? 413 : 400, { error: channelBodyError(e) }); }
   const t = (channelSecrets && channelSecrets.telegram) || null;
   // Desktop deliberately removes a keychain-durable token from the plaintext record. Resolve through the same
   // runtime/keychain-or-fallback seam as connect/status, or a correctly saved one-time connection can never sync
@@ -24946,7 +24955,7 @@ async function handleTelegramOwnerRevoke(req, res) {
 // so on a configured station this is just token + agentId. Secrets are NEVER echoed back.
 async function handleTelegramBotAdd(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
-  let body; try { body = JSON.parse(await readBody(req, 1 << 16)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
+  let body; try { body = JSON.parse(await readBody(req, CHANNEL_BODY_MAX)) || {}; } catch (e) { return json(e && e.tooLarge ? 413 : 400, { error: channelBodyError(e) }); }
   const token = String(body.token || '').trim();
   const agentId = String(body.agentId || '').trim();
   if (!token) return json(400, { error: 'missing bot token — create one with @BotFather and paste it here' });
@@ -25091,7 +25100,7 @@ async function handleTelegramBotOwner(req, res, botId, verb) {
 // registry/wireChannel path. Secrets are NEVER echoed back. Mirrors handleChannelConnect (Telegram).
 async function handleDiscordConnect(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
-  let body; try { body = JSON.parse(await readBody(req, 1 << 16)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
+  let body; try { body = JSON.parse(await readBody(req, CHANNEL_BODY_MAX)) || {}; } catch (e) { return json(e && e.tooLarge ? 413 : 400, { error: channelBodyError(e) }); }
   const saved = (channelSecrets && channelSecrets.discord) || {};
   const provider = normalizeProvider(body.provider || saved.provider);
   // desktop: token from the keychain/runtime layer, not the plaintext record; a fresh paste still wins.
@@ -25114,7 +25123,7 @@ async function handleDiscordConnect(req, res) {
 // POST /api/channels/discord/sync — refresh the agent identity the Discord bot runs as (mirrors handleChannelSync).
 async function handleDiscordSync(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
-  let body; try { body = JSON.parse(await readBody(req, 1 << 16)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
+  let body; try { body = JSON.parse(await readBody(req, CHANNEL_BODY_MAX)) || {}; } catch (e) { return json(e && e.tooLarge ? 413 : 400, { error: channelBodyError(e) }); }
   const d = (channelSecrets && channelSecrets.discord) || null;
   if (!d || !d.token) return json(200, { synced: false });
   const patch = {};
@@ -25254,7 +25263,7 @@ function handleGenericChannelStatus(req, res, id) {
 // persist, start through the generic registry/wireChannel path.
 async function handleGenericChannelConnect(req, res, id) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
-  let body; try { body = JSON.parse(await readBody(req, 1 << 16)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
+  let body; try { body = JSON.parse(await readBody(req, CHANNEL_BODY_MAX)) || {}; } catch (e) { return json(e && e.tooLarge ? 413 : 400, { error: channelBodyError(e) }); }
   const saved = (channelSecrets && channelSecrets[id]) || {};
   const provider = normalizeProvider(body.provider || saved.provider);
   const token = channelToken(id, body.token, saved);   // keychain/runtime (desktop) or plaintext record (bare); fresh paste wins
@@ -25301,7 +25310,7 @@ async function handleChannelOwnerPair(req, res, id) {
 // POST /api/channels/<id>/sync — refresh the agent identity the channel runs as (mirrors handleChannelSync).
 async function handleGenericChannelSync(req, res, id) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
-  let body; try { body = JSON.parse(await readBody(req, 1 << 16)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
+  let body; try { body = JSON.parse(await readBody(req, CHANNEL_BODY_MAX)) || {}; } catch (e) { return json(e && e.tooLarge ? 413 : 400, { error: channelBodyError(e) }); }
   const rec = (channelSecrets && channelSecrets[id]) || null;
   const hasAuth = rec && (id === 'signal' ? (rec.endpoint && rec.account) : (rec.token || channelTokenRuntime[id]));
   if (!hasAuth) return json(200, { synced: false });   // nothing connected/configured — ignore quietly
