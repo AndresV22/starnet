@@ -18,6 +18,7 @@
 // Usage: node scripts/qa/window-leaks.mjs [--station dir] [--port 9861] [--cdp 19861] [--out dir] [--sweeps 3] [--max-root 30]
 //        [--max-canvas-mb N] [--keys settings,connectors,…] [--json file] [--gpu] [--attach (use a station already on --port)]
 //        [--snapshot file.heapsnapshot (tag the trees over --max-root as LeakTag and write a heap snapshot)]
+//        [--repaints N (background repaints per open window, StationUI.rerender(key, false))]
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdirSync, rmSync, cpSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
@@ -30,7 +31,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { connectCDP, evalJS, sleep, findChrome } = await import(pathToFileURL(join(repo, 'scripts/lib/cdp.mjs')).href);
 const { waitUp, waitDevReady } = await import(pathToFileURL(join(repo, 'scripts/lib/seed.mjs')).href);
 const port = Number(arg('--port', '9861')), cdpPort = Number(arg('--cdp', '19861'));
-const sweeps = Number(arg('--sweeps', '3')), maxRoot = Number(arg('--max-root', '30')), maxCanvasMB = Number(arg('--max-canvas-mb', '0'));
+const sweeps = Number(arg('--sweeps', '3')), repaints = Number(arg('--repaints', '0')), maxRoot = Number(arg('--max-root', '30')), maxCanvasMB = Number(arg('--max-canvas-mb', '0'));
 const station = resolve(arg('--station', join(repo, 'dev/fixtures/seed-workspace')));
 const OUT = resolve(arg('--out', join(tmpdir(), 'starnet-window-leaks')));
 const KEYS = (arg('--keys', 'settings,connectors,deliverables,tasks,workflows,automation,messaging,notifs,quests,manual,updates,commander,trophies')).split(',').filter(Boolean);
@@ -79,7 +80,7 @@ function canvasTally() {
   }
   const top = Object.entries(sizes).map(([k, c]) => { const [w, h] = k.split('x').map(Number); return { size: k, count: c, mb: +(w * h * 4 * c / 1048576).toFixed(1) }; })
     .sort((a, b) => b.mb - a.mb).slice(0, 8);
-  return { count: n, mb: +(px * 4 / 1048576).toFixed(1), top };
+  return { count: n, mb: +(px * 4 / 1048576).toFixed(1), top, sizes };
 }
 function detachedRoots() {
   const roots = new Map();
@@ -156,6 +157,9 @@ try {
     for (const key of KEYS) {
       const ok = await evalJS(cdp, `(() => { try { StationUI.openTerm(${JSON.stringify(key)}); } catch (e) { return 'threw ' + e.message; } return [...document.querySelectorAll('.term')].filter(t => t.offsetWidth).length; })()`);
       await sleep(1400);
+      // --repaints: the live data pokes a window takes while it is open (StationUI.rerender(key, false) — a background repaint
+      // replaces the window's panes; the replaced ones must die with it)
+      for (let r = 0; r < repaints; r++) { await evalJS(cdp, `(() => { try { StationUI.rerender(${JSON.stringify(key)}, false); } catch (_) {} return 1; })()`); await sleep(350); }
       // close every visible window by its own ✕ (the real close path, unsaved-draft guard included)
       let closed = 0;
       for (let i = 0; i < 6; i++) {
