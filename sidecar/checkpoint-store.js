@@ -613,7 +613,11 @@
       let recorded = false;
       try { recorded = !!cp.findById(await loadIndexResilient(aid), result.id); }
       catch (e) { failNote('checkpoint.index.verify', e); }
-      if (!recorded) { why.reason = 'the restore point was saved in Git but could not be added to the restore list'; return null; }
+      if (!recorded) {
+        why.reason = readIndexRaw(aid).status === 'unreadable' ? 'the restore list could not be read just now'
+          : 'the restore point was saved in Git but could not be added to the restore list';
+        return null;
+      }
       return result;
     }
     /* commitSnapshot — the one snapshot code path, on an already-resolved scope. opts.always: commit even when
@@ -636,18 +640,24 @@
         const add = await git(aid, scope, ['add', '-A']);
         if (add.code !== 0) return failed('add', add);
         const hasHead = (await git(aid, scope, ['rev-parse', '--verify', '-q', 'HEAD'])).code === 0;
+        let unrecordedHead = false;
         if (hasHead && !opts.always) {
           const diff = await git(aid, scope, ['diff', '--cached', '--quiet', 'HEAD']);   // code 0 => nothing staged changed
           if (diff.code === 0) {
             const head = (await git(aid, scope, ['rev-parse', 'HEAD'])).stdout.trim();
             const fullId = scope.prefix + head;
             if (!(cp.isValidId(head) && cp.isValidId(fullId))) { why.reason = 'Git could not read the current restore point'; return null; }
-            return { id: fullId, created: false, files: 0, bytes: 0, workTree: scope.id ? scope.workTree : '' };
+            // Dedup only onto a RECORDED head: restore() refuses any id outside the index, so a head whose row was never
+            // written (an index write failure) or was pruned is no restore point. Record a fresh commit of the same tree —
+            // but never while the index is transiently UNREADABLE: recording then would rewrite it from .bak/empty.
+            const dedup = { id: fullId, created: false, files: 0, bytes: 0, workTree: scope.id ? scope.workTree : '' };
+            if (readIndexRaw(aid).status === 'unreadable' || cp.findById(await loadIndexResilient(aid), fullId)) return dedup;
+            unrecordedHead = true;
           }
         }
         const label = meta.label != null ? String(meta.label) : 'snapshot';
         const commitArgs = ['commit', '-q', '-m', label];
-        if (!hasHead || opts.always) commitArgs.push('--allow-empty');           // baseline even for an empty workspace
+        if (!hasHead || opts.always || unrecordedHead) commitArgs.push('--allow-empty');   // baseline even for an empty workspace
         const com = await git(aid, scope, commitArgs);
         if (com.code !== 0) return failed('commit', com);
         const sha = (await git(aid, scope, ['rev-parse', 'HEAD'])).stdout.trim();

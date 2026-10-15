@@ -163,6 +163,40 @@ const noted = tag => failopen.counts()[tag] || 0;
     A.ok(/add failed/i.test(fake.health(aid).lastFailure.reason) && /Permission denied/.test(fake.health(aid).lastFailure.reason), 'a failed add carries Git\'s own first line: ' + fake.health(aid).lastFailure.reason);
     A.ok(fake.health(aid).lastFailure.reason.length <= 240, 'the reason stays short');
     A.eq(fake.health('bad id!'), null, 'an invalid agent id has no health');
+
+    /* ---- 6. a commit the index never recorded is not handed out as a restore point, and the next turn heals ---- */
+    const indexFile = path.join(root, '.checkpoints', aid, 'index.json');
+    let denyIndex = false;
+    const flakyFs = Object.create(fs);
+    flakyFs.renameSync = (from, to) => { if (denyIndex && to === indexFile) throw Object.assign(new Error('index replace denied'), { code: 'EBUSY' }); return fs.renameSync(from, to); };
+    const flaky = makeCheckpointStore({ fs: flakyFs, pathMod: path, root, runGit: realGit, clock, maxRepoBytes: 1 << 30 });
+    fs.writeFileSync(path.join(wt, 'notes.txt'), 'turn eight');
+    denyIndex = true;
+    const unrecorded = await flaky.snapshot(aid, { runId: 'r8', turn: 8, label: 'index write fails' });
+    denyIndex = false;
+    const orphanHead = gitIn(gitDirOf(aid), ['rev-parse', 'HEAD']);
+    A.eq(unrecorded, null, 'a commit whose index row could not be written is not reported as a restore point');
+    A.ok(!flaky.list(aid).snapshots.some(s => s.id === orphanHead), 'fixture: the commit exists in Git but not in the restore list');
+    A.ok(/restore list/.test(flaky.health(aid).lastFailure.reason), 'health says why: ' + flaky.health(aid).lastFailure.reason);
+    const healed = await flaky.snapshot(aid, { runId: 'r9', turn: 9, label: 'unchanged next turn' });
+    A.ok(healed && healed.created, 'the next turn (nothing changed) records a fresh restore point instead of the unrecorded head');
+    A.ok(healed && flaky.list(aid).snapshots.some(s => s.id === healed.id && s.runId === 'r9'), 'it is a recorded row of this turn');
+    A.eq(flaky.health(aid).ok, true, 'health recovers');
+    fs.writeFileSync(path.join(wt, 'notes.txt'), 'turn ten');
+    A.ok(await flaky.restore(aid, healed.id), 'the healed restore point restores');
+    A.eq(fs.readFileSync(path.join(wt, 'notes.txt'), 'utf8'), 'turn eight', 'with the bytes of that turn');
+    const deduped = await flaky.snapshot(aid, { runId: 'r11', turn: 11, label: 'recorded head' });
+    A.ok(deduped && deduped.created === false, 'a head that IS recorded still dedups (no commit per unchanged turn)');
+    // a transiently UNREADABLE index (AV/backup holding it): never re-record over it, and never claim the point either
+    const goodIndex = fs.readFileSync(indexFile, 'utf8');
+    const busyFs = Object.create(fs);
+    busyFs.readFileSync = (p, o) => { if (String(p) === indexFile || String(p) === indexFile + '.bak') throw Object.assign(new Error('EBUSY: locked'), { code: 'EBUSY' }); return fs.readFileSync(p, o); };
+    const busy = makeCheckpointStore({ fs: busyFs, pathMod: path, root, runGit: realGit, clock, maxRepoBytes: 1 << 30 });
+    const headBeforeBusy = gitIn(gitDirOf(aid), ['rev-parse', 'HEAD']);
+    A.eq(await busy.snapshot(aid, { runId: 'r12', turn: 12, label: 'index busy' }), null, 'an unchanged turn while the index cannot be read hands out no restore point');
+    A.eq(fs.readFileSync(indexFile, 'utf8'), goodIndex, 'the good index is not rewritten from .bak/empty');
+    A.eq(gitIn(gitDirOf(aid), ['rev-parse', 'HEAD']), headBeforeBusy, 'no extra commit is made while the index is unreadable');
+    A.ok(/could not be read just now/.test(busy.health(aid).lastFailure.reason), 'health says the restore list could not be read: ' + busy.health(aid).lastFailure.reason);
     const copy = fake.health(aid); copy.ok = 'tampered';
     A.ok(fake.health(aid).ok === false, 'health() hands out a copy, never the live record');
 
