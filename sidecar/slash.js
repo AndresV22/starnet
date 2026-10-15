@@ -127,7 +127,7 @@ const BUILTIN_COMMANDS = Object.freeze([
   Object.freeze({
     name: 'goal',
     category: 'Session',
-    desc: 'set an autonomous standing goal (status/pause/resume/clear)',
+    desc: 'set a goal this session works toward (status/pause/resume/clear)',
     argsHint: '[text|status|pause|resume|clear]',
     action: 'goal'
   }),
