@@ -56,6 +56,54 @@ const merge = new Function(A.fnBody(source, 'function mergeCanonicalHistory(loca
   A.eq(out.filter(m => m.role === 'assistant').map(m => m.content), ['Looking now.', 'Finished.'], 'an unsteered aggregate still yields the durable turns');
 }
 
+// THE SAVED MERGE IS THE NEXT LOAD'S INPUT (0.13.5 review): reconcile saves the merged history (App.persist), and the
+// steered row it kept now carries the first durable part's rowId. Every later load — the desk's second open, and the
+// phone's every thread read (host.js mergeCanonical on that save) — must still find its span, or each durable part is
+// inserted again beside it (and the phone's SEND feeds those twins into the model). Run on BOTH copies.
+{
+  const phone = fs.readFileSync(path.join(__dirname, '../sidecar/remote/host.js'), 'utf8');
+  const phoneMerge = new Function(A.fnBody(phone, 'function mergeCanonical(local, turns)') + '; return mergeCanonical;')();
+  for (const [who, fn] of [['desk', merge], ['phone', phoneMerge]]) {
+    const durable = [
+      { role: 'user', content: 'go', sourceRunId: 'r4', rowId: 17 },
+      { role: 'assistant', content: 'Looking now.', sourceRunId: 'r4', rowId: 18 },
+      { role: 'assistant', content: 'Finished, tests skipped.', sourceRunId: 'r4', rowId: 19 }
+    ];
+    let saved = [
+      { role: 'user', content: 'go', sourceRunId: 'r4' },
+      { role: 'assistant', content: 'Looking now.\n[steering] skip the tests\nFinished, tests skipped.', sourceRunId: 'r4' }
+    ];
+    for (let load = 1; load <= 3; load++) {
+      saved = JSON.parse(JSON.stringify(fn(saved, durable)));   // what App.persist writes is what the next load reads
+      const replies = saved.filter(m => m.role === 'assistant');
+      A.eq(replies.length, 1, who + ' load ' + load + ': a steered multi-part reply stays ONE row: ' + JSON.stringify(replies.map(r => r.content)));
+      A.ok(replies[0] && /\[steering\] skip the tests/.test(replies[0].content), who + ' load ' + load + ': the row keeps its steering note');
+      A.eq(saved.filter(m => m.role === 'user').length, 1, who + ' load ' + load + ': the user turn stays one row');
+    }
+    // the single-part shape (the walk's case) is stable across loads too
+    let one = [
+      { role: 'user', content: 'run the slow job', sourceRunId: 'r5' },
+      { role: 'assistant', content: '\n[steering] use the blue folder\nDone.', sourceRunId: 'r5' }
+    ];
+    const durableOne = [{ role: 'user', content: 'run the slow job', sourceRunId: 'r5', rowId: 1 }, { role: 'assistant', content: 'Done.', sourceRunId: 'r5', rowId: 2 }];
+    for (let load = 1; load <= 3; load++) one = JSON.parse(JSON.stringify(fn(one, durableOne)));
+    A.eq(one.filter(m => m.role === 'assistant').length, 1, who + ': a steered single-part reply stays one row after three loads');
+    // an unsteered durable row that happens to equal two parts joined is still left alone (the rowId rule stands for it)
+    const twin = fn([{ role: 'user', content: 'go', sourceRunId: 'r6' }, { role: 'assistant', content: 'A.B.', sourceRunId: 'r6', rowId: 9 }],
+      [{ role: 'user', content: 'go', sourceRunId: 'r6' }, { role: 'assistant', content: 'A.', sourceRunId: 'r6', rowId: 7 }, { role: 'assistant', content: 'B.', sourceRunId: 'r6', rowId: 8 }, { role: 'assistant', content: 'A.B.', sourceRunId: 'r6', rowId: 9 }]);
+    A.eq(twin.filter(m => m.role === 'assistant').map(m => m.content), ['A.', 'B.', 'A.B.'], who + ': a durable row is never folded into its neighbours');
+  }
+}
+
+// a multi-line SEND NOW reaches the run as ONE line (sendQueuedNow's wire), so its echo is one steering line here too
+{
+  const out = merge([
+    { role: 'user', content: 'go', sourceRunId: 'r7' },
+    { role: 'assistant', content: '\n[steering] use the blue folder and skip the tests\nDone.', sourceRunId: 'r7' }
+  ], [{ role: 'user', content: 'go', sourceRunId: 'r7' }, { role: 'assistant', content: 'Done.', sourceRunId: 'r7', rowId: 3 }]);
+  A.eq(out.filter(m => m.role === 'assistant').length, 1, 'a collapsed multi-line note twin-matches on the first load');
+}
+
 // renderHistory redraws the note as its own steer-echo row, never as agent prose
 const rh = A.fnBody(source, 'function renderHistory(onlyTurns)');
 A.ok(/\(\?:\^\|\\n\)\\\[steering\\\] \(\[\^\\n\]\*\)\\n\?/.test(rh), 'renderHistory splits steering lines out of the reply');

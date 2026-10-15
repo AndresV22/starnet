@@ -1822,9 +1822,11 @@ const Chat = (() => {
       }
       return null;
     };
-    // the durable parts this saved aggregate already shows (so a steered row can be enriched by them), or null
+    // the durable parts this saved aggregate already shows (so a steered row can be enriched by them), or null.
+    // A rowId marks a durable row — except on a steered row: the merge that kept it lent it its first part's rowId, and that
+    // save is the next load's input (the desk's next open, the phone's every read), so it must find its span again each load.
     const committedAggregate = (row, runId, explicit) => {
-      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return null;
+      if (row.role !== 'assistant' || (row.rowId && !hasSteer(row.content)) || row.stopped || row.error || (row.attachments && row.attachments.length)) return null;
       const parts = runParts.get(runId) || [], text = steerless(row.content);
       let span = joinsTo(parts, text);
       if (!span && explicit) { const target = squash(text); span = target ? joinsTo(parts.map(squash), target) : null; }
