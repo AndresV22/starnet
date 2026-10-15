@@ -119,6 +119,10 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   const busy = new Set(), pend = new Map(), runOf = new Map();
   global.Channels = { pendingOf: id => (pend.get(id) || [])[0] || null, pendingAllOf: id => pend.get(id) || [], isBusy: id => busy.has(id), elapsedOf: (id, now) => (typeof now === 'number' ? 65000 : NaN) /* like the real one: no now, no number */, runIdOf: id => runOf.get(id) || '' };
   global.document = undefined;
+  // these rows read a ledger that HAS answered (no record for a foreground worker is then an answer); the rows before its
+  // first answer are pinned in delegated-ledger-first-read.test.js
+  const ANSWERED = { snapshot: () => ({ workers: [], threads: [] }), fresh: () => true };
+  global.Overseer = ANSWERED;
   const D = require('../frontend/app/delegated.js');
   const ws = (o) => Object.assign({ id: 'k', history: [], runIds: [] }, o);
   const st = (r, lead) => D.stateOf(r, 'home', lead || 'lead1');
@@ -138,7 +142,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
     A.ok(/dg-line-sum[^>]*>1 status unknown</.test(card) && !/working|stopped/.test(card.replace(/Scan competitors/g, '')), 'the card header claims nothing it cannot prove');
     fresh = true;
     A.eq(st(runningRow).cls, 'working', 'once the station answers again the row is working');
-    delete global.Overseer; delete global.App;
+    global.Overseer = ANSWERED; delete global.App;
   }
   const done = st({ ws: ws({ history: [{ role: 'system', sys: true, content: '— delegated —' }, { role: 'assistant', content: '## Found\n**Two** competitors undercut us.' }] }), worker: { status: 'done', startedAt: 1000, completedAt: 13000 } });
   // the card never repeats a worker's answer (calm version, 6aa3cd0b0): See work holds it
@@ -234,7 +238,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
       global.Overseer = { fresh: () => false };
       const unknown = st({ ws: ws({ id: 'bg-thread' }), worker });
       A.eq([unknown.cls, unknown.t, !!unknown.stop], ['unknown', '', false], 'an unreachable background worker still offers neither clock nor Stop');
-    } finally { Date.now = realNow; delete global.CrewClock; delete global.Overseer; }
+    } finally { Date.now = realNow; delete global.CrewClock; global.Overseer = ANSWERED; }
   }
   busy.clear();
   A.eq(st({ ws: ws({ runIds: ['r9'], lastRunReason: 'done' }), worker: null }).cls, 'done', 'a confirmed completed foreground worker is done');
@@ -288,7 +292,7 @@ const roster = new Map([['researcher', { system: 'R', name: 'MIRA' }], ['writer'
   L.seen.add('k2'); L.receipts.set('k2', { status: 'loading', at: Date.now() });
   A.ok(/Loading VEX's work/.test(L.lineHtml({ lead: 'b2', rows: [running.rows[1]] }, 'home')), 'See work says it is loading, never an empty receipt');
   L.opened.clear(); L.seen.clear(); L.receipts.clear(); delete global.App;
-  delete global.Channels; delete global.document;
+  delete global.Channels; delete global.document; delete global.Overseer;
   // the receipt: the worker run's own record + transcript, nothing invented
   global.DeskScreen = { parseScreens: require('../frontend/app/deskscreen.js')._parseScreens || require('../frontend/app/deskscreen.js').parseScreens };
   const turns = [

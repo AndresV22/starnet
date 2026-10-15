@@ -11,7 +11,8 @@
    - the rows are this page's records of the workers filed for this conversation (worker:true threads, parentStreamId);
    - a dispatch groups by the lead run that filed the thread (/api/overseer threads[].leadRunId);
    - state reads the durable worker ledger (/api/overseer workers, polled by Overseer) for background workers and
-     the thread's live channel (the bridge's real runId via station.dispatch_start/end) for foreground ones;
+     the thread's live channel (the bridge's real runId via station.dispatch_start/end) for foreground ones; until the
+     ledger's first answer lands, a row with no live signal reads "checking…" — never stopped or ended;
    - the live step is the worker's own agent.tool_call event, matched by its runId;
    - a receipt is the worker run's own record (/api/runs?runId) and its own transcript rows (/api/transcript?runId):
      its answer, the tools it called with their arguments, the files it saved, its time and cost.
@@ -120,6 +121,17 @@ const Delegated = (() => {
     return one.length > 200 ? one.slice(0, 199) + '…' : one;
   }
 
+  /* HAS THE LEDGER ANSWERED THIS PAGE? Overseer reads the station's worker ledger (/api/overseer) from page load; until
+     its first answer lands snapshot() is null, and every row looks like a worker with no record. Reopening a conversation
+     then read "3 stopped" for half a second, and "1 stopped" for a worker that was waiting on an approval (live walk
+     10-14): silence before the first read is not an answer. 'answered' | 'checking' (the first read is on its way) |
+     'unreachable' (it failed or hangs: the station is not answering). A page with no ledger module has no answer either. */
+  function ledgerRead() {
+    const O = typeof Overseer !== 'undefined' ? Overseer : null;
+    if (O && typeof O.snapshot === 'function' && O.snapshot()) return 'answered';
+    return O && typeof O.unreachable === 'function' && O.unreachable() ? 'unreachable' : 'checking';
+  }
+
   /* the row's state, in priority order. `parentLive` = the lead run that dispatched it is still running on this page. */
   function stateOf(r, parentId, lead) {
     const k = r.ws, w = currentWorker(r), C = typeof Channels !== 'undefined' ? Channels : null;
@@ -144,6 +156,14 @@ const Delegated = (() => {
       const now = crewNow(), runId = C.runIdOf ? C.runIdOf(k.id) : null;
       const runMs = runId && typeof CrewClock !== 'undefined' && CrewClock.elapsedForRun ? CrewClock.elapsedForRun(runId, now) : null;
       return { cls: 'working', live: 'working', t: Number.isFinite(runMs) ? clock(runMs) : (C.elapsedOf ? clock(C.elapsedOf(k.id, now)) : '') };
+    }
+    // a row the ledger has not answered for (no ledger record for it, and no first read yet) claims nothing past the live
+    // signals above (its own ask, its live channel): not stopped, not "ended without a result", not "starting", and not
+    // its thread's last recorded end either (the ledger may hold a newer run on it). `unread` = it was never seen running,
+    // so it neither opens the card nor counts as a stopped or settled worker
+    if (!r.worker) {
+      const read = ledgerRead();
+      if (read !== 'answered') return { cls: 'unknown', live: read === 'unreachable' ? 'status unknown — station unreachable' : 'checking…', t: '', unread: read };
     }
     const reason = String((w && w.reason) || k.lastRunReason || '');
     if (reason === 'budget' || reason === 'max_iters') return { cls: 'stopped', live: reason === 'budget' ? 'budget limit reached' : 'step limit reached', t: '' };
@@ -194,14 +214,18 @@ const Delegated = (() => {
   function lineHtml(b, parentId) {
     const rows = b.rows.map(r => ({ r, st: stateOf(r, parentId, b.lead), a: agentOf(r.ws.agentId || 'agent') }));
     const count = c => rows.filter(x => x.st.cls === c).length;
+    // rows the ledger has not answered for yet (stateOf `unread`): the first read is on its way (checking…) or failed
+    const unread = rows.filter(x => x.st.unread).length, checking = rows.filter(x => x.st.unread === 'checking').length;
     const sum = [count('waiting') && count('waiting') + ' need' + (count('waiting') === 1 ? 's' : '') + ' you', count('working') && count('working') + ' working',
       count('queued') && count('queued') + ' starting', count('failed') && count('failed') + ' failed', count('stopped') && count('stopped') + ' stopped',
-      count('unknown') && count('unknown') + ' status unknown',
+      count('unknown') - checking && (count('unknown') - checking) + ' status unknown',
+      checking && (checking === rows.length ? 'checking…' : checking + ' checking'),
       count('recorded') && count('recorded') + ' delivered',
       count('done') && (count('done') === rows.length ? (rows.length > 1 ? 'all ' + rows.length + ' done' : 'done') : count('done') + ' done')]
       .filter(Boolean).join(' · ');
-    // a row whose state the station cannot confirm right now (unknown) keeps an open card open: it was running a beat ago
-    const live = count('working') + count('waiting') + count('queued') + count('unknown') > 0;
+    // a row whose state the station cannot confirm right now (unknown) keeps an open card open: it was running a beat ago.
+    // A row the ledger has not answered for yet was never seen running: it opens nothing
+    const live = count('working') + count('waiting') + count('queued') + count('unknown') - unread > 0;
     // a worker waiting on you always shows (folding it would hide the one thing that needs you)
     const open = opened.has(b.lead) || count('waiting') > 0 || (live && !closed.has(b.lead));
     // the batch lamp: the most urgent worker state (needs you > working > failed > unknown > done); unknown keeps the
@@ -226,7 +250,7 @@ const Delegated = (() => {
         : st.stop
           ? '<button type="button" class="dg-key deny" data-dg-stop="' + esc(st.worker.id) + '" data-tip="Stop ' + esc(who) + '"' + (stopping.has(st.worker.id) ? ' disabled' : '') + '>' + (stopping.has(st.worker.id) ? 'Stopping…' : 'Stop') + '</button>'
           : '<button type="button" class="dg-key" data-dg-see="' + esc(id) + '" aria-expanded="' + shown + '">' + (shown ? 'Hide work' : 'See work') + '</button>';
-      return '<div class="dg-li ' + st.cls + '" data-dg-row="' + esc(id) + '" role="group" aria-label="' + esc(who + ': ' + task + ' — ' + WORD[st.cls]) + '">'
+      return '<div class="dg-li ' + st.cls + '" data-dg-row="' + esc(id) + '" role="group" aria-label="' + esc(who + ': ' + task + ' — ' + (st.unread === 'checking' ? 'checking' : WORD[st.cls])) + '">'
         + '<span class="dg-lamp ' + st.cls + '" aria-hidden="true"></span><span class="dg-li-who">' + esc(who) + '</span>'
         + '<span class="dg-li-task" data-tip="' + esc(task) + '">' + esc(task) + '</span><span class="dg-li-st"' + (st.tip ? ' data-tip="' + esc(st.tip) + '"' : '') + '>' + esc(status) + '<span data-dg-clock="' + esc(id) + '"></span></span>' + key
         + '</div>' + (st.pend && st.pend.tool !== 'brief.ask' ? '<div class="dg-inspect" data-dg-inspect="' + esc(id) + '" data-dg-prompt="' + esc(st.pend.promptId) + '"></div>' : '')

@@ -8,11 +8,16 @@ const Overseer = (() => {
   // anything that says "working" must read fresh() first: the rail's crew lamp and the delegation card's stateOf
   // (delegated.js) both do, so neither ticks a running row through an outage (review app-shell-ui-05)
   const BEAT = 2500;
-  let okAt = 0, failing = false;
+  let okAt = 0, failing = false, askedAt = 0;
   const fresh = () => !!last && !failing && !(busy && Date.now() - okAt > 3 * BEAT);
+  // the station is not answering the ledger read: the latest poll failed, or one hangs past three beats (counted from the
+  // last answer, or from the first ask while none has landed). Readable BEFORE the first answer, when snapshot() is still
+  // null: the delegation card says "checking…" while that first read is on its way and "station unreachable" once it has
+  // failed — never a worker state the ledger has not given (delegated.js ledgerRead)
+  const unreachable = () => failing || (busy && Date.now() - (okAt || askedAt) > 3 * BEAT);
   async function refresh() {
     if (busy || typeof Workstreams === 'undefined' || !Workstreams.generalId()) return;
-    busy = true;
+    busy = true; askedAt = Date.now();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
@@ -46,6 +51,6 @@ const Overseer = (() => {
     } finally { clearTimeout(timeout); busy = false; }
   }
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { refresh(); setInterval(refresh, BEAT); });
-  return { refresh, snapshot: () => last, fresh };
+  return { refresh, snapshot: () => last, fresh, unreachable };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Overseer;
