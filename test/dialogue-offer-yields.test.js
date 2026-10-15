@@ -57,12 +57,13 @@ function station(opts) {
   body.appendChild(host);
   const elsewhere = new El('input'); elsewhere.id = 'station-search'; body.appendChild(elsewhere);   // a field in another surface
   const menuKey = new El('button'); menuKey.id = 'dock-menu-key'; body.appendChild(menuKey);         // a key in another surface
-  const winKeys = [];
+  const winKeys = [], docKeys = [];   // a keydown bubbles through document (its listeners first), then window
   const observers = [];
   class RO { constructor(fn) { this.fn = fn; this.targets = []; this.live = true; observers.push(this); } observe(t) { this.targets.push(t); } disconnect() { this.live = false; } }
   const ctx = vm.createContext({
     console, Promise, setTimeout, clearTimeout,
-    document: { body, documentElement: html, createElement: t => new El(t), getElementById: id => all(body).find(e => e.id === id) || null, dispatchEvent() {} },
+    document: { body, documentElement: html, createElement: t => new El(t), getElementById: id => all(body).find(e => e.id === id) || null, dispatchEvent() {},
+      addEventListener: (k2, fn) => { if (k2 === 'keydown') docKeys.push(fn); } },
     window: { addEventListener: (k2, fn) => { if (k2 === 'keydown') winKeys.push(fn); }, removeEventListener: (k2, fn) => { if (k2 === 'keydown') { const i = winKeys.indexOf(fn); if (i >= 0) winKeys.splice(i, 1); } } },
     CustomEvent: function CustomEvent(t) { this.type = t; },
     matchMedia: () => ({ matches: true }),   // reduced motion: a beat types out at once
@@ -71,6 +72,7 @@ function station(opts) {
   vm.runInContext(dialogueSrc + '\nthis.Dialogue = Dialogue;', ctx);
   const key = (name, target, pre) => {
     const ev = { key: name, target: target || body, defaultPrevented: !!pre, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+    for (const fn of docKeys.slice()) fn(ev);
     for (const fn of winKeys.slice()) fn(ev);
     return ev;
   };
@@ -78,9 +80,24 @@ function station(opts) {
   // what a click at a point lands on: the panel when the point is inside its box (visual px), else what is under it
   const covers = y => { const p = panel(); if (!p) return false; const top = parseFloat(p.style.top || '0') * k, bottom = 800 - parseFloat(p.style.bottom || '0') * k; return y >= top && y < bottom; };
   const inputCentre = () => input.box.top + input.box.height / 2;
-  return { ctx, D: ctx.Dialogue, host, input, queued, row, elsewhere, menuKey, body, key, panel, covers, inputCentre, observers };
+  return { ctx, D: ctx.Dialogue, host, logEl, input, queued, row, elsewhere, menuKey, body, key, panel, covers, inputCentre, observers, docKeys };
 }
 const step = (D, why) => (typeof D.stepAside === 'function' ? D.stepAside(why) : 'stepAside missing');
+/* the REAL one-line document Esc owners of the composer row (the model dock, Local Live, hands-free voice), lifted out of their
+   files and run against a state object: `document.addEventListener('keydown', <this handler>)` on the line naming `marker`. */
+function docEscOwner(file, marker, state) {
+  const head = "document.addEventListener('keydown', ";
+  const line = read(file).split('\n').find(l => l.includes(head) && l.includes("'Escape'") && l.includes(marker));
+  if (!line) return null;
+  const from = line.indexOf(head) + head.length;
+  let depth = 0, end = -1;
+  for (let n = from; n < line.length && end < 0; n++) {
+    const c = line[n];
+    if ('({['.includes(c)) depth++;
+    else if (')}]'.includes(c)) { if (depth === 0) end = n; else depth--; }
+  }
+  return end > from ? vm.runInContext('(' + line.slice(from, end) + ')', vm.createContext(state)) : null;
+}
 const settle = async () => { for (let n = 0; n < 40; n++) await new Promise(r => setImmediate(r)); };
 
 (async () => {
@@ -161,6 +178,60 @@ const settle = async () => { for (let n = 0; n < 40; n++) await new Promise(r =>
     s.D.close();
     s.key('Escape');
     A.eq(notNow, 2, 'a closed panel leaves no Esc listener behind');
+  }
+  /* ---------- B2. ONE Esc, ONE owner (review 10-15). The offer lifts the composer row (the model dock, the voice keys) above the
+     panel, and those keys' Esc handlers sit on document without marking the Esc used: an Esc that closed the model dock or ended
+     Local Live ALSO answered the offer NOT NOW — a false decline (declineDecomposition + recDecline) that holds the offer back
+     until the belief changes. The offer answers only an Esc aimed at it: nothing focused, its own keys, or the message box. ---------- */
+  {
+    const s = station();
+    let notNow = 0;
+    s.D.open({ name: 'NOVA', offer: { notNow: () => { notNow++; }, stepAside() {} } });
+    void s.D.say('does this look right?');
+    const chip = new El('button'); chip.id = 'model-dock-effort-chip'; s.row.appendChild(chip);   // a model-dock key (focus stays on it)
+    const liveKey = new El('button'); liveKey.id = 'voice-live'; s.row.appendChild(liveKey);      // the Local Live key
+    const cardKey = new El('button'); cardKey.className = 'cmsg-act'; s.logEl.appendChild(cardKey); // a key on a transcript card
+    s.key('Escape', chip);
+    A.eq(notNow, 0, 'an Esc on a model-dock key in the composer row is the dock’s, never the offer’s NOT NOW');
+    s.key('Escape', liveKey);
+    A.eq(notNow, 0, 'an Esc on the Local Live key is Local Live’s');
+    s.key('Escape', cardKey);
+    A.eq(notNow, 0, 'an Esc on a key in the transcript is not aimed at the offer either');
+    // the composer row's own document-level Esc owners, executed from their files: each marks the Esc it used
+    const dock = { open: true, closed: 0 }; dock.closeDock = () => { dock.open = false; dock.closed++; };
+    const live = { active: false, ended: 0 }; live.end = () => { live.active = false; live.ended++; };
+    const talk = { convoMode: false, stopped: 0, LS_CONVO: 'convo', savePref() {} }; talk.stopConvo = () => { talk.convoMode = false; talk.stopped++; };
+    const owners = [['frontend/app/modeldock.js', 'closeDock', dock], ['frontend/app/voice-live.js', 'end()', live], ['frontend/app/voice.js', 'convoMode', talk]].map(([f, m, st]) => [f, docEscOwner(f, m, st)]);
+    for (const [f, fn] of owners) { A.ok(typeof fn === 'function', f + ' has its document Esc handler'); if (fn) s.docKeys.push(fn); }
+    s.key('Escape', s.input);
+    A.eq(dock.closed, 1, 'Esc closes the open model dock');
+    A.eq(notNow, 0, 'and that Esc was the dock’s alone: the offer is not answered NOT NOW');
+    live.active = true;
+    s.key('Escape');
+    A.eq(live.ended, 1, 'Esc ends Local Live');
+    A.eq(notNow, 0, 'and does not also decline the offer');
+    talk.convoMode = true;
+    s.key('Escape');
+    A.eq(talk.stopped, 1, 'Esc drops out of hands-free');
+    A.eq(notNow, 0, 'and does not also decline the offer');
+    s.key('Escape');
+    A.eq(notNow, 1, 'with nothing else to close, Esc is the offer’s NOT NOW again');
+    s.D.close();
+  }
+  /* ---------- B3. the same law for a dismissable proposal (autojobstore's routines): an Esc another owner used is not a dismiss */
+  {
+    const s = station();
+    s.D.open({ name: 'NOVA' });
+    let res = null;
+    s.D.node({ lines: 'a routine worth running for you', options: [{ label: 'yes', value: 'yes' }], dismissable: true }).then(r => { res = r; });
+    await settle();
+    s.key('Escape', s.body, true);
+    await settle();
+    A.eq(res, null, 'an Esc the model dock / Local Live already used never also dismisses a proposal');
+    s.key('Escape');
+    await settle();
+    A.ok(res && res.dismissed === true, 'an unused Esc still dismisses it');
+    s.D.close();
   }
 
   /* ---------- C. stepAside hands the moment back ---------- */

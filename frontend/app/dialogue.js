@@ -131,8 +131,10 @@ const Dialogue = (() => {
      awakening, the quick tour and the first-task hand-off still own the whole of COMMS — they ARE the conversation. A caller
      that OFFERS something mid-game passes `offer: { notNow, stepAside }`, and then:
      · the panel ends above the message box and its queued-message pills, so typing is never covered (refit as they grow);
-     · Esc answers it the way its own "not now" key does (offer.notNow) — never from a station field, never an Esc the message
-       box used (it stops a run, closes the / menu), never an Esc inside another surface;
+     · Esc answers it the way its own "not now" key does (offer.notNow) — but only an Esc aimed at it: nothing focused, its own
+       keys, or the message box. ONE Esc, ONE owner (review 10-15): never a station field's, never one the message box used (it
+       stops a run, closes the / menu), never one on another key (the model dock's chips, Local Live, a transcript card), and
+       never one a document-level owner marked used (the model dock closing, Local Live ending) — that would be a false decline;
      · Dialogue.stepAside(why) hands the moment back (offer.stepAside): COMMS calls it when an approval or question reaches the
        Commander and when they send a turn, and the caller closes the panel unanswered, as a delivery landing already does. */
   function armOffer(o) {
@@ -146,8 +148,8 @@ const Dialogue = (() => {
       if (!open || !offer || !e || e.key !== 'Escape' || e.defaultPrevented) return;
       const t = e.target;
       if (fromTextField(e) && !(t && t.id === 'chat-input')) return;   // a station field's Esc is that field's
-      const scope = host || panel;
-      if (t && t.nodeType === 1 && t !== document.body && t !== document.documentElement && scope && !scope.contains(t)) return;   // another surface's Esc
+      const aimed = !t || t.nodeType !== 1 || t === document.body || t === document.documentElement || t.id === 'chat-input' || (panel && panel.contains(t));
+      if (!aimed) return;   // any other key's Esc (in COMMS or another surface) is that key's
       e.preventDefault();
       if (typeof offer.notNow === 'function') offer.notNow();
     };
@@ -411,7 +413,7 @@ const Dialogue = (() => {
       // the flow into the ✎ box mid-sentence (the awakening answer-swallow bug, 2026-07-20).
       const t = e.target;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (e.key === 'Escape' && cfg.dismissable) { e.preventDefault(); finishPick({ value: '', skip: true, dismissed: true }); return; }
+      if (e.key === 'Escape' && cfg.dismissable && !e.defaultPrevented) { e.preventDefault(); finishPick({ value: '', skip: true, dismissed: true }); return; }   // an Esc another owner used (the model dock, Local Live) is not a dismiss
       if (e.key === 'Enter' && cfg.allowCustom) { e.preventDefault(); openCustom(cfg, finishPick); return; }
       const n = parseInt(e.key, 10);
       if (!isNaN(n) && n >= 1 && n <= rows.length) { e.preventDefault(); rows[n - 1].click(); }

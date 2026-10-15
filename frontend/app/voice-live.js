@@ -1827,7 +1827,8 @@ const VoiceLive = (() => {
         if (!track || track.readyState === 'ended') scheduleReconnect('Audio device changed.');
       });
     }
-    document.addEventListener('keydown', event => { if (event.key === 'Escape' && active) end(); });
+    // an Esc that ended Local Live is marked used: an offer panel over COMMS must not ALSO read it as its NOT NOW (review 10-15)
+    document.addEventListener('keydown', event => { if (event.key === 'Escape' && active) { event.preventDefault(); end(); } });
   }
 
   // The built-in catalogue is sidecar-owned. Agent assignments share Voice's persistent
