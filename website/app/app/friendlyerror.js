@@ -659,6 +659,11 @@
         userMessage = 'No ' + named[1].trim().replace(/\s+api$/i, '') + ' API key is connected yet — add it under SETTINGS → AI & MODELS, or pick a model from a provider you have already connected.';
       } else if (/configure the (.+?) base url/i.test(raw)) {
         userMessage = 'The ' + raw.match(/configure the (.+?) base url/i)[1].trim() + ' endpoint has no base URL yet — set it under SETTINGS → AI & MODELS.';
+      } else if (providerFromRaw(raw) === 'codex') {
+        // (org P03 wiring) a ChatGPT adapter 401/403 ('codex http 401 — …', after codex.js's one renew) is the sign-in being
+        // refused, never "no model is connected" — the door beside it reads ⏼ RECONNECT CHATGPT (actionButton), and this copy
+        // holds for an expired token (401) and a refused account (403) alike
+        userMessage = 'ChatGPT refused this sign-in — reconnect it (or add a provider key instead).';
       } else if (!/sidecar http|chatgpt|codex/.test(low) && (REJECTED_KEY_RE.test(low) || /\bhttp (?:400|401|403)\b/.test(low))) {
         userMessage = 'The provider rejected the API key — check it, or paste a new one under SETTINGS → AI & MODELS.';
       }

@@ -5240,10 +5240,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // asynchronously-arriving status feels laggy, and each merged trigger saves a whole pane fan-out.
   const SETTINGS_REPAINT_COALESCE_MS = 120;
   let settingsRepaintQueued = false;
+  /* A BACKGROUND repaint keeps the reader's place (org P03 wiring): a status check / provider probe landing rebuilt the whole
+     console with a fresh .con-pane at scrollTop 0, so a Commander reading a card halfway down AI & MODELS (or a card an
+     error door just landed on) was thrown back to the top 5-15s after opening — a first-open probe may take its full 15s
+     credential check. The same section's pane gets its scroll back; a section change (a tab click) is not a background poke. */
   function scheduleSettingsRepaint() {
     if (settingsRepaintQueued || !open.settings) return;
     settingsRepaintQueued = true;
-    setTimeout(() => { settingsRepaintQueued = false; if (open.settings) rerender('settings'); }, SETTINGS_REPAINT_COALESCE_MS);
+    setTimeout(() => {
+      settingsRepaintQueued = false;
+      const w = open.settings;
+      if (!w) return;
+      const before = w.querySelector('.con-pane'), section = consoleSection.settings, top = before ? before.scrollTop : 0;
+      rerender('settings');
+      const after = open.settings && open.settings.querySelector('.con-pane');
+      if (after && top > 0 && consoleSection.settings === section) after.scrollTop = top;
+    }, SETTINGS_REPAINT_COALESCE_MS);
   }
 
   // the REAL connected providers: OpenRouter from the BYOK store, Codex from sidecar OAuth status.
@@ -5584,9 +5596,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     return out;
   }
   function keysFor(id) { return connectedKeys().filter(x => x.provider === id); }
+  // org P04 wiring: STARNET MANAGED takes no key — its bearer is the linked device token (harness.js providerNeedsKey
+  // excludes it too); its card offers ↗ LINK STATION, never a key field
   function providerAcceptsKey(provider) {
     provider = provider || activeProv();
-    return !isOAuthProvider(provider) && provider !== 'ollama' && provider !== 'claude-cli';
+    return !isOAuthProvider(provider) && provider !== 'ollama' && provider !== 'claude-cli' && provider !== 'starnet';
+  }
+  /* The selected provider's "not set up yet" line under API KEYS (org P04) names what ITS card is missing: a key for a key
+     provider, the ENDPOINT for CUSTOM (its key is optional; the card reads ○ NO ENDPOINT), the LINK for STARNET MANAGED (the
+     card reads ○ NOT LINKED and offers ↗ LINK STATION). A saved or live StarNet link owes no line — the card says its state. */
+  function selectedSetupLineHtml(pid, name, creditsState) {
+    const what = pid === 'starnet' ? (creditsState === 'linked' || creditsState === 'saved' ? '' : ' isn’t linked yet.')
+      : pid === 'custom' ? ', has no endpoint yet.' : ', has no key yet.';
+    if (!what) return '';
+    const verb = pid === 'starnet' ? 'LINK IT' : pid === 'custom' ? 'SET IT' : 'ADD IT';
+    return '<div class="key-empty key-goto"><p>The selected provider, ' + esc(name) + (pid === 'starnet' ? ',' : '') + what + '</p>'
+      + '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-prov-card" data-provider="' + esc(pid) + '">▸ ' + verb + ' ON THE ' + esc(name) + ' CARD</button></div></div>';
   }
   /* A CUSTOM ENDPOINT NEEDS ITS ADDRESS (GitHub #113, confirmed live 2026-10-13): the CUSTOM card promised "any /v1 base
      URL", but every add form offered only "paste CUSTOM key…" — the endpoint could be set only during onboarding. The
@@ -5808,12 +5833,20 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<button class="bb sm" data-act="' + esc(pid) + '-resign">⏼ RE-SIGN-IN</button>' +
       '<button class="bb sm danger" data-act="' + esc(pid) + '-logout">✕ DISCONNECT</button>' +
       '</div></div>' +
-      // the inline device-code surface the RE-SIGN-IN action fills (same engine as codex: OAuthSignIn.for(pid)
-      // → code + verification URL here, poll until the sidecar reports connected).
-      '<div class="key-edit codex-inline" id="' + esc(pid) + '-inline-signin" hidden>' +
-      '<span class="dim" id="' + esc(pid) + '-inline-status"></span>' +
-      '<code class="key-mask" id="' + esc(pid) + '-inline-code" hidden></code>' +
-      '<button class="bb sm" id="' + esc(pid) + '-inline-open" hidden>↗ OPEN PAGE</button>' +
+      // the inline device-code surface the RE-SIGN-IN action fills — drawn from the ONE card-flow state (oauthRowFlowHtml)
+      oauthRowFlowHtml(pid);
+  }
+  /* ONE SIGN-IN, ONE CODE (org P03 wiring): the API KEYS row's ⏼ RE-SIGN-IN and the card's ⏼ SIGN IN / RECONNECT door drive
+     the SAME engine (OAuthSignIn.for(pid); codex = CodexSignIn), and a start silently cancels the flow before it. The row
+     used to keep its own DOM-only box: the card then went on showing a superseded code nobody polled, and a Settings
+     repaint wiped the row's code. Both boxes are now views of oauthCardFlow[pid] (startCardSignin owns it), each redrawn
+     by paintOAuthCardFlow, so every box on screen shows the one code the engine is polling for. */
+  function oauthRowFlowHtml(pid) {
+    const v = oauthCardFlowView(pid, true);
+    return '<div class="key-edit codex-inline" id="' + esc(pid) + '-inline-signin"' + (v ? '' : ' hidden') + '>' +
+      '<span class="dim" id="' + esc(pid) + '-inline-status">' + (v ? v.statusHtml : '') + '</span>' +
+      '<code class="key-mask" id="' + esc(pid) + '-inline-code"' + (v && v.code ? '>' + esc(v.code) : ' hidden>') + '</code>' +
+      '<button class="bb sm" data-act="oauth-row-open" data-provider="' + esc(pid) + '" id="' + esc(pid) + '-inline-open"' + (v && v.openUri ? '' : ' hidden') + '>↗ OPEN PAGE</button>' +
       '</div>';
   }
   function keysHtml() {
@@ -5880,13 +5913,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           '<button class="bb sm" data-act="codex-resign">⏼ RE-SIGN-IN</button>' +
           '<button class="bb sm danger" data-act="codex-logout">✕ DISCONNECT</button>' +
           '</div></div>' +
-          // the inline device-code surface the RE-SIGN-IN action fills (same engine as the brain screen:
-          // CodexSignIn.start → code + verification URL here, poll until the sidecar reports connected).
-          '<div class="key-edit codex-inline" id="codex-inline-signin" hidden>' +
-          '<span class="dim" id="codex-inline-status"></span>' +
-          '<code class="key-mask" id="codex-inline-code" hidden></code>' +
-          '<button class="bb sm" id="codex-inline-open" hidden>↗ OPEN PAGE</button>' +
-          '</div>';
+          // the inline device-code surface the RE-SIGN-IN action fills — drawn from the ONE card-flow state (oauthRowFlowHtml)
+          oauthRowFlowHtml('codex');
       }
       if (k.local) {
         return '<div class="key-row">' +
@@ -5948,8 +5976,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // (only when addProvider IS the selection: under CHATGPT it is the openrouter stand-in, which is not selected).
     // (g4 final round) "its card above" pointed at whatever card sat above (CLAUDE CODE, OPENROUTER): the line is a real DOOR —
     // its key lands ON that provider's card (focusProvider: scrolls to it and marks it), in reading-size words
-    else if (addProvider === active && providerAcceptsKey(addProvider) && !hasAddProvider) rows.push('<div class="key-empty key-goto"><p>The selected provider, ' + esc(provName(addProvider)) + ', has no key yet.</p>'
-      + '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-prov-card" data-provider="' + esc(addProvider) + '">▸ ADD IT ON THE ' + esc(provName(addProvider)) + ' CARD</button></div></div>');
+    // (wiring) the line names what that card is missing — a key, CUSTOM's endpoint, STARNET MANAGED's link (selectedSetupLineHtml)
+    else if (addProvider === active && (providerAcceptsKey(addProvider) || addProvider === 'starnet') && !hasAddProvider) rows.push(selectedSetupLineHtml(addProvider, provName(addProvider), creditsProv.state));
     return rows.join('');
   }
   // edit-in-place / guarded remove for a stored key. Mirrors the CLEAR arm/confirm pattern
@@ -5961,39 +5989,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (act !== 'rm') sfx('click');   // destructive REMOVE owns its own 'bad' cue (matches the CLEAR control)
         // ---- ChatGPT (Codex) OAuth row actions — no Harness store involved; they drive the sidecar's
         //      device-flow endpoints through the SAME shared engine as the brain screen (codexsignin.js). ----
-        if (act === 'codex-resign') {
-          if (typeof CodexSignIn === 'undefined') return;
-          const box = body.querySelector('#codex-inline-signin');
-          const st = body.querySelector('#codex-inline-status');
-          const code = body.querySelector('#codex-inline-code');
-          const open = body.querySelector('#codex-inline-open');
-          if (box) box.hidden = false;
-          CodexSignIn.start({
-            onRequesting: () => { if (st) st.textContent = 'requesting a sign-in code…'; },
-            onError: msg => { if (st) st.textContent = msg; sfx('bad'); },
-            onTimeout: () => { if (st) st.textContent = 'sign-in timed out — hit RE-SIGN-IN to start again'; },
-            onCode: c => {
-              if (code) { code.textContent = c.user_code; code.hidden = false; }
-              // DISPLAY the bare address, OPEN the code-carrying one (open_uri) — see codexsignin.js.
-              if (st) st.innerHTML = 'enter this code at <b>' + esc(c.verification_uri) + '</b> (opening it now)…';
-              if (open) { open.hidden = false; open.onclick = () => { sfx('click'); openExternal(c.open_uri || c.verification_uri); }; }
-              openExternal(c.open_uri || c.verification_uri);
-            },
-            onConnected: () => {
-              // the sidecar just exchanged + persisted fresh tokens — that POLL answer is backend truth.
-              codexStatusKnown = { connected: true, expired: false, reason: '' };
-              if (typeof Harness !== 'undefined' && Harness.setDesktopConfigured) Harness.setDesktopConfigured('codex', true);   // desktop map learns mid-session (genesis feeds it; Settings must too)
-              notify('✓ reconnected ChatGPT — your agents can run on your subscription again', 'good');
-              if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
-              if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
-              refreshCodexConnectionStatus();   // re-read the durable status (persistError etc.) behind the repaint
-              rerender('settings');
-            }
-          });
+        if (act === 'codex-resign') { startCardSignin('codex', '⏼ RE-SIGN-IN'); return; }   // the ONE card flow (oauthRowFlowHtml)
+        // the row box's ↗ OPEN PAGE reopens the page the shared flow's code belongs to
+        if (act === 'oauth-row-open') {
+          const f = oauthCardFlow[b.dataset.provider];
+          if (f && f.openUri) openExternal(f.openUri);
           return;
         }
         if (act === 'codex-logout') {
-          if (typeof CodexSignIn !== 'undefined') CodexSignIn.cancel();
+          if (typeof CodexSignIn !== 'undefined') CodexSignIn.cancel(); delete oauthCardFlow.codex;   // the cancelled flow's code leaves every box
           const drop = (typeof CodexSignIn !== 'undefined') ? CodexSignIn.logout() : Harness.api.post('/api/auth/codex/logout').catch(() => {});
           Promise.resolve(drop).then(() => {
             codexStatusKnown = { connected: false, expired: false, reason: '' };   // the sidecar just confirmed the drop
@@ -6012,39 +6016,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (oauthAct) {
           const pid = oauthAct[1];
           const engine = (typeof OAuthSignIn !== 'undefined') ? OAuthSignIn.for(pid) : null;
-          if (oauthAct[2] === 'resign') {
-            if (!engine) return;
-            const box = body.querySelector('#' + pid + '-inline-signin');
-            const st = body.querySelector('#' + pid + '-inline-status');
-            const code = body.querySelector('#' + pid + '-inline-code');
-            const open = body.querySelector('#' + pid + '-inline-open');
-            if (box) box.hidden = false;
-            engine.start({
-              onRequesting: () => { if (st) st.textContent = 'requesting a sign-in code…'; },
-              onError: msg => { if (st) st.textContent = msg; sfx('bad'); },
-              onTimeout: () => { if (st) st.textContent = 'sign-in timed out — hit RE-SIGN-IN to start again'; },
-              onCode: c => {
-                if (code) { code.textContent = c.user_code; code.hidden = false; }
-                // DISPLAY the bare address, OPEN the code-carrying one — kimi's page REQUIRES ?user_code=.
-                if (st) st.innerHTML = 'enter this code at <b>' + esc(c.verification_uri) + '</b> (opening it now)…';
-                if (open) { open.hidden = false; open.onclick = () => { sfx('click'); openExternal(c.open_uri || c.verification_uri); }; }
-                openExternal(c.open_uri || c.verification_uri);
-              },
-              onConnected: () => {
-                // the sidecar just exchanged + persisted fresh tokens — that POLL answer is backend truth.
-                oauthStatus[pid] = { connected: true, expired: false, reason: '' };
-                if (typeof Harness !== 'undefined' && Harness.setDesktopConfigured) Harness.setDesktopConfigured(pid, true);   // desktop map learns mid-session (genesis feeds it; Settings must too)
-                notify('✓ reconnected ' + provName(pid) + ' — your agents can run on your subscription again', 'good');
-                if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
-                if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
-                refreshOAuthStatus(pid);   // re-read the durable status (persistError etc.) behind the repaint
-                rerender('settings');
-              }
-            });
-            return;
-          }
+          if (oauthAct[2] === 'resign') { if (engine) startCardSignin(pid, '⏼ RE-SIGN-IN'); return; }   // the ONE card flow
           // logout
-          if (engine) engine.cancel();
+          if (engine) engine.cancel(); delete oauthCardFlow[pid];
           const drop = engine ? engine.logout() : Harness.api.post('/api/auth/' + pid + '/logout').catch(() => {});
           Promise.resolve(drop).then(() => {
             oauthStatus[pid] = { connected: false, expired: false, reason: '' };   // the sidecar just confirmed the drop
@@ -6200,8 +6174,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         rerender('settings');
       });
     };
-    const toServiceKeys = body.querySelector('[data-act="to-service-keys"]');
-    if (toServiceKeys) toServiceKeys.addEventListener('click', () => { sfx('click'); openTerm('connectors', 'keys'); });
+    const toServiceCatalog = body.querySelector('[data-act="to-service-catalog"]');
+    if (toServiceCatalog) toServiceCatalog.addEventListener('click', () => { sfx('click'); openTerm('connectors', 'catalog'); });
     // org P04 (g4 final round): API KEYS' no-key line lands ON the selected provider's card — the error doors' own landing
     body.querySelectorAll('[data-act="to-prov-card"][data-provider]').forEach(b => b.addEventListener('click', () => { sfx('click'); focusProvider(b.dataset.provider); }));
     body.querySelectorAll('.prov-card[data-provider]').forEach(card => {
@@ -6489,12 +6463,25 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     };
   }
   function paintOAuthCardFlow(pid) {
+    paintOAuthRowFlow(pid);
     const w = open.settings;
     const box = w && w.querySelector('#prov-oauth-inline-' + pid);
     if (!box) return;   // the card isn't drawn right now — its next render draws the box from the state
     const v = oauthCardFlowView(pid, true);
     box.hidden = !v;
     const st = box.querySelector('#prov-oauth-status-' + pid), code = box.querySelector('#prov-oauth-code-' + pid), openBtn = box.querySelector('#prov-oauth-open-' + pid);
+    if (st) st.innerHTML = v ? v.statusHtml : '';
+    if (code) { code.textContent = v ? v.code : ''; code.hidden = !(v && v.code); }
+    if (openBtn) openBtn.hidden = !(v && v.openUri);
+  }
+  // the API KEYS row's box is the same flow's second view (oauthRowFlowHtml) — absent while the provider has no row
+  function paintOAuthRowFlow(pid) {
+    const w = open.settings;
+    const box = w && w.querySelector('#' + pid + '-inline-signin');
+    if (!box) return;
+    const v = oauthCardFlowView(pid, true);
+    box.hidden = !v;
+    const st = box.querySelector('#' + pid + '-inline-status'), code = box.querySelector('#' + pid + '-inline-code'), openBtn = box.querySelector('#' + pid + '-inline-open');
     if (st) st.innerHTML = v ? v.statusHtml : '';
     if (code) { code.textContent = v ? v.code : ''; code.hidden = !(v && v.code); }
     if (openBtn) openBtn.hidden = !(v && v.openUri);
@@ -6702,8 +6689,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // Same balance, completely different sentence — describing a subscriber's own account as something "the
     // operator tops up" is just wrong on the surface that is supposed to be the truthful one.
     const about = j.linkSaved
-      ? 'This station runs on <b>your StarNet credits</b> — agents work without you bringing a provider key. Each run reserves up to your <b>PER RUN</b> budget and refunds whatever it doesn’t spend. You can always switch to your own key under API KEYS above.'
-      : 'This station runs on <b>managed credits</b> — a prepaid balance the operator tops up, so your agents can work without you bringing your own provider key. Each run reserves up to your <b>PER RUN</b> budget and refunds whatever it doesn’t spend. You can always switch to your own key under API KEYS above.';
+      ? 'This station runs on <b>your StarNet credits</b> — agents work without you bringing a provider key. Each run reserves up to your <b>PER RUN</b> budget and refunds whatever it doesn’t spend. You can always switch to your own key: add it on a provider card above, then select that card.'
+      : 'This station runs on <b>managed credits</b> — a prepaid balance the operator tops up, so your agents can work without you bringing your own provider key. Each run reserves up to your <b>PER RUN</b> budget and refunds whatever it doesn’t spend. You can always switch to your own key: add it on a provider card above, then select that card.';
     host.innerHTML =
       '<h4 class="ms-h">STORE <span class="dim">— managed credits</span></h4>' +
       creditsUnlinkErrorMarkup() +
@@ -7678,10 +7665,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<h4 class="ms-h">API KEYS</h4>' +
       '<div class="key-list">' + keysHtml() + '</div>' +
       '<p class="set-about">Credentials are saved locally and used to authenticate with the selected service. Saved keys stay masked. Desktop storage uses the OS keychain when available.</p>' +
-      // org P05: model keys live here; keys for services live in CONNECT › ABILITIES — one door, the places.js api-connections target
-      // (the key sits OUTSIDE the .set-about prose: that paragraph's 0.55 reading-dim greyed it into a disabled-looking key)
-      '<p class="set-about">Keys for Gmail, Notion and other services live in CONNECT › ABILITIES › SAVED API CONNECTIONS.</p>' +
-      '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-keys">↗ SAVED API CONNECTIONS</button></div>' +
+      // org P05: model keys live here; services connect in CONNECT › ABILITIES — one door, the places.js find-a-service target.
+      // Gmail and Notion are SIGN IN catalog connectors (sidecar/mcp/catalog.js authType 'oauth'): SAVED API CONNECTIONS only lists
+      // them read-only and its + SAVE KEY drop never connects them, so the named examples land on CATALOG (whose own footer
+      // names SAVED API CONNECTIONS for a custom key). The key sits OUTSIDE the .set-about prose: that paragraph's 0.55
+      // reading-dim greyed it into a disabled-looking key.
+      '<p class="set-about">Gmail, Notion and other services connect in CONNECT › ABILITIES › CATALOG; a custom API key goes in SAVED API CONNECTIONS beside it.</p>' +
+      '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-catalog">↗ CATALOG</button></div>' +
       // STORE / MANAGED CREDITS — rendered ONLY when the sidecar reports a configured credits backend (/api/credits).
       // When credits aren't wired this stays an empty node (no dead card, no fake balance — the honesty law). wireCredits
       // fetches the real balance + history and the external purchase link; buying opens a browser tab, never an in-app form.
@@ -11848,18 +11838,25 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      minimum scroll) and marks it for a moment. `signin` presses the card's own ⏼ SIGN IN / ⏼ RECONNECT — the same
      prov-oauth-signin flow a click starts; on a card that shows no such key (a sign-in still listed as connected) it
      starts that same card flow itself (startCardSignin), so a RECONNECT door always reconnects.
-     The section can paint a beat after openTerm, so the card is looked up again for up to ~3s. */
+     The section can paint a beat after openTerm, so the card is looked up again for up to ~3s; a repaint that replaces
+     the landed card re-lands on the new one until the Commander takes over the window (or ~20s). */
   function focusProvider(pid, opts) {
     const o = opts || {};
     const id = String(pid || '').replace(/[^a-z0-9_-]/gi, '');
     openTerm('settings', 'providers');
     if (!id) return;
-    let tries = 0, pressed = false;
-    const until = Date.now() + 4000;
+    // the landing holds until the Commander takes over the window (pointer, wheel, key) or ~20s pass: a first-open probe
+    // can repaint Settings up to its 15s credential check + the model-list fetch after the door opened it (org P03 wiring;
+    // a 4s window let a slow probe drop the view off the card). scheduleSettingsRepaint keeps the scroll; this re-marks.
+    let tries = 0, pressed = false, touched = false, watched = null;
+    const until = Date.now() + 20000;
+    const TAKE_OVER = ['pointerdown', 'wheel', 'keydown'];
+    const touch = () => { touched = true; if (watched) TAKE_OVER.forEach(t => watched.removeEventListener(t, touch, true)); watched = null; };
     const land = () => {
       const w = open.settings;
       const card = w && w.querySelector('.prov-card[data-provider="' + id + '"]');
       if (!card) { if (++tries < 12) setTimeout(land, 250); return; }
+      if (!watched && !touched) { watched = w; TAKE_OVER.forEach(t => w.addEventListener(t, touch, true)); }
       const pane = card.closest('.con-pane');
       // a quarter-pane lift, not flush to the top: the cards above stay in view, so the landing reads as a place in
       // AI & MODELS rather than a lone card with no context
@@ -11880,7 +11877,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // the first open of Settings starts background checks whose answers repaint the whole window (a fresh pane at the
       // top); while the landing is new, a repaint that replaced this card lands on the new one instead of the top
       const stay = () => {
-        if (Date.now() > until || !open.settings) return;
+        if (touched) return;
+        if (Date.now() > until || !open.settings) { touch(); return; }
         if (!card.isConnected) { land(); return; }
         setTimeout(stay, 200);
       };
