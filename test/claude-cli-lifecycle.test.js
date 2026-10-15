@@ -201,6 +201,35 @@ const msgs = () => [{ role: 'system', content: 'Lifecycle fixture' }, { role: 'u
     r.provider.release('life-run');
   }
 
+  // 8. AN IDLE TIMEOUT NEVER THROWS AWAY A FINISHED TURN (stall report 2026-10-13), on the persistent path. The child
+  //    answered (its result line is already read off the pipe) while the consumer was still busy with an earlier event,
+  //    and the idle watchdog fired in that gap: the finished reply was thrown as a timeout and the loop re-ran the turn.
+  //    A turn that has its result line, or a complete call block, is delivered; only a turn with neither is a timeout.
+  for (const persist of [true, false]) for (const shape of ['reply', 'calls']) {
+    const label = (persist ? 'persistent' : 'one-shot') + ' ' + shape;
+    const text = shape === 'reply' ? 'All done.' : block;
+    const r = rig((rec, n) => n === 1 ? [init('none'), start({ input_tokens: 3 }), delta('Working. '), delta(text), result('Working. ' + text, 0)] : [],
+      { noExitOnEnd: true, make: { idleMs: 40, persist } });
+    const events = []; let error = null;
+    try {
+      for await (const e of r.provider.stream(r.request(msgs()))) { events.push(e); if (events.length === 1) await wait(150); }   // a consumer slower than the idle window
+    } catch (e) { error = e; }
+    A.ok(!error, 'idle after result (' + label + '): the finished turn is not thrown as a timeout (' + (error && error.message) + ')');
+    A.eq(events.filter(e => e.type === 'done').length, 1, 'idle after result (' + label + '): exactly one done');
+    if (shape === 'reply') A.eq(events.filter(e => e.type === 'text').map(e => e.delta).join(''), 'Working. All done.', 'idle after result (' + label + '): the whole reply is delivered');
+    else A.eq(events.filter(e => e.type === 'tool_done').length, 1, 'idle after result (' + label + '): the complete call is delivered');
+    A.eq(events.filter(e => e.type === 'usage').length, 1, 'idle after result (' + label + '): its usage is booked once');
+    r.provider.release('life-run');
+    await wait(120);   // a one-shot child's exit grace runs out inside this case
+  }
+  // ...and a turn the watchdog cut with NEITHER a result nor a complete call is still a timeout, on both paths
+  for (const persist of [true, false]) {
+    const r = rig((rec, n) => n === 1 ? [init('none'), delta('Thinking about it')] : [], { noExitOnEnd: true, make: { idleMs: 40, persist } });
+    const out = await collect(r.provider, r.request(msgs()));
+    A.ok(out.error && /idle timed out/.test(out.error.message), (persist ? 'persistent' : 'one-shot') + ': a silent unfinished turn is still an idle timeout (' + (out.error && out.error.message) + ')');
+    r.provider.release('life-run');
+  }
+
   // 7. THE EXIT HOOK REMOVES EACH LIVE CHILD's PROMPT FILE (review 2026-10-13). A separate node process parks a
   //    persistent child (mocked) whose system prompt is a REAL temp file, then exits without releasing it.
   {

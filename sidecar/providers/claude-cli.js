@@ -1302,7 +1302,13 @@
           if (T.blockDone || T.result) break;   // a turn ends at its result line; the child stays
         }
         if (signal && signal.aborted) return;
-        if (failure) throw failure;
+        /* A FINISHED TURN IS NEVER A TIMEOUT (stall report 2026-10-13). The watchdog counts silence from the last line
+           the CLI wrote, and a child that has answered stays silent by design: when the turn's result line (or its
+           complete call block) was already read but the loop was still busy with an earlier event, the watchdog fired in
+           that gap and the finished reply was thrown away as a timeout (the loop then re-ran the turn). It is delivered;
+           the watchdog has already closed the child, so the next turn starts a fresh one. Only a turn with neither is a
+           timeout. */
+        if (failure && !T.result && !T.blockDone) throw failure;
 
         if (T.blockDone) {
           /* The calls are complete. A model that ends its reply right there leaves the child holding exactly the text
