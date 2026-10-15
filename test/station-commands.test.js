@@ -421,6 +421,32 @@ for (const text of ['', 'Older partial work.']) {
   A.eq(env.W.get(local.id).history.length, 2, 'the healed answer appears exactly once');
 }
 
+/* org live walk 2026-10-14: a delegated report that finished while the app was closed showed TWICE. Opening the session
+   merged its durable transcript first (the answer as an assistant row with its sourceRunId, ws.runIds untouched); the
+   /api/runs recovery then saw no runId and spliced the same answer in again — and the copy was saved. */
+{
+  const env = boot({ runs: [{
+    runId: 'away-1', agentId: 'agent', reason: 'done', streamId: 'ws_general_x',
+    sessionTitle: 'General', deliveryPrompt: 'review the crew work',
+    deliveryText: 'review complete: ship it', ts: 2000
+  }] });
+  const g = env.W.get(env.W.generalId());
+  env.W.appendRun(g.id, 'earlier-run', 1000);
+  // what Chat.reconcileServerHistory leaves behind after merging the durable transcript on open
+  g.history.push({ role: 'user', content: 'get the launch ready', ts: 900 },
+    { role: 'assistant', content: 'review complete: ship it', sourceRunId: 'away-1', agentId: 'agent', ts: 2000 });
+  const before = g.history.length;
+  A.eq(await env.S.reconcile(g.id), 0, 'an answer the transcript merge already filed is not folded again');
+  A.eq(g.history.length, before, 'the away report renders exactly once');
+  A.eq(g.history.filter(m => m.sourceRunId === 'away-1').length, 1, 'one row carries that run');
+  A.ok(g.runIds.indexOf('away-1') >= 0, 'the merged run joins the session run list, so its outcome is recorded');
+  A.eq(g.lastRunReason, 'done', 'and its real outcome is settled');
+  A.eq(await env.S.reconcile(g.id), 0, 'later passes stay idempotent');
+  const again = await call(env, 'station.deliver', { streamId: g.id, agentId: 'agent', runId: 'away-1', text: 'review complete: ship it' });
+  A.eq(again.result.reason, 'already delivered', 'a late live hand-off of the same run is refused as already delivered');
+  A.eq(g.history.length, before, 'still exactly once');
+}
+
 // delivering into the session the Commander is WATCHING re-renders it immediately
 {
   const env = boot();
