@@ -388,11 +388,18 @@ const NeedsYou = (() => {
       if (row) { const i = items().find(x => x.key === row.dataset.nyKey); open(i); }
     });
     if (typeof U !== 'undefined' && U.bus && U.bus.on) {
-      // an ask arrives or is answered anywhere (here, its card, the phone, a timeout): the list follows at once
-      U.bus.on('permission.prompt', () => setTimeout(render, 0));
-      U.bus.on('permission.response', () => setTimeout(render, 0));
+      // an ask arrives or is answered anywhere (here, its card, the phone, a timeout): the list follows at once — and so do
+      // NOTIFICATIONS › NEEDS YOU and the bell, on the SAME settle (org live walk 10-14: Approve cleared the rail at once while
+      // the bell and NOTIFICATIONS kept "1 waiting" until the rail heartbeat's next badges(), ~1.5 s later). The tick runs
+      // after the answering path has cleared the ask from Channels (answerConsent emits before clearPending).
+      const follow = () => setTimeout(() => {
+        render();
+        try { if (typeof StationUI !== 'undefined' && StationUI && StationUI.badges) StationUI.badges(); } catch (_) {}
+      }, 0);
+      U.bus.on('permission.prompt', follow);
+      U.bus.on('permission.response', follow);
       // (org P01) a STEP-IN opens or ends, a build lands: the list follows at once (a build is a sidecar read: re-read now)
-      U.bus.on('browser.handoff', () => setTimeout(render, 0));
+      U.bus.on('browser.handoff', follow);
       U.bus.on('workshop.built', () => { refreshFeeds(true); });
     }
   }
