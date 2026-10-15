@@ -1980,7 +1980,8 @@ const Voice = (() => {
     }
     // Escape always drops out of hands-free (never auto-arm on load — the first listen needs a click,
     // which also satisfies the browser mic-permission gesture).
-    if (!init._esc) { init._esc = true; document.addEventListener('keydown', e => { if (e.key === 'Escape' && convoMode) { savePref(LS_CONVO, false); stopConvo(); } }); }
+    // (an Esc that dropped out of hands-free is marked used, so an offer panel over COMMS never also reads it as NOT NOW)
+    if (!init._esc) { init._esc = true; document.addEventListener('keydown', e => { if (e.key === 'Escape' && convoMode) { e.preventDefault(); savePref(LS_CONVO, false); stopConvo(); } }); }
     // unlock browser audio on the first user gesture so the agent's voice is never silently swallowed after a reload
     if (!init._audio) { init._audio = true; ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, armAudio, { capture: true })); }
     // were they hands-free last session? the refresh reset it — invite a one-tap resume (skipped during the
