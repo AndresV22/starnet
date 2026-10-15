@@ -9514,11 +9514,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     store.notifs.forEach(r => { if (r.key === key && !r.done) { r.done = true; r.read = true; n++; } });
     if (n) { save(); badges(); if (open.notifs) rerender('notifs'); }
   }
-  // Opening a session reads everything that pointed at it (the notification WAS the session; you're in it now).
+  // Opening a session reads everything that pointed at it (the notification WAS the session; you're in it now). A question
+  // its finished reply asked you (a stored wait with no prompt behind it) waited for exactly this — you came to read it — so
+  // it settles too, and leaves NEEDS YOU (org P01); an approval or a live question (a prompt) waits on until it is answered.
   function seenSession(wsId) {
     if (!wsId) return;
     let n = 0;
-    store.notifs.forEach(r => { if (!r.read && r.go && r.go.ws === wsId) { r.read = true; n++; } });
+    store.notifs.forEach(r => {
+      if (!r.read && r.go && r.go.ws === wsId) { r.read = true; n++; }
+      if (r.kind === 'needs' && !r.done && !r.prompt && r.go && r.go.ws === wsId) { r.done = true; r.read = true; r.opened = true; n++; }
+    });
     if (n) { save(); badges(); if (open.notifs) rerender('notifs'); }
   }
   // A caller that leads with an ALL-CAPS token + colon ("MODEL: gpt / high") is naming a READOUT,
@@ -9678,11 +9683,31 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   /* ONE NEEDS YOU (org P01): NOTIFICATIONS › NEEDS YOU renders the rail's live list (needsyou.js NeedsYou.items — every ask,
      approval, STEP-IN, extension, build decision, quest confirmation, loop review and failure, each read from its own
      source), so its count, Dismiss and OPEN are the rail's. A stored entry whose wait a live row already shows (an
-     approval or question by its prompt, STEP-IN, extensions, loop reviews) is not listed or counted twice; any other
-     stored wait (a finished reply that asked a question) stays in the history below, still counted on the bell. */
+     approval or question by its prompt, STEP-IN, extensions, loop reviews) is not listed or counted twice; every other
+     stored wait (a finished reply that asked a question) is itself a row of that list (storedWaits below) until it
+     settles. So no wait is ever in the history below while it waits, and each is counted on the bell once. */
   const liveNeeds = () => (typeof NeedsYou !== 'undefined' && NeedsYou.items) ? NeedsYou : null;
   const liveCovered = n => isWaiting(n) && !!(n.prompt || n.key === 'extensions-pending' || n.key === 'loops-review' || /^stepin-/.test(String(n.key || '')));
-  const shownInHistory = n => !(liveNeeds() ? liveCovered(n) : isWaiting(n));
+  const shownInHistory = n => !isWaiting(n);
+  // the stored waits no live source covers, for NeedsYou to list (copies: the list never edits the record)
+  function storedWaits() {
+    let backfilled = false;
+    const out = store.notifs.filter(n => n && isWaiting(n) && !liveCovered(n)).map(n => {
+      if (!n.id) { n.id = uid('n'); backfilled = true; }
+      return { id: n.id, t: n.t, txt: n.txt, cls: n.cls || '', key: n.key || '', go: n.go ? Object.assign({}, n.go) : null };
+    });
+    if (backfilled) save();
+    return out;
+  }
+  // a stored wait settled from NEEDS YOU: its conversation was opened there, or it had none and was dismissed. The entry
+  // stays in the history as one that asked you (never "Handled": nobody answered it).
+  function settleStoredWait(id) {
+    const r = id ? store.notifs.find(x => x && x.id === String(id) && isWaiting(x) && !liveCovered(x)) : null;
+    if (!r) return false;
+    r.done = true; r.read = true; r.opened = true;
+    save(); badges(); if (open.notifs) rerender('notifs');
+    return true;
+  }
   function buildNotifs(body) {
     pruneLegacyNotifs();
     reapDeadPrompts();
@@ -9696,15 +9721,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const waiting = NY ? [] : store.notifs.filter(isWaiting).reverse();   // (no live list on this page: the stored entries)
     const nWaiting = NY ? live.length : waiting.length;
     const rest = store.notifs.filter(shownInHistory);
-    const unread = rest.filter(n => !n.read && !isWaiting(n)).length, restWaiting = rest.filter(isWaiting).length;
+    const unread = rest.filter(n => !n.read).length;
     const rows = rest.slice().reverse().filter(n => notifView !== 'unread' || !n.read);
     const row = (n, i) => {
       const sev = severityOf(n.cls);
       const door = !!(n.go && (n.go.ws || n.go.term));
-      /* a stored wait under the NEEDS YOU heading (no live list on this page) is tagged NEEDS YOU; with the live list, a stored
-         wait no live row covers (a finished reply that asked a question) sits in the history BELOW that section, where a
-         NEEDS YOU tag contradicted the section above it: it says what it was — the agent asked you — and stays on the bell */
-      const tag = n.kind === 'needs' ? (n.done ? 'Handled' : (NY ? 'Asked you' : 'NEEDS YOU')) : (n.kind === 'result' ? 'Finished' : 'Alert');
+      /* a stored wait under the NEEDS YOU heading (no live list on this page) is tagged NEEDS YOU. In the history every wait
+         is over: answered / its run ended (Handled), or a question you went and read without answering — its conversation
+         opened, or dismissed with no conversation left — which says what it was: the agent asked you */
+      const tag = n.kind === 'needs' ? (!n.done ? 'NEEDS YOU' : n.opened ? 'Asked you' : 'Handled') : (n.kind === 'result' ? 'Finished' : 'Alert');
       return '<div class="nf ' + esc(n.cls || '') + ' sev-' + sev + ' nf-k-' + esc(n.kind || 'alert') + (n.read ? ' read' : '') + (door ? ' nf-door' : '') + '" style="--ci:' + i + '" data-nid="' + esc(n.id) + '"' +
         (door ? ' role="button" tabindex="0" title="Open where this happened"' : '') + '>' +
         '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH[sev]) + '</span>' +
@@ -9718,14 +9743,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // to review ✓, failed work ✗, an approval / question / extension ⚠
     const LIVE_SEV = { stepin: 'gold', build: 'gold', attest: 'good', loop: 'good', failed: 'bad', routine: 'bad' };
     const liveRow = (it, i) => {
-      const dis = NY.canDismiss(it), sev = LIVE_SEV[it.kind] || 'warn';
-      return '<div class="nf ' + sev + ' sev-' + sev + ' nf-k-needs nf-door nf-live" style="--ci:' + i + '" data-ny-key="' + esc(it.key) + '" role="button" tabindex="0" data-tip="Open where this waits">' +
+      // (a stored wait whose conversation is gone has no door: no OPEN, only its Dismiss)
+      const dis = NY.canDismiss(it), sev = LIVE_SEV[it.kind] || 'warn', door = !it.noDoor;
+      const line = (it.who ? it.who + ' ' : '') + NY.lineOf(it);
+      return '<div class="nf ' + sev + ' sev-' + sev + ' nf-k-needs' + (door ? ' nf-door' : '') + ' nf-live" style="--ci:' + i + '" data-ny-key="' + esc(it.key) + '"' + (door ? ' role="button" tabindex="0" data-tip="Open where this waits"' : '') + '>' +
         '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH[sev]) + '</span>' +
         // the tag says WHERE it waits (every row here is under the NEEDS YOU heading: repeating that told nothing), and the
         // line is who + what. A wait with no time (extensions: the sidecar's pending list carries none) shows no stamp.
         '<div class="nf-copy"><div class="nf-meta"><span class="nf-kind">in ' + esc(it.where) + '</span>' + (it.since ? '<span class="nf-ts">' + notifStamp(it.since) + '</span>' : '') + '</div>' +
-        '<span class="nf-txt">' + esc(it.who + ' ' + NY.lineOf(it)) + '</span><span class="nf-go">OPEN ▸</span></div>' +
-        (dis ? '<button class="nf-x" data-ny-dismiss="' + esc(it.key) + '" data-tip="Dismiss: it leaves NEEDS YOU here and on the rail" aria-label="Dismiss ' + esc(it.who + ' ' + it.what) + '">✕</button>' : '') + '</div>';
+        '<span class="nf-txt">' + esc(line) + '</span>' + (door ? '<span class="nf-go">OPEN ▸</span>' : '') + '</div>' +
+        (dis ? '<button class="nf-x" data-ny-dismiss="' + esc(it.key) + '" data-tip="Dismiss: it leaves NEEDS YOU here and on the rail" aria-label="Dismiss ' + esc(line) + '">✕</button>' : '') + '</div>';
     };
     const needsRows = NY ? live.map(liveRow) : waiting.map(row);
     const needsHtml = needsRows.length ? '<section class="nf-needs"><h4 class="ms-h">NEEDS YOU <span class="dim">— ' + needsRows.length + ' waiting</span></h4><div class="nf-list nf-list-needs">' + needsRows.join('') + '</div></section>' : '';
@@ -9735,7 +9762,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // the counts include NEEDS YOU (shown above, in both views): "New" is the bell badge's own number, never fewer than the
       // rows on screen (self-driving lane 5 — it read "All · 0" with waiting rows listed, and New disagreed with the bell)
       '<button type="button" data-nf-view="all" aria-pressed="' + (notifView === 'all') + '">All · ' + (rest.length + nWaiting) + '</button>' +
-      '<button type="button" data-nf-view="unread" aria-pressed="' + (notifView === 'unread') + '">New · ' + (unread + restWaiting + nWaiting) + '</button></div>' +
+      '<button type="button" data-nf-view="unread" aria-pressed="' + (notifView === 'unread') + '">New · ' + (unread + nWaiting) + '</button></div>' +
       '<button class="bb sm" id="nf-clear"' + (!unread ? ' disabled' : '') + '>MARK ALL READ</button></div>' +
       '<div class="nf-list">' + (rows.length ? rows.map(row).join('') : '<div class="empty-state"><span class="es-glyph">▮</span><b>' + (notifView === 'unread' ? 'You’re all caught up' : 'Nothing yet') + '</b><span>' + (notifView === 'unread' ? 'Switch to All to see earlier ones.' : 'When an agent needs your OK, or work finishes while you’re elsewhere, it lands here.') + '</span></div>') + '</div>';
     body.querySelectorAll('[data-nf-view]').forEach(b => b.addEventListener('click', () => {
@@ -9745,7 +9772,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     body.querySelector('#nf-clear').addEventListener('click', () => {
       store.notifs.forEach(n => { if (!isWaiting(n)) n.read = true; }); save(); rerender('notifs'); badges(); sfx('click');
     });
-    body.querySelectorAll('.nf.nf-live').forEach(el => {
+    body.querySelectorAll('.nf.nf-live.nf-door').forEach(el => {
       // a session door steps NOTIFICATIONS aside with a way back (as a stored entry's go.ws does); a window door (STEP-IN,
       // EXTENSIONS, DELIVERABLES, QUESTS, GOAL LOOPS) only opens its window and keeps the focus there (as go.term does)
       const go = () => { sfx('click'); const did = NY && NY.openKey(el.dataset.nyKey); if (did && did.conversation && open.notifs) workConversation('notifs'); };
@@ -9783,18 +9810,19 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const saved = save(); badges(); rerender('notifs');
     return { cleared, waiting: liveWaitingCount(), saved };
   }
-  // what is waiting on the Commander right now: the live NEEDS YOU list + any stored wait it does not cover (else, on a
-  // page without the live list, the stored entries)
+  // what is waiting on the Commander right now: the NEEDS YOU list (its stored waits are rows of it), else, on a page
+  // without the live list, the stored entries
   function liveWaitingCount() {
     const NY = liveNeeds();
-    return NY ? NY.items().length + store.notifs.filter(x => x && isWaiting(x) && !liveCovered(x)).length : store.notifs.filter(isWaiting).length;
+    return NY ? NY.items().length : store.notifs.filter(isWaiting).length;
   }
   let lastLiveShape = null;
-  // The bell counts unread finished/alert entries AND adds the live NEEDS YOU count — never one in place of the other.
+  // The bell counts unread finished/alert entries AND adds the NEEDS YOU count — never one in place of the other. With the
+  // live list every wait is one of its rows (a stored one too), so a stored wait is counted there, once.
   function badges() {
     reapDeadPrompts();
     const NY = liveNeeds();
-    const n = store.notifs.filter(x => x && x.kind && shownInHistory(x) && (isWaiting(x) || !x.read)).length + (NY ? NY.items().length : 0);
+    const n = store.notifs.filter(x => x && x.kind && !(NY && isWaiting(x)) && (isWaiting(x) || !x.read)).length + (NY ? NY.items().length : 0);
     // the open NOTIFICATIONS window follows the live list (an ask answered on the rail, a STEP-IN handed back)
     if (NY && NY.listShape) { const sh = NY.listShape(); if (lastLiveShape !== null && sh !== lastLiveShape && open.notifs) rerender('notifs'); lastLiveShape = sh; }
     const b = $('#nf-badge');
@@ -12101,7 +12129,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // GROWTH Tier 3: repaint the Settings AUTONOMY panel's EARNED badge if it is open (no-op otherwise — the paint fn
   // queries its own (possibly detached) host nodes, so a closed panel costs nothing). Called after a trust accept.
   const repaintAutonomy = () => { try { if (repaintAutonomyDial) repaintAutonomyDial(); } catch (_) {} };
-  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, focusProvider, showTerm, showAgent, notifsMarkRead, notifsClear, badges, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
+  return { init, enter, setRoster, leave, clearRunning, runningCount: () => runningAgents.size, isAgentRunning: (id) => agentLive(id), notify, warnIfStationLacksKey, settleNotifs, waitingNotifKeys, seenSession, storedWaits, settleStoredWait, flashSave, openAgent, refreshCrew: () => crewTick(), openArcade, toggleTerm, openTerm, focusProvider, showTerm, showAgent, notifsMarkRead, notifsClear, badges, openDesk, closeTerm, rerender, refreshBoard: refreshBoardLive, pokeQuests, setTheme, getTheme, setLook, lookNow, lookOptions, repaintAutonomy, initiativeLabel, refreshSystems, toggleFamily, familyOf, registerWindow, h, motionRestState, reseatToasts };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { visibleTerminalRect, clampTerminalSize };

@@ -16,6 +16,11 @@
      WorkshopStore.pendingAll — DELIVERABLES' NEEDS A DECISION), a quest an agent says is done (QuestLedgerStore.pendingAttests),
      and goal-loop results waiting on review (LoopsReview.waiting — the loops watcher's own GET /api/loops). TO REVIEW (an
      optional rating pile) and PROPOSALS (optional, in QUESTS) are not waits and are never listed.
+   - (org P01) a wait with NO live source — above all a background conversation whose finished reply asked you a question
+     ("NOVA has a question for you", chat.js) — is the station's own stored wait (StationUI.storedWaits: unsettled, and not
+     one a live source above already shows). It is a row here until it settles the way the bell entry always did (its
+     conversation is opened — StationUI.seenSession — or its run's waits end), never a second row beside a live ask in the
+     same conversation.
    NOTIFICATIONS › NEEDS YOU renders this SAME list (StationUI buildNotifs), so its count, Dismiss and OPEN match the rail.
    Actions are the real ones: Approve / Deny answer through the approval card's own path (Chat.answerConsent) — Approve
    only when the rail's line is the whole request, else Review opens the card that shows all of it (a direct-chat ask
@@ -62,8 +67,9 @@ const NeedsYou = (() => {
      STEP-IN → Open (its window, on that handoff) · extensions → Open (ABILITIES › EXTENSIONS) · a build → Open (DELIVERABLES,
      filtered to NEEDS A DECISION) · a quest an agent says is done → Confirm / Not yet · goal-loop results → Open (GOAL LOOPS).
      A background worker's ask is already an approval row through Channels: it is never added twice. */
-  const WAIT_KINDS = new Set(['approval', 'question', 'group', 'stepin', 'attest', 'extension', 'build', 'loop']);
-  const WAIT_RANK = { approval: 0, question: 0, group: 0, stepin: 1, attest: 2, build: 2, loop: 2, extension: 2 };
+  const WAIT_KINDS = new Set(['approval', 'question', 'group', 'stepin', 'attest', 'extension', 'build', 'loop', 'asked']);
+  // (a stored wait — 'asked' — blocks no running conversation: it sorts with the station's other waits, never above an ask)
+  const WAIT_RANK = { approval: 0, question: 0, group: 0, stepin: 1, attest: 2, build: 2, loop: 2, extension: 2, asked: 2 };
   const STEPIN_WHY = { login: 'sign in', '2fa': 'enter a sign-in code', captcha: 'get past a human check', payment: 'confirm a payment', other: 'help with a page' };
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
   function blockingWaits(out, now) {
@@ -95,6 +101,36 @@ const NeedsYou = (() => {
       out.push({ key: 'build:' + m.runId, kind: 'build', who: nameOf(m.agentId), what: 'built "' + String(m.title || 'a build') + '": keep or discard it', where: 'DELIVERABLES', since: Number(m.builtAt) || 0 });
     }
   }
+  /* (org P01) THE STORED WAITS — what the station filed as waiting on you with no live source behind it (a finished reply's
+     question, chat.js 'needs:<conversation>'). Read from the station's own record (StationUI.storedWaits), one row each, in
+     the station's own words: "<who> has a question for you — <conversation>" shows who, then the line, with the
+     conversation as its "in <where>" door. A conversation a live ask or group row already lists is that row (opening it
+     lands there and settles this too), never a second row. Opening its conversation settles it (StationUI.seenSession),
+     from here or from anywhere. One with no conversation to open (none was named, or it was deleted since) has no door:
+     its "in NOTIFICATIONS" shows where it was filed, and Dismiss settles it, as its bell row's ✕ cleared it. (Every stored
+     wait that names a window — STEP-IN, EXTENSIONS, GOAL LOOPS — is a live row above, never one of these.) */
+  const SESSION_ASKS = new Set(['approval', 'question', 'group']);
+  function storedRows(out) {
+    if (typeof StationUI === 'undefined' || !StationUI || typeof StationUI.storedWaits !== 'function') return;
+    const covered = new Set(out.filter(i => i.wsId && SESSION_ASKS.has(i.kind)).map(i => String(i.wsId)));
+    for (const n of StationUI.storedWaits() || []) {
+      if (!n || !n.id) continue;
+      const goWs = n.go && n.go.ws ? String(n.go.ws) : '';
+      if (goWs && covered.has(goWs)) continue;
+      const ws = goWs ? Workstreams.get(goWs) : null;
+      let what = String(n.txt || '').trim(), who = '';
+      if (ws) {
+        // chat.js wrote whoOf(ws) + the line + sessionNote(ws): who and where show on their own, so the line is said once
+        const name = nameOf(ws.agentId || 'agent');
+        if (name && what.indexOf(name + ' ') === 0) { who = name; what = what.slice(name.length + 1); }
+        const t = String(ws.title || '').trim(), note = t ? ' — ' + (t.length > 56 ? t.slice(0, 53) + '…' : t) : '';
+        if (note && what.length > note.length && what.slice(-note.length) === note) what = what.slice(0, -note.length);
+      }
+      out.push({ key: 'asked:' + n.id, kind: 'asked', storedId: String(n.id), wsId: ws ? ws.id : '', noDoor: !ws,
+        who, what: what || 'is waiting on you', where: ws ? titleOf(ws) : 'NOTIFICATIONS', since: Number(n.t) || 0 });
+    }
+  }
+  const settleStored = i => !!(i && i.kind === 'asked' && typeof StationUI !== 'undefined' && StationUI.settleStoredWait && StationUI.settleStoredWait(i.storedId));
   // re-read the sidecar-backed waits (builds, extensions) when a minute has passed, or now (force). A failed read keeps the
   // last answer: an unreachable station is not "nothing waiting". A forced re-read asked for while a read is already on its
   // way (a keep/discard made while opening the build row started one) is never dropped: that read may have left before the
@@ -143,6 +179,7 @@ const NeedsYou = (() => {
         out.push({ key: 'group:' + id, kind: 'group', wsId: id, who: 'GROUP', what: st && st.approvals ? 'has an approval waiting' : 'has a question waiting', where: titleOf(ws), since: 0 });
       }
     }
+    storedRows(out);   // after the live asks: a conversation they already list is never a second row
     const ov = typeof Overseer !== 'undefined' && Overseer.snapshot ? Overseer.snapshot() : null;
     for (const w of ((ov && ov.workers) || [])) {
       if (!w || !['error', 'refused', 'stale'].includes(w.status) || !w.parentStreamId) continue;
@@ -204,6 +241,7 @@ const NeedsYou = (() => {
     if (i.kind === 'attest') return k('attest-yes', 'Confirm', 'primary', sending) + k('attest-no', 'Not yet', 'deny', sending);
     if (i.kind === 'routine' && i.routineId) return k('retry', 'Retry', 'primary') + k('open', 'Open');
     if (i.kind === 'failed') return k('open', 'Open') + k('dismiss', 'Dismiss', 'quiet');
+    if (i.kind === 'asked' && i.noDoor) return k('dismiss', 'Dismiss', 'quiet');   // no conversation to open: only its Dismiss
     return k('open', 'Open');
   }
   function html(list, now) {
@@ -213,7 +251,7 @@ const NeedsYou = (() => {
       + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i); return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '">'
         // the rail is narrow: who · where · how long (where wraps under who rather than being cut), what exactly on its own
         // (an ask three lines at most, any other wait in full), keys below
-        + '<div class="ny-line"><span class="ny-who">' + esc(i.who) + '</span><button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
+        + '<div class="ny-line">' + (i.who ? '<span class="ny-who">' + esc(i.who) + '</span>' : '') + '<button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
         + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + esc((KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what) + '</div>'
         + '<div class="ny-keys">' + keysFor(i) + '</div>'
         + '</li>'; }).join('') + '</ul>'
@@ -273,6 +311,7 @@ const NeedsYou = (() => {
     if (i.kind === 'extension') ui.openTerm('connectors', 'extensions');
     else if (i.kind === 'attest') ui.openTerm('quests');
     else if (i.kind === 'loop') ui.openTerm('loops');
+    else if (i.kind === 'asked') ui.openTerm('notifs');   // a stored wait with no conversation: where it was filed (Dismiss settles it)
     else if (i.kind === 'build') {
       ui.openTerm('deliverables');
       // lands on NEEDS A DECISION: the library's own status filter (the summary's "N need a decision" route)
@@ -288,6 +327,9 @@ const NeedsYou = (() => {
     if (!i || !has(App, 'openWorkstream')) return false;
     if (i.kind === 'failed') dismiss(i.key);   // you went to look at it: it has done its job here
     App.openWorkstream(i.wsId);
+    // a stored wait (a finished reply's question) settles when its conversation is opened: opening it lands there (its
+    // seenSession settles it on every route); settled here too, so this OPEN never leaves the row behind
+    if (i.kind === 'asked') settleStored(i);
     // a question lands on its question card in one hop (not on the worker's row, which only points there), and Review on
     // an approval lands on its approval card (live walk 10-14: it re-opened the session and left the card below the fold)
     if ((i.kind === 'question' || i.kind === 'approval') && i.p && typeof Chat !== 'undefined' && Chat.revealAsk && Chat.revealAsk(i.p.promptId)) return true;
@@ -299,7 +341,7 @@ const NeedsYou = (() => {
     if (kind === 'more') { expanded = !expanded; lastShape = ''; render(); return; }
     if (!i) { lastShape = ''; render(); return; }
     if (kind === 'open' || (kind === 'once' && hiddenDetail(i.p))) return open(i);   // never approve what the rail cannot show
-    if (kind === 'dismiss') { if (i.kind === 'failed') dismiss(key); lastShape = ''; render(); return; }
+    if (kind === 'dismiss') { if (i.kind === 'failed') dismiss(key); else if (canDismiss(i)) settleStored(i); lastShape = ''; render(); return; }
     if ((kind === 'attest-yes' || kind === 'attest-no') && i.kind === 'attest' && typeof QuestLedgerStore !== 'undefined' && QuestLedgerStore.confirm) {
       if (answering.has(key)) return;
       answering.add(key); render(); if (btn) btn.disabled = true;
@@ -360,8 +402,14 @@ const NeedsYou = (() => {
   // what it opened: { conversation: true } when the door was a session (NOTIFICATIONS then steps aside with a way back),
   // { conversation: false } when it was a window (STEP-IN, EXTENSIONS, DELIVERABLES, QUESTS, GOAL LOOPS keep the focus)
   function openKey(key) { const i = items().find(x => x.key === key); if (!i || !open(i)) return false; return { conversation: !!i.wsId }; }
-  function dismissKey(key) { const i = items().find(x => x.key === key); if (!i || i.kind !== 'failed') return false; dismiss(key); lastShape = ''; render(); return true; }
-  const canDismiss = i => !!i && i.kind === 'failed';
+  // Dismiss: failed work (the rail's own per-viewer dismissal), or a stored wait with no conversation to open (it settles,
+  // as its bell row's ✕ cleared it). A live wait is never dismissed away.
+  function dismissKey(key) {
+    const i = items().find(x => x.key === key); if (!canDismiss(i)) return false;
+    if (i.kind === 'failed') dismiss(key); else settleStored(i);
+    lastShape = ''; render(); return true;
+  }
+  function canDismiss(i) { return !!i && (i.kind === 'failed' || (i.kind === 'asked' && !!i.noDoor)); }
   const listShape = list => (list || items()).map(i => i.key + '\u0001' + i.what + '\u0001' + i.where).join('\u0002');
   return { items, render, openKey, dismissKey, canDismiss, lineOf, listShape, refreshFeeds, _internals: { html, age, keysFor, dismissed, feeds: () => feeds } };
 })();
