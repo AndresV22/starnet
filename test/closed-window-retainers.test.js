@@ -59,4 +59,24 @@ const sui = fs.readFileSync(path.join(__dirname, '../frontend/app/stationui.js')
   OV.build(c); OV.build(c);
   A.eq(OV._mountedCount(), 1, 'rebuilding the same host never duplicates it');
 }
+/* ---- CHANNELS: the once-wired bus handler must not close over a window's build scope; close drops the refresh + poll ----
+   (heap snapshot of the probe station: U.bus._h['channel.connect'][1] -> context -> body -> the FIRST CHANNELS window, and
+   buildMessaging._refresh / the 30 s poll's DOMTimer -> the LAST one) */
+{
+  const src = fs.readFileSync(path.join(__dirname, '../frontend/app/windows/messaging.js'), 'utf8');
+  const build = A.fnBody(src, 'function buildMessaging(');
+  A.ok(build.length > 1000 && !/U\.bus\.on\(/.test(build), 'buildMessaging creates no bus handler (a closure made there would hold its window)');
+  A.ok(/U\.bus\.on\('channel\.connect', onChannelConnect\)/.test(A.fnBody(src, 'function wireChannelHealth(')), 'the one channel.connect handler is the module-scope onChannelConnect');
+  A.ok(/wireChannelHealth\(\);/.test(build), '...wired from the build, once');
+  const registered = {}, intervals = new Set();
+  const ctx = vm.createContext({ console, document: { querySelector: () => null }, U: { bus: { on() {} } },
+    setInterval: (fn, ms) => { const id = { fn, ms }; intervals.add(id); return id; }, clearInterval: id => intervals.delete(id),
+    StationUI: { registerWindow: (k, t, fn, o) => { registered[k] = { fn, o }; }, h: { sfx() {}, notify() {}, openTerm() {}, mountConsole() {}, present: [] } } });
+  vm.runInContext(src, ctx, { filename: 'messaging.js' });
+  const m = registered.messaging;
+  A.ok(m && typeof m.o.onClose === 'function', 'CHANNELS registers a close teardown');
+  m.fn._refresh = () => {}; m.fn._poll = ctx.setInterval(() => {}, 30000);
+  m.o.onClose();
+  A.ok(m.fn._refresh === null && m.fn._poll === null && intervals.size === 0, 'closing CHANNELS drops its refresh hook and stops its 30 s poll at once');
+}
 A.report('closed-window-retainers');
