@@ -593,12 +593,16 @@ const RECOVERY_CANDIDATE_ROOTS = workspaceCandidates({
   path: path, env: process.env, platform: process.platform, homedir: () => os.homedir()
 }).concat([path.resolve(__dirname, 'workspaces'), path.resolve(__dirname, '..', 'workspaces')]);
 
+// One identity reader for every ownership check this boot makes (recovery election + lock, then the owner claim):
+// it proves a stamped PID recycled when Windows handed a hard-killed holder's PID to another process (soak 2026-10-15).
+const processIdentity = makeProcessIdentity();
 // Recovery activation must precede the owner claim and every store constructor. With no explicit request,
 // production may self-heal only one unambiguous valid legacy root; conflicts stay read-only for the picker.
 const startupWorkspaceRecovery = workspaceRecovery.applyPendingRecovery({
   fs, path, platform: process.platform, home: os.homedir(), workspaceRoot: WORKSPACES,
   candidateRoots: DEV_MODE ? [] : RECOVERY_CANDIDATE_ROOTS, auto: !DEV_MODE, now: Date.now,
-  lockBootedAt: makeBootedAt(() => Date.now())   // a recovery lock left by a pre-reboot crash must not brick every boot (exit 73)
+  lockBootedAt: makeBootedAt(() => Date.now()),   // a recovery lock left by a pre-reboot crash must not brick every boot (exit 73)
+  lockProcessIdentity: processIdentity            // ...nor one whose holder PID was recycled within this boot
 });
 if (startupWorkspaceRecovery && startupWorkspaceRecovery.lockUnavailable) {
   // A LIVE concurrent process holds the parent-level recovery lock — it may be renaming this very
@@ -642,7 +646,7 @@ if (devWorkspaceSafety.protected) {
 // proves a recycled PID dead too: a stamped PID whose CURRENT process was created after the claim (soak
 // 2026-10-15: the dead holder's PID had become a cmd.exe) is not the holder; an unreadable identity stays busy.
 const workspaceOwner = makeWorkspaceOwner({ fs: fs, path: path, now: () => Date.now(), bootedAt: makeBootedAt(() => Date.now()),
-  processIdentity: makeProcessIdentity() });
+  processIdentity: processIdentity });
 /* CRASH-LOOP CIRCUIT BREAKER (crash-ledger.js, 2026-09-03 audit). Every fault exit (uncaught exception → exit 1,
    owner refusal → exit 73) is appended to <WORKSPACES>/.crash-ledger.json. The THIRD fault exit inside 10 minutes
    TRIPS the breaker: the process stays alive in DEGRADED mode (health 503 naming the loop) instead of exiting
