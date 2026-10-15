@@ -13,6 +13,45 @@ const { makeSubagentManager } = require('../sidecar/subagents.js');
   assert.equal(isCoordinatorRun({ agentId: 'agent', surface: 'interactive', lead: true, floorless: true }), false, 'channel approvals do not opt external conversations in');
   assert.equal(isCoordinatorRun({ agentId: 'agent', surface: 'autonomous', lead: true, syntheticTrigger: true }), true, 'already-admitted orchestration can follow through');
   assert.equal(isCoordinatorRun({ agentId: 'agent', surface: 'interactive', lead: true, internal: true }), false, 'internal helper requests do not coordinate the crew');
+
+  /* station.read_session as the OVERSEER answers it (org P29-sys review): the interactive lead's session.peek reaches
+     overseerStation, never the page handler, so a goal-loop step (a user-role turn the Commander never typed) must read as
+     the station's 'Goal step: <goal>' HERE too, from transcript rows and from the saved-history fallback alike. */
+  {
+    const { readSessionTurns } = require('../sidecar/overseer.js');
+    const GL = require('../frontend/app/goalloop.js');
+    const sent = GL.continuationPrompt(GL.create('ship the landing page', { now: 1 }));
+    const rows = [
+      { role: 'user', content: 'set up the launch' },
+      { role: 'user', content: sent },
+      { role: 'user', content: '[Continuing toward your standing goal]\nGoal: old goal\n\nContinue working toward this goal. ' },
+      { role: 'tool', content: 'ignored' },
+      { role: 'assistant', content: 'Drafted the hero.' }
+    ];
+    const read = readSessionTurns(rows, []);
+    assert.deepEqual(read.map(t => t.speaker), ['user', 'station', 'station', 'assistant'], 'goal steps (current + pre-org-pass head) read as the station, never as the Commander');
+    assert.equal(read[1].text, 'Goal step: ship the landing page', 'the step names its goal, never the internal continuation prompt');
+    assert.equal(read[1].sys, true, 'flagged as a station line');
+    assert.equal(read[2].text, 'Goal step: old goal', 'an old saved step too');
+    assert.ok(!read.some(t => /Continue working toward this goal|\[Continuing toward/.test(t.text)), 'no continuation prompt text reaches the reading lead');
+    assert.equal(read[0].text, 'set up the launch', 'the Commander\'s own words are untouched');
+    // the saved workstream history fallback (no transcript rows yet) reads the same way, and a delegated brief keeps its speaker
+    const fb = readSessionTurns([], [
+      { role: 'user', content: 'hidden', hidden: true },
+      { role: 'user', content: sent },
+      { role: 'user', from: 'agent', content: '[Continuing toward your session goal]\nGoal: not a step\n\nContinue working toward this goal. ' },
+      { role: 'assistant', content: 'ok' }
+    ]);
+    assert.deepEqual(fb.map(t => [t.speaker, t.text.slice(0, 20)]), [['station', 'Goal step: ship the '], ['user', '[Continuing toward y'], ['assistant', 'ok']],
+      'the saved-history fallback labels the step too; a delegated brief (m.from) keeps its own speaker; hidden turns stay out');
+    assert.equal(sent, GL.continuationPrompt(GL.create('ship the landing page', { now: 1 })), 'what the goal loop sends the model for its own continuation is unchanged');
+    // and overseerStation's read_session is wired through it (sidecar/index.js is never required here: it boots a sidecar)
+    const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+    const at = idx.indexOf("if (verb === 'station.read_session') {");
+    const block = at >= 0 ? idx.slice(at, idx.indexOf('return stationBridge.request(verb, args);', at)) : '';
+    assert.ok(/readSessionTurns\(\s*transcriptStore\.history\(w\.id, \{[^}]*\}\), w\.history\)/.test(block) && !/speaker: m\.role/.test(block),
+      'overseerStation answers read_session through readSessionTurns (no raw speaker: m.role mapping left)');
+  }
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-overseer-'));
   let serial = 0;
   const saved = { generalId: 'home', workstreams: [{ id: 'home', title: null, agentId: 'agent' }], deletedIds: [] };

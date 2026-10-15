@@ -4,6 +4,8 @@
 // Existing conversations remain owned by the save store; newly delegated threads
 // are adopted by the page using their stable IDs. No credentials are persisted.
 const { makeDomainStore } = require('./domain-store.js');
+// the ONE goal-step predicate every history reader shares (pure UMD module; the page loads the same file)
+const GoalLoop = require('../frontend/app/goalloop.js');
 
 function isCoordinatorRun(o) {
   return o.agentId === 'agent' && !o.internal && !o.floorless
@@ -293,4 +295,22 @@ function makeOverseer(deps) {
   }
   return { threads, resolve, create, ensure, projectHome, collect, patchReview, withThread, snapshot, stopReviews, resumeReviews, membersOf, refreshReview };
 }
-module.exports = { makeOverseer, isCoordinatorRun };
+/* station.read_session as the OVERSEER answers it (org P29-sys review, 2026-10-14). The lead's session.peek in an interactive
+   coordinator run is wired to overseerStation (sidecar/index.js), which answers read_session itself and never reaches the
+   page's handler in stationcommands.js. A goal-loop step is stored as a user-role turn the Commander never typed: here it
+   reads as the STATION's line naming the goal ('Goal step: <goal>', speaker 'station'), never as the Commander's words, so
+   the lead cannot tell the user "you asked me to continue…". Both heads (session + the pre-org-pass standing goal) and the
+   saved-history fallback go through GoalLoop.stepOfTurn. What the goal loop SENDS the model for its own continuation is
+   untouched: this is only how another session's history reads. */
+function readTurn(m) {
+  const step = GoalLoop.stepOfTurn(m);
+  if (step != null) return { speaker: 'station', sys: true, text: ('Goal step: ' + step).slice(0, 3000) };
+  return { speaker: m.role, text: String(m.content || '').slice(0, 3000) };
+}
+// transcript rows first (already limited by the caller); the saved workstream history (last 12 visible turns) when none
+function readSessionTurns(rows, history) {
+  const turns = (rows || []).filter(m => m && ['user', 'assistant'].includes(m.role)).map(readTurn);
+  if (turns.length) return turns;
+  return (history || []).filter(m => m && !m.hidden && !m.internal && ['user', 'assistant'].includes(m.role)).slice(-12).map(readTurn);
+}
+module.exports = { makeOverseer, isCoordinatorRun, readSessionTurns };

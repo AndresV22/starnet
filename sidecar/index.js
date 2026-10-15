@@ -5350,11 +5350,10 @@ function overseerStation(parentStreamId, parentRunId) {
       }
       if (verb === 'station.read_session') {
         const w = overseer.resolve(args.session);
-        const turns = transcriptStore.history(w.id, { limit: Math.max(1, Math.min(30, Number(args.limit) || 12)) })
-          .filter(m => ['user', 'assistant'].includes(m.role)).map(m => ({ speaker: m.role, text: String(m.content || '').slice(0, 3000) }));
-        const fallback = (w.history || []).filter(m => !m.hidden && !m.internal && ['user', 'assistant'].includes(m.role))
-          .slice(-12).map(m => ({ speaker: m.role, text: String(m.content || '').slice(0, 3000) }));
-        return { ok: true, result: { id: w.id, title: w.title, turns: turns.length ? turns : fallback,
+        // a goal-loop step reads as the station's 'Goal step: <goal>', never the Commander's words (overseer.js readSessionTurns)
+        const turns = require('./overseer.js').readSessionTurns(
+          transcriptStore.history(w.id, { limit: Math.max(1, Math.min(30, Number(args.limit) || 12)) }), w.history);
+        return { ok: true, result: { id: w.id, title: w.title, turns,
           busy: subagents.list().some(r => r.streamId === w.id && r.status === 'running') } };
       }
       return stationBridge.request(verb, args);
