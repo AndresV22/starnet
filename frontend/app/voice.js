@@ -981,6 +981,11 @@ const Voice = (() => {
     reflectToggle();
     if (message) coordinatorEvent('onSpeechInterrupted', { message });
   }
+  /* Speaker off: a note about speech is moot — and nothing else would ever put it away. Only a new SPOKEN reply
+     (or a click) clears it, and a muted station opens none, so a note raised in Local Live stayed under the
+     COMMS keys for good once ending the call restored the mute (2026-10-15 report). EVERY path that turns the
+     speaker off calls this — the speaker key, /voice off, and the two restores of a mute voice mode lifted. */
+  function speakerOffClearsNote() { if (interruptionMessage) showInterruption(''); }
   function failReply(stage, job, error) {
     if (job.seq !== speakSeq) return;
     recordSpeechEvent(stage, { chunk: playIdx, characters: job.text.length,
@@ -1210,7 +1215,7 @@ const Voice = (() => {
     stopSpeaking();
     // restore the speaker mute that voice-mode-on force-flipped — don't let a transient mode permanently
     // clobber a deliberate preference (only if the user didn't manually re-touch the speaker meanwhile).
-    if (forcedSpeak) { forcedSpeak = false; speakReplies = false; savePref(LS_SPEAK, false); reflectToggle(); }
+    if (forcedSpeak) { forcedSpeak = false; speakReplies = false; savePref(LS_SPEAK, false); speakerOffClearsNote(); reflectToggle(); }
     reflectMode();
     if (was && !busyNow()) setStatus('online');
     if (was) coordinatorEvent('onState', 'ended');
@@ -1934,7 +1939,7 @@ const Voice = (() => {
     speakReplies = !speakReplies; savePref(LS_SPEAK, speakReplies);
     forcedSpeak = false;   // a manual speaker change is the user's own choice — keep it (don't restore on voice-mode exit)
     clearNeuralCold();     // ANY toggle re-probes the neural path fresh — no cold-off survives a deliberate flip
-    if (!speakReplies) { muteStopSpeaking(); if (interruptionMessage) showInterruption(''); }   // speaker off: a note about speech is moot
+    if (!speakReplies) { muteStopSpeaking(); speakerOffClearsNote(); }
     else prewarmVoice();   // turning ON → quietly warm the stock lines so mutters/samples play instantly
     reflectToggle();
     // the COMMS speaker key sounds like every other COMMS key (and the bottom docks): press(), not the Click_02 tick
@@ -1943,10 +1948,11 @@ const Voice = (() => {
   function setSpeakReplies(on) {
     const want = on !== false;
     clearNeuralCold();     // ANY toggle re-probes the neural path fresh — no cold-off survives a deliberate flip
-    if (speakReplies === want) { reflectToggle(); return speakReplies; }
+    // already off still clears: `/voice off` runs stopConvo first, which may have restored the mute already
+    if (speakReplies === want) { if (!want) speakerOffClearsNote(); reflectToggle(); return speakReplies; }
     speakReplies = want; savePref(LS_SPEAK, speakReplies);
     forcedSpeak = false;
-    if (!speakReplies) { muteStopSpeaking(); if (interruptionMessage) showInterruption(''); }
+    if (!speakReplies) { muteStopSpeaking(); speakerOffClearsNote(); }
     else prewarmVoice();
     reflectToggle();
     return speakReplies;
@@ -2036,7 +2042,7 @@ const Voice = (() => {
     },
     restoreSpeak: () => {
       if (!forcedSpeak) return false;          // the Commander's own choice — never undo it
-      forcedSpeak = false; speakReplies = false; savePref(LS_SPEAK, false); reflectToggle();
+      forcedSpeak = false; speakReplies = false; savePref(LS_SPEAK, false); speakerOffClearsNote(); reflectToggle();
       return true;
     },
     // Which transcription engine is ACTUALLY selected right now ('recorder' | 'web' | 'native'). A UI that

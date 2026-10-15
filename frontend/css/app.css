@@ -1421,7 +1421,7 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 /* SLASH COMMANDS — a filterable palette floating directly above the input. Phosphor list, selected row lit. */
 .chat-slash {
   position: absolute; left: 6px; right: 6px; bottom: calc(100% + 4px); z-index: 30;
-  max-height: 244px; overflow-y: auto;
+  max-height: min(244px, var(--comms-fit, 244px)); overflow-y: auto;
   background: var(--panel); border: 1px solid var(--ph); border-radius: 6px;
   box-shadow: 0 -6px 20px rgba(0,0,0,.6), 0 0 0 2px rgba(0,0,0,.5);
 }
@@ -1570,8 +1570,9 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 .mdt-hint { color: var(--ph-dim); font-size: 10px; letter-spacing: 0.5px; margin-top: 6px; opacity: 0.85; }
 .model-dock {
   position: absolute; right: 8px; bottom: calc(100% + 8px); z-index: 80;
-  width: min(322px, calc(100vw - 34px)); max-height: min(70vh, 414px);
+  width: min(322px, calc(100vw - 34px)); max-height: min(70vh, 414px, var(--comms-fit, 100vh));
   display: flex; flex-direction: column; gap: 7px; padding: 9px;
+  overflow-y: auto; overscroll-behavior: contain;   /* --comms-fit: the room under the agent header (glass-comms.js) */
   color: var(--ph); background: var(--panel);
   border: 2px solid var(--ph); border-radius: 4px;
   box-shadow: 0 0 0 2px var(--ink), 0 0 22px var(--ph-glow2);
@@ -1687,7 +1688,9 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
   .model-dock-model-name { max-width: 74px; font-size: 12px; letter-spacing: 0.3px; }
   .model-dock-effort-chip { display: none; }
   .model-dock-tip { max-width: min(74vw, 244px); }
-  .model-dock { position: fixed; left: 8px; right: 8px; bottom: 120px; width: auto; max-height: min(62vh, 410px); }
+  /* full composer width, rising from the composer's top edge. Never `fixed`: the blurred #chat-panel is a fixed
+     box's containing block, so a fixed bottom offset was measured from the PANEL's floor and sank into the composer. */
+  .model-dock { position: absolute; left: 8px; right: 8px; bottom: calc(100% + 8px); width: auto; max-height: min(62vh, 410px, var(--comms-fit, 100vh)); }
   .model-dock-list { max-height: 220px; }
 }
 
