@@ -379,7 +379,7 @@ test('a worker question is ONE hop away: revealAsk lands on its question card, r
   const log = { querySelectorAll: () => cards };
   const pend = [{ promptId: 'q1', tool: 'brief.ask', workerAgentId: 'MIRA' }, { promptId: 'p2', tool: 'fs.write' }];
   const c = ctx(part(chat, '  function revealAsk(promptId) {', '  function pinLoadedHistoryAfterLayout('), {
-    log, activeWs: { id: 'ws1' }, Channels: { pendingAllOf: () => pend },
+    log, activeWs: { id: 'ws1' }, Channels: { pendingAllOf: () => pend }, noteAskLanding() {},
     permissionRow: (p) => { drawn.push(p.promptId); cards.push(mkCard(String(p.promptId))); }, revealHistory: el => revealed.push(el.dataset.clarifyPrompt) });
   assert.equal(c.revealAsk('q1'), true, 'a missing card is drawn again from the open ask'); assert.deepEqual(drawn, ['q1']); assert.deepEqual(revealed, ['q1']);
   assert.equal(c.revealAsk('q1'), true); assert.deepEqual(drawn, ['q1'], 'a card already showing is revealed, never drawn twice');

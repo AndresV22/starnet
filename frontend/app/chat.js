@@ -162,6 +162,7 @@ const Chat = (() => {
   function topInLog(el) { const k = log.offsetHeight ? (log.getBoundingClientRect().height / log.offsetHeight) || 1 : 1; return (el.getBoundingClientRect().top - log.getBoundingClientRect().top) / k; }
   function holdCard(el) { log.scrollTop += topInLog(el) - 8; stick = false; heldCard = el; heldScrollTop = log.scrollTop; hideNewPill(); }
   function revealCard(el) {
+    noteAskLanding();   // a live question / approval card is on screen: an offer panel over COMMS steps aside for its keys
     if (!log || !el || !el.getBoundingClientRect || !log.clientHeight) { autoscroll(); return; }   // COMMS has no layout (behind CREW / ACTIVITY / cinema): nothing to reveal
     if (heldCard && heldCard !== el && log.contains(heldCard)) { if (!heldQueue.includes(el)) heldQueue.push(el); return 'queued'; }
     if (!stick) { autoscroll(); return; }
@@ -226,6 +227,7 @@ const Chat = (() => {
       if (p) { permissionRow(p, activeWs); card = find(); }
     }
     if (!card) return false;
+    noteAskLanding();   // NEEDS YOU › Review / Answer: the card it lands on is never under an offer panel
     revealHistory(card);
     if (card.dataset.liveAsk) { heldCard = card; heldScrollTop = log.scrollTop; heldQueue.length = 0; hideNewPill(); }   // answering it resumes the follow
     try { card.focus({ preventScroll: true }); } catch (_) { /* focus is a courtesy: the card is already in view */ }
@@ -5867,6 +5869,7 @@ const Chat = (() => {
     return !!(pendingTaskQuestion && activeWs && pendingTaskQuestion.streamId === activeWs.id);
   }
   function offerTaskQuestion(tq) {
+    noteAskLanding();   // …and an offer panel over COMMS steps aside, so the question's answer chips are never under it
     clearNudge();   // the question CLAIMS the moment: a live gentle nudge leaves whole (prompt + chips) — its chip
                     // row would be wiped by choices() below anyway, and a stuck activeNudge would mute beats forever
     pendingTaskQuestion = Object.assign({}, tq, { streamId: activeWs && activeWs.id });
@@ -6422,18 +6425,36 @@ const Chat = (() => {
      the paid decomposition call happens only after the arc has actually won the moment. Confirm persists the tree (GoalStore.confirm); Not-now re-offers only when the belief
      changes (GoalStore.declineDecomposition). One confirm per task end, never stacked (the shared arbiter). */
   function arcBlocked() {
+    if (askWaiting()) return true;   // the panel would stand over that ask's keys (soak 2026-10-15)
     // the SAME stand-down set the study beat honors (a confirm panel must never render mid-awakening/interview/
     // tutorial-panel or while the next run streams). Reuses studyBlocked for one home for the guard set.
     if (typeof studyBlocked === 'function') return studyBlocked();
     return isBusy() || interview;
   }
+  // does an ask wait on the Commander — an approval / question card live in COMMS, a run that ended on a question, or any ask
+  // the station holds open (a background worker's approval outlives the run that handed the work off)?
+  function askWaiting() {
+    if (taskQuestionLive()) return true;
+    if (log && log.querySelector && log.querySelector('[data-live-ask]')) return true;
+    return !!(typeof Channels !== 'undefined' && Channels.allPending && Channels.allPending().length);
+  }
+  /* AN ASK OWNS COMMS OVER AN OFFER PANEL (soak 2026-10-15). The goal-path panel opened over COMMS at a run end and stayed: the
+     Commander's next message went out from the box it covered, the run asked for a team.dispatch approval, and the card landed
+     UNDER the panel — 19 approve clicks hit the panel's line. An offer panel (Dialogue.open({ offer })) now steps aside,
+     unanswered, the moment an approval or question reaches the Commander — asked-for or not, since a paused run is waiting on
+     them — and when they send a turn of their own (its reply would stream under it). Never a decline: it is offered again. */
+  function stepOfferAside(why) { return !!(typeof Dialogue !== 'undefined' && Dialogue.stepAside && Dialogue.stepAside(why)); }
+  function noteAskLanding() { return stepOfferAside('ask'); }
+  // ANY approval or question raised for the Commander (a run's own, a delegated worker's, a group's, a background one) steps an
+  // offer panel aside before its card draws: "defer while an ask waits" (askWaiting keeps it from re-opening meanwhile)
+  if (typeof U !== 'undefined' && U.bus && U.bus.on) U.bus.on('permission.prompt', noteAskLanding);
   /* A DELIVERY LANDING OWNS COMMS OVER THE ARC (rc review 2026-10-14). deliveryLanding() stands the arc down at offer time, but
      the offer then waits seconds on the decomposition call, and the panel stays up until it is answered: a worker's hand-back
      (deliverTurns) or a saved file that lands in that window was hidden behind it. Every landing bumps deliveryLandSeq; an
      offer in flight stands down when it moved, and an open panel steps aside — unanswered, never a decline, so the arc is
      offered again at a later run end. A panel the Commander opened themselves (PLAN A PATH) stays until they answer it. */
   let deliveryLandSeq = 0, arcYield = null;
-  const STEPPED_ASIDE = { steppedAside: true };
+  const STEPPED_ASIDE = { steppedAside: true }, NOT_NOW = { notNow: true };
   function noteDeliveryLanding() {
     deliveryLandSeq++;
     if (arcYield) arcYield();
@@ -6462,25 +6483,30 @@ const Chat = (() => {
       });
       if (!arcBeat) return;
       let path = res.texts.slice();
-      // an unasked panel steps aside for a delivery landing (see noteDeliveryLanding): `stepped` resolves the wait it is in
-      let stepAside = null;
-      const stepped = askedFor ? null : new Promise(r => { stepAside = r; });
-      const unlessLanding = p => stepped ? Promise.race([p, stepped]) : p;
-      if (stepAside) arcYield = () => stepAside(STEPPED_ASIDE);
+      /* the panel's ways out besides its own keys — `left` resolves the wait it is in: it STEPS ASIDE, unanswered, for an ask
+         reaching the Commander or their own turn (Dialogue.stepAside, see noteAskLanding) and — an unasked panel only — for a
+         delivery landing (noteDeliveryLanding); Esc answers it NOT NOW, exactly like its key. It is an offer, so it ends above
+         the message box (Dialogue armOffer). */
+      let leave = null;
+      const left = new Promise(r => { leave = r; });
+      const unlessLeft = p => Promise.race([p, left]);
+      if (!askedFor) arcYield = () => leave(STEPPED_ASIDE);
       try {
-        Dialogue.open({ name: (name || 'AGENT') });
+        Dialogue.open({ name: (name || 'AGENT'), offer: { notNow: () => leave(NOT_NOW), stepAside: () => leave(STEPPED_ASIDE) } });
         opened = true;
-        if (await unlessLanding(Dialogue.say('i think i see the path to that goal — here’s how i’d break it down. does this look right?')) === STEPPED_ASIDE) return opened;
+        const heard = await unlessLeft(Dialogue.say('i think i see the path to that goal — here’s how i’d break it down. does this look right?'));
+        if (heard === STEPPED_ASIDE) return opened;
         const linesOf = ts => ts.map((t, i) => (i + 1) + '. ' + t).join('\n');
         // Confirm / Not-now + an ✎ EDIT custom path (allowCustom): typing a revised path (steps separated by a
         // newline OR a semicolon) replaces it, then re-applies the pure floor/cap on Confirm. The custom text is
         // user-typed (never model markup); Dialogue renders it via textContent only.
-        const choice = await unlessLanding(Dialogue.node({
+        let choice = heard === NOT_NOW ? NOT_NOW : await unlessLeft(Dialogue.node({
           lines: linesOf(path),
           options: [ { label: 'confirm the path', value: 'confirm' }, { label: 'not now', value: 'other', skip: true } ],
           allowCustom: true, customLabel: 'edit the milestones', customPlaceholder: 'your milestones, separated by ; …'   // Dialogue draws the ✎ itself (it read "✎✎")
         }));
         if (choice === STEPPED_ASIDE) return opened;   // unanswered: no confirm, no decline, no learning signal
+        if (choice === NOT_NOW) choice = { value: 'other', label: 'not now', skip: true };   // Esc = the panel's own NOT NOW key
         if (Dialogue.isOpen && Dialogue.isOpen()) Dialogue.close();
         // route the choice through the PURE resolver (Goals.resolveConfirmChoice, behaviorally tested): an explicit
         // Confirm or a VALID edit (≥3 steps) persists; a too-short edit is a REJECTION of the model tree and
@@ -10638,6 +10664,7 @@ const Chat = (() => {
     const wiId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('wi-' + Date.now() + '-' + (++wiSeq));
     const wiPlacedTs = Date.now();
     let wiPlaced = false;   // set below iff a crate actually rode — every wi* beat downstream gates on it
+    stepOfferAside('turn');   // the Commander's own turn: an offer panel over COMMS steps aside so the exchange shows
     stick = true;   // sending a message means you want to watch the exchange — re-follow the bottom
     // TIMESTAMP TRUTH (P0): stamp the turn with its REAL wall-clock time at push, and render the same instant on
     // screen — so a later replay/switch shows this turn's actual time, never the reload clock.

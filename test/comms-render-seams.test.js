@@ -275,7 +275,7 @@ const { makeStationControlTools } = require('../sidecar/tools/builtin/station-co
           confirm: () => ({}), declineDecomposition: () => { log.decline++; } },
         Dialogue: { open: () => { log.open++; isOpen = true; }, say: () => new Promise(r => { sayDone = r; }), node: () => new Promise(() => {}),
           isOpen: () => isOpen, close: () => { log.close++; isOpen = false; } },
-        slotCanArc: () => 'free', studyBlocked: () => false, clearNudge() {}, turninQueue: [], activeTurnin: null, showNextTurnin() {},
+        slotCanArc: () => 'free', studyBlocked: () => false, taskQuestionLive: () => false, log: null, clearNudge() {}, turninQueue: [], activeTurnin: null, showNextTurnin() {},
         beatCards: { generation: () => 1, claim: () => ({ decide() {}, finish() { log.finished++; } }) },
         name: 'NOVA', recAccept() {}, recDecline: () => { log.recDecline++; }
       });
