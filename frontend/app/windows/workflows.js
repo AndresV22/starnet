@@ -86,6 +86,9 @@ const WorkflowsWindow = (() => {
         loops: (flow.gates || []).some(g => g.kind === 'loop'), outbox: flow.outbox && flow.outbox.propId, outboxes: (c.outboxes || []).slice(), sends: Object.values(plan.sendTo || {}).filter(s => s.fromLine === c.key) });
     });
     for (const l of lines) { l.sendNames = [...new Set(l.sends.map(s => { const to = lines.find(x => x.key === s.toLine); return Pp.lineWord(to && to.name, (st.lineName && st.lineName(s.toLine)) || 'ANOTHER LINE'); }))]; l.sendsAll = l.outboxes.length > 0 && l.outboxes.length <= l.sends.length; }
+    // the lines whose SEND TO feeds this one (org wire AUTO-P15-1): the same sender rule as BUILD's FED BY (Pipeline.lineSenders — a
+    // sender counts only if it can run), named the way sendNames are — STARTS says 'when LINE A sends its finished work'
+    for (const l of lines) l.senderNames = [...new Set((Pp.lineSenders ? Pp.lineSenders(plan, l.key) : []).map(id => { const from = lines.find(x => x.key === id); return Pp.lineWord(from && from.name, (st.lineName && st.lineName(id)) || 'ANOTHER LINE'); }))];
     return { st, lines };
   }
   const lineOf = (f, key) => (f && f.lines.find(l => l.key === key)) || null;
@@ -109,9 +112,12 @@ const WorkflowsWindow = (() => {
   }
   const jobsOf = key => (S.jobs || []).filter(j => j.line === key);
   // the start facts (org P15): World's feed poll — the STARTS line repaints once the server has answered
+  /* a poll that ENDED with nothing answered (the station down or restarting, a page with no feed API) never leaves STARTS on 'checking…'
+     (org wire AUTO-P15-2): S.startsPolled marks that a read was tried, so startsText says what could not be read */
   function pollStarts() {
-    if (typeof World === 'undefined' || !World.pollFeed) return;
-    try { Promise.resolve(World.pollFeed()).then(() => { if (S.view === 'line') schedule(); }, () => {}); } catch (e) { /* the line keeps saying checking… */ }
+    const done = () => { S.startsPolled = true; if (S.view === 'line') schedule(); };
+    if (typeof World === 'undefined' || !World.pollFeed) { S.startsPolled = true; return; }
+    try { Promise.resolve(World.pollFeed()).then(done, done); } catch (e) { done(); }
   }
   /* the job the station's ONE sample slot is riding (this window's SEND / the panel's SEND A JOB). A job another line HANDED
      ON (SEND TO, `from`) is not it: it holds no sample lock, the sample STOP cannot stop it, and it never blocks sending (10-11) */
@@ -662,16 +668,21 @@ const WorkflowsWindow = (() => {
      as off, never as a start. ⊕ MAKE IT AUTOMATIC opens the ONE place starts are made (EDIT WORKFLOW › INBOX › Or start it
      automatically) — never a second trigger editor here; working folder and LINE BUDGET stay there too. */
   function startsText(l) {
-    const Wl = W(), facts = (typeof World !== 'undefined' && World.startFacts) ? World.startFacts() : null;
+    const read = (typeof World !== 'undefined' && World.startFacts) ? World.startFacts() : null;
+    // a read that was tried and came back with nothing is UNREAD (every fact unknown), never 'checking…' forever
+    const Wl = W(), facts = read || (S.startsPolled ? { chans: null, cron: null, lt: null } : null);
     if (!Wl || !Wl.lineStarts || !l.flow || !facts) return null;
     const human = d => { const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } })();
       return (typeof CronHuman !== 'undefined' && CronHuman.describeDisplay) ? CronHuman.describeDisplay(d, { tz }) : String(d == null ? '' : d); };
     let st;
     try { st = Wl.lineStarts(l.flow, { lt: facts.lt, lineKey: l.key, cron: facts.cron, chans: facts.chans, agents: roster(), human }); } catch (e) { return null; }
-    const auto = [].concat(st.schedules || [], (st.channels || []).map(c => 'when a ' + c + ' message arrives'), st.events || []);
+    // another line's SEND TO starts this one too (the panel's '✓ FED — LINE A sends its finished work here'; BUILD's FED BY)
+    const fed = (l.senderNames || []).map(n => 'when ' + n + ' sends its finished work');
+    const auto = [].concat(st.schedules || [], (st.channels || []).map(c => 'when a ' + c + ' message arrives'), st.events || [], fed);
     // a schedule the E-STOP holds is named as the E-STOP (the /cron line and the Workflow panel say 'stopped (E-STOP)'), never as an OFF switch
     const offWhy = facts.cron && facts.cron.halted ? ' (stopped by E-STOP)' : ' (scheduling is off)';
-    const off = (st.offSchedules || []).map(s => s + offWhy);
+    // …and a folder/webhook trigger or a channel the server holds back (E-STOP, the day cap, not connected) is a start, held, with its reason
+    const off = (st.offSchedules || []).map(s => s + offWhy).concat(st.held || []);
     // World keeps a fact only once its endpoint has answered: a fact never read is UNKNOWN, so 'by hand only' would be a claim it can't prove
     const unread = [facts.cron ? '' : 'schedules', facts.chans ? '' : 'channels', facts.lt ? '' : 'folder/webhook triggers'].filter(Boolean);
     const unknown = unread.length ? ' · ' + unread.join(', ').replace(/, ([^,]*)$/, ' and $1') + ' could not be read' : '';

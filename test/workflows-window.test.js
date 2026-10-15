@@ -309,6 +309,31 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.eq(WW._startsText(l0), 'by hand · schedules could not be read', 'unread schedules are said unread, never as by hand only');
     ctx.World.startFacts = () => ({ cron: { enabled: true, halted: false, jobs: [job] }, lt: null, chans: null });
     A.eq(WW._startsText(l0), 'by hand · every 6h · channels and folder/webhook triggers could not be read', 'a known start still shows beside the facts that were not read');
+    /* (org wire AUTO-P15-1) a start the server HOLDS is a start, held, with the server's reason — never 'by hand only' beside the panel's
+       paused trigger; and another line's SEND TO into this one is a start (the panel's ✓ FED, BUILD's FED BY) */
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: true, jobs: [] }, chans: {},
+      lt: { triggers: [{ id: 't2', lineId: l0.key, kind: 'folder', enabled: true, blockedBy: 'automation is stopped (E-STOP) — resume it and this trigger fires again', config: { path: 'C:/in' } }] } });
+    A.eq(WW._startsText(l0), 'by hand · when a file lands in C:/in (waiting: automation is stopped (E-STOP) — resume it and this trigger fires again)', 'a folder trigger the E-STOP holds is said as held, with the server\'s reason');
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: false, jobs: [] }, lt: { triggers: [] },
+      chans: { telegram: { configured: true, connected: false, agentId: st.propById(entry).agentId, agentName: 'Nova' } } });
+    const chanSaid = WW._startsText(l0);
+    A.ok(/^by hand · when a Telegram message arrives \(not connected\)$/.test(chanSaid), 'a channel that answers as the first step but is not connected is a held start: ' + chanSaid);
+    const digestOut = st.props().find(p => p.t === 'outbox' && P.lineComponents(st.projectGeometry()).some(c => c.intakes.includes(iidOf('Digest')) && (c.outboxes || []).includes(p.id)));
+    function iidOf(label) { const p = st.props().find(x => x.t === 'intake' && x.label === label); return p && p.id; }
+    A.ok(!!digestOut && st.setSendTo(digestOut.id, l0.intakeId).ok === true, 'fixture: LINE DIGEST sends its finished work to this line');
+    ctx.World.startFacts = () => ({ cron: { enabled: true, halted: false, jobs: [] }, lt: { triggers: [] }, chans: {} });
+    const fedL = WW._floor().lines.find(x => x.key === line.key);
+    A.eq(WW._startsText(fedL), 'by hand · when LINE DIGEST sends its finished work', 'a line fed by another line\'s SEND TO says so, never by hand only');
+    A.ok(st.setSendTo(digestOut.id, null).ok === true, 'fixture: the SEND TO is taken back');
+    A.eq(WW._startsText(WW._floor().lines.find(x => x.key === line.key)), 'by hand only', '…and without it the line is by hand only again');
+    // (org wire AUTO-P15-2) a feed poll that came back with NOTHING answered never leaves STARTS on 'checking…' forever
+    ctx.World.startFacts = () => null;
+    const polledWas = S.startsPolled;
+    S.startsPolled = false;
+    A.eq(WW._startsText(l0), null, 'before any read has finished: checking…');
+    S.startsPolled = true;
+    A.eq(WW._startsText(l0), 'by hand · schedules, channels and folder/webhook triggers could not be read', 'a read that came back empty says what could not be read');
+    S.startsPolled = polledWas;
     // org P16's RUN BY reads the same entry the INBOX form's schedule fires at
     const sl = WW.startLines().find(x => x.key === l0.key);
     A.ok(sl && sl.dockId === entry && sl.agentId === 'nova', 'startLines: the line\'s first routed step and its agent (SCHEDULES › RUN BY)');
