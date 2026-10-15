@@ -19567,6 +19567,20 @@ function latestUserText(list) {
   }
   return '';
 }
+/* A FILE NAME IS NOT A HOST (soak 10-15): DomainTask.classify asks whether a dotted name ("about.me", "logo.ai") is a
+   file that already exists where this run's relative paths land — its project folder when it has one, and the agent's
+   own workspace — so naming that file never turns the run into a one-site check that withholds team.* and web_search.
+   A few sync stats once per run admission; a stat that cannot be read counts as "no such file" and is noted. */
+function runFileExists(agentId, projectRoot) {
+  const roots = [];
+  if (typeof projectRoot === 'string' && projectRoot.trim()) roots.push(path.resolve(projectRoot.trim()));
+  try { roots.push(path.resolve(WORKSPACES, fsJail.safeAgentId(agentId || 'agent'))); }
+  catch (e) { failNote('domaintask.workspace-root', e); }
+  return (name) => roots.some(root => {
+    try { const st = fs.statSync(path.join(root, String(name)), { throwIfNoEntry: false }); return !!(st && st.isFile()); }
+    catch (e) { failNote('domaintask.file-probe', e); return false; }
+  });
+}
 /* recentUserText — the WIDENED recall query: the last up-to-3 user turns' text, oldest→newest, joined. A
    follow-up like "yes, do that" carries no significant tokens of its own; ranking recall against the prior
    asks too keeps the memory fence on-topic instead of empty (rank()'s relevance floor drops zero-overlap
@@ -19777,7 +19791,7 @@ async function runOnceCore(o) {
   // at admission lets the prompt, advertised tools, dispatch guard, and terminal-evidence stop share one truth.
   // A /v1 run (o.toolsOptional, #96) is offered tools but keeps its pre-#96 admission: no image/domain task class, so
   // "generate an image" on a tool-less model still answers in text instead of "Image task blocked: no STUDIO".
-  const directDomainTask = isTask && !o.toolsOptional ? DomainTask.classify(latestUserText(messages)) : null;
+  const directDomainTask = isTask && !o.toolsOptional ? DomainTask.classify(latestUserText(messages), { isFile: runFileExists(agentId, o.projectRoot) }) : null;
   const imageTask = isTask && !o.toolsOptional ? ImageTask.classify(latestUserText(messages)) : null;
   // P1-6 per-agent model/provider OVERRIDE: when a run carries NO explicit model/provider (headless hub, delegated
   // worker, or any caller that didn't pass one), fall back to THIS AGENT's pinned identity in the roster before the

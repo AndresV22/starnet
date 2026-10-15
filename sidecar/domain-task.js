@@ -9,7 +9,7 @@
    language, and no request to locate alternatives/history/the correct URL. The host then uses the
    policy at three independent seams: prompt guidance, delegation restraint, and terminal evidence.
    False negatives merely keep the ordinary research path; false positives are avoided by the
-   explicit exclusion vocabulary below. */
+   explicit exclusion vocabulary below — and a FILE NAME is never the host (namesFile). */
 'use strict';
 (function (root, factory) {
   const api = factory();
@@ -18,7 +18,9 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const HOST_RE = /\b(?:https?:\/\/)?((?:[a-z0-9](?:[a-z0-9-]{0,62})\.)+[a-z]{2,63})(?::\d+)?(?:[\/?#][^\s]*)?/ig;
+  // The suffix must END the dotted word: without the lookahead "deploy.ps1" read as the host deploy.ps, "song.mp3" as
+  // song.mp and "libfoo.so.6" as libfoo.so. Group 2 is the trailing path/query/fragment, read by namesFile below.
+  const HOST_RE = /\b(?:https?:\/\/)?((?:[a-z0-9](?:[a-z0-9-]{0,62})\.)+[a-z]{2,63})(?![a-z0-9_]|\.[a-z0-9])(?::\d+)?([\/?#][^\s]*)?/ig;
   // Bare dotted words are admitted only when their final label is an assigned country-code suffix or a
   // well-known generic public suffix. This is intentionally conservative: a false negative keeps ordinary
   // research behavior, while treating Cargo.toml as a host can terminate real work early.
@@ -28,7 +30,25 @@
   // NXDOMAIN handling without a live domain. Other special-use labels collide with common files (`.env.example`,
   // `widget.test`) and therefore stay on the conservative non-domain path.
   const PUBLIC_SUFFIXES = new Set(COUNTRY_SUFFIXES.concat(GENERIC_SUFFIXES, ['invalid']));
-  const DIRECT_RE = /\b(check|check out|visit|open|read|inspect|browse|look at|review)\b|\b(docs?|documentation|website|site)\b/i;
+  /* A FILE NAME IS NOT A HOST (overnight soak 10-15). These public suffixes are also everyday file extensions — .md
+     Moldova, .py Paraguay, .sh Saint Helena, .rs Serbia, .pl Poland, .cc Cocos, .tf, .gd, .in … — and a
+     lowercase "main.py" / "notes.md" / "soak-poem-x.md" beside "review"/"open"/"check" was read as ONE exact website:
+     the run lost team.* and web_search, and a delegated worker was cut to 3 tools. A bare token with one of these
+     suffixes is a website only on web evidence (namesFile below). MIXED suffixes are everyday websites AND file
+     extensions (claude.ai / logo.ai, notion.so / libfoo.so): a host unless the sentence is about files. Suffixes that
+     are rarely file extensions (.com .io .me .to .tv .ly .gg …) stay hosts unless the name is a file this run can see
+     or the sentence calls it a file. */
+  const FILE_SUFFIXES = new Set('ac am cc gd gs in md mk ml mm mo pl pm ps py rs sc sh sv tf'.split(' '));
+  const MIXED_SUFFIXES = new Set(['ai', 'so']);
+  // words that put a sentence in a file/code task (tested with the token itself cut out, so "code.py" proves nothing)
+  const FILE_WORD_RE = /\b(?:files?|file\s?names?|scripts?|modules?|source|code|codebase|repo|repository|folders?|director(?:y|ies)|workspace|bugs?|fix|debug|refactor|compile|lint|tests?|functions?|class(?:es)?|methods?|imports?|edit|rewrite|write|create|save|rename|append|update|modify|delete|run|execute|line\s+\d+|diff|commit|traceback|stack\s?trace|syntax|crash(?:es)?|errors?)\b/i;
+  // words that say the token is a place on the web
+  const WEB_WORD_RE = /\b(?:web\s?sites?|sites?|web\s?pages?|home\s?pages?|landing\s+pages?|urls?|links?|domains?|online|internet|visit(?:ing)?|brows(?:e|ing)|docs?|documentation)\b/i;
+  const IN_FILE_BEFORE_RE = /\b(?:in|into|inside|within)\s+(?:the\s+)?[`'"([]?$/i;      // "in guide.md", "into notes.md"
+  const NAMED_FILE_BEFORE_RE = /\bfiles?\s+(?:(?:named|called)\s+)?[`'"([]?$/i;        // "a file named x.md", "the file x.md"
+  const FILE_AFTER_RE = /^[`'")\]]?\s+files?\b/i;                                         // "the notes.md file"
+  // "I'll check back later" is not an inspection of anything.
+  const DIRECT_RE = /\b(check(?!\s+back\b)|check out|visit|open|read|inspect|browse|look at|review)\b|\b(docs?|documentation|website|site)\b/i;
   const EXPANSIVE_RE = /\b(find|locate|discover)\s+(?:the\s+)?(?:correct|right|official|new|current)\b|\b(alternatives?|similar sites?|where (?:it|the site) moved|domain history|archives?|wayback|compare|across the web)\b|\bsearch\s+(?:the\s+)?web\s+for\b/i;
   /* AN API CALL IS NOT A PAGE READ (issue #58). The policy withholds web_request, so a task that calls one host's
      API ("POST to https://api.x.com/v1/items with ${MY_KEY}, then check the response") lost the only tool that
@@ -50,7 +70,26 @@
     return String(host || '').trim().toLowerCase().replace(/^www\./, '').replace(/\.+$/, '');
   }
 
-  function hostsOf(text) {
+  /* Is this BARE token (no scheme, no www.) a file name rather than a host? m is a HOST_RE match on src.
+     opts.isFile(name) — supplied by the run host — answers whether that exact name exists where this run's
+     relative paths land; a name that exists there is a file, whatever its suffix. */
+  function namesFile(src, m, suffix, opts) {
+    const token = m[1];
+    if (opts && typeof opts.isFile === 'function' && opts.isFile(token)) return true;
+    const before = src.slice(Math.max(0, m.index - 48), m.index);
+    const after = src.slice(m.index + m[0].length, m.index + m[0].length + 24);
+    if (NAMED_FILE_BEFORE_RE.test(before) || FILE_AFTER_RE.test(after)) return true;
+    const fileLike = FILE_SUFFIXES.has(suffix);
+    if (!fileLike && !MIXED_SUFFIXES.has(suffix)) return false;
+    if (IN_FILE_BEFORE_RE.test(before)) return true;
+    const tail = m[2] || '';
+    if (/^\/[^\s\/]/.test(tail)) return false;            // docs.rs/tokio — a URL path ("main.py?" and "notes.md#x" are not)
+    const rest = src.slice(0, m.index) + ' ' + src.slice(m.index + m[0].length);
+    if (FILE_WORD_RE.test(rest)) return true;
+    return fileLike && !WEB_WORD_RE.test(rest);            // no web evidence: a file-like suffix stays a file
+  }
+
+  function hostsOf(text, opts) {
     const found = [];
     const seen = new Set();
     const src = String(text || '');
@@ -66,15 +105,16 @@
       // remain case-insensitive when explicit; for a bare ambiguous token, declining classification is safer.
       if (!explicitUrl && m[1] !== m[1].toLowerCase()) continue;
       if (!explicitUrl && !PUBLIC_SUFFIXES.has(suffix)) continue;
+      if (!explicitUrl && !/^www\./i.test(m[1]) && namesFile(src, m, suffix, opts)) continue;
       if (!host || seen.has(host)) continue;
       seen.add(host); found.push(host);
     }
     return found;
   }
 
-  function classify(text) {
+  function classify(text, opts) {
     const src = String(text || '').trim();
-    const hosts = hostsOf(src);
+    const hosts = hostsOf(src, opts);
     if (hosts.length !== 1 || !DIRECT_RE.test(src) || EXPANSIVE_RE.test(src)) return null;
     if (API_CALL_RE.test(src) || HTTP_METHOD_RE.test(src) || INTERACTIVE_RE.test(src)) return null;
     return {

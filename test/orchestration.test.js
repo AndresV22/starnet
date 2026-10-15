@@ -135,6 +135,16 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   A.eq(row.durationMs, 12, 'dispatch result exposes worker elapsed time');
 }
 
+// ---- a FILE NAME in a worker's brief is not a one-host check: the worker keeps its ordinary budgets (soak 10-15) ----
+{
+  const ro = fakeRunOnce();
+  const roster = new Map([['coder', { system: 'C' }]]);
+  const { dispatchTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(), workerMaxIters: 16 });
+  await dispatchTool.run({ workers: [{ agentId: 'coder', prompt: 'Review main.py and fix the bug' }] }, { agentId: 'lead', runId: 'lead-run', emit: () => {} });
+  A.eq(ro.calls[0].maxIters, 16, 'a worker asked to fix main.py keeps the ordinary worker turn cap (not the 3-turn one-host cap)');
+  A.eq(ro.calls[0].maxToolCalls, undefined, 'a worker asked to fix main.py has no 3-tool one-host cap');
+}
+
 // ---- child emit forwarding: ONLY lifecycle/cost reach the lead bus (no token/COMMS pollution) ----
 {
   const ro = fakeRunOnce(async (o) => {
