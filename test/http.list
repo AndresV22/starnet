@@ -112,6 +112,7 @@ test/cron.arm.test.js
 test/lifecycle-armed.http.test.js
 test/checkpoint-store.test.js
 test/checkpoint-maintenance.test.js
+test/checkpoint-stale-lock.test.js
 test/shell.test.js
 test/shell.process-tree.test.js
 test/verify.run.test.js
