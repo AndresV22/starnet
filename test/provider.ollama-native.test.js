@@ -450,5 +450,100 @@ module.exports = (async () => {
     }
   }
 
+  /* GH#111 — THE OLLAMA CARD POINTED AT LM STUDIO. LM Studio answers a route it does not serve with HTTP 200 and ONE
+     JSON object, {"error":"Unexpected endpoint or method. (POST /api/chat)"}, and that 200 was read as the native
+     stream: a compact body surfaced the bare sentence (classified unknown, so retried), a pretty-printed one an EMPTY
+     reply. The user must be told the URL is not Ollama, and which card speaks to it. */
+  {
+    const LMS = 'Unexpected endpoint or method. (POST /api/chat)';
+    const lmStudio = (shape) => {
+      const urls = [];
+      const fetch = async (url, init) => {
+        urls.push(url);
+        const route = new URL(url).pathname;
+        if (route === '/v1/models') return new Response(JSON.stringify({ data: [{ id: 'qwen2.5-7b-instruct' }] }), { status: 200 });
+        if (route === '/v1/chat/completions') return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: 'via v1' }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n', { status: 200 });
+        const body = { error: 'Unexpected endpoint or method. (' + ((init && init.method) || 'GET') + ' ' + route + ')' };
+        const text = shape === 'pretty' ? JSON.stringify(body, null, 2) : JSON.stringify(body) + (shape === 'compact-nl' ? '\n' : '');
+        return new Response(text, { status: 200, headers: { 'Content-Type': 'application/json' } });
+      };
+      return { urls, fetch };
+    };
+    for (const shape of ['compact', 'compact-nl', 'pretty']) {
+      const s = lmStudio(shape);
+      const p = makeOpenAICompatibleProvider({ fetch: s.fetch, baseUrl: 'http://127.0.0.1:1234/v1', nativeOllama: true });
+      let err = null, ev = [];
+      try { ev = await collect(p, { model: 'qwen2.5-7b-instruct', messages: [{ role: 'user', content: 'hi' }] }); } catch (e) { err = e; }
+      A.ok(err, shape + ': a 200 "no such route" from another server is an error, never an empty reply (got ' + JSON.stringify(ev) + ')');
+      A.ok(err && /is not an Ollama server/.test(err.message), shape + ': the error says the URL is not Ollama: ' + (err && err.message));
+      A.ok(err && /127\.0\.0\.1:1234/.test(err.message), shape + ': it names the server it reached');
+      A.ok(err && /the way LM Studio does/.test(err.message), shape + ': it says what the server looked like, no more');
+      A.ok(err && /SETTINGS → AI & MODELS → CUSTOM/.test(err.message), shape + ': it names the card that speaks to that server');
+      A.ok(err && err.message.includes('[' + LMS + ']'), shape + ': the server\'s own words stay for diagnostics');
+      const cls = errorClass.classifyApiError(err, { model: 'qwen2.5-7b-instruct' });
+      A.eq([cls.reason, cls.retryable, cls.shouldFallback], ['endpoint_mismatch', false, false], shape + ': a wrong server is terminal: no retry, no fallback');
+      A.eq(cls.message, err.message, shape + ': the adapter sentence is what the run reports');
+      A.eq(s.urls.filter(u => u.endsWith('/api/chat')).length, 1, shape + ': the native chat was asked once');
+      s.urls.length = 0;
+      const again = await collect(p, { model: 'qwen2.5-7b-instruct', messages: [{ role: 'user', content: 'again' }] });
+      A.ok(!s.urls.some(u => u.endsWith('/api/chat')), shape + ': the native wire is off for this instance afterwards');
+      A.eq(again.filter(e => e.type === 'text').map(e => e.delta).join(''), 'via v1', shape + ': the next call on it uses the /v1 wire');
+    }
+    // A pretty-printed error body of any other words is still that error, never an empty success.
+    {
+      const fetch = async (url) => {
+        if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
+        if (url.endsWith('/api/chat')) return new Response(JSON.stringify({ error: 'model runner has unexpectedly stopped' }, null, 2), { status: 200 });
+        return new Response('{"data":[]}', { status: 200 });
+      };
+      let err = null, ev = [];
+      try { ev = await collect(makeOpenAICompatibleProvider({ fetch, baseUrl: 'http://127.0.0.1:11434/v1', nativeOllama: true }), { model: 'q', messages: [{ role: 'user', content: 'hi' }] }); } catch (e) { err = e; }
+      A.ok(err && err.message === 'model runner has unexpectedly stopped', 'a pretty-printed error body throws its own words (got ' + (err ? err.message : JSON.stringify(ev)) + ')');
+      A.ok(err && !err.endpointMismatch, 'and is not called a wrong server');
+    }
+    // Controls: Ollama's own first-line error keeps its words and its native wire; a body that is not JSON at all keeps
+    // today's honest cut-stream end (Ollama proxies vary, so nothing is inferred from it).
+    {
+      const urls = [];
+      const fetch = async (url) => {
+        urls.push(url);
+        if (url.endsWith('/api/show')) return SHOW(40960, ['completion', 'tools']);
+        if (url.endsWith('/api/chat')) return ndjson([{ error: 'boom' }]);
+        return new Response('{"data":[]}', { status: 200 });
+      };
+      const p = makeOpenAICompatibleProvider({ fetch, baseUrl: 'http://127.0.0.1:11434/v1', nativeOllama: true });
+      for (let i = 0; i < 2; i++) {
+        let err = null;
+        try { await collect(p, { model: 'q', messages: [{ role: 'user', content: 'hi' }] }); } catch (e) { err = e; }
+        A.eq(err && err.message, 'boom', 'an Ollama stream error keeps Ollama\'s words (call ' + (i + 1) + ')');
+        A.ok(err && !err.endpointMismatch, 'and is never called a wrong server');
+      }
+      A.eq(urls.filter(u => u.endsWith('/api/chat')).length, 2, 'the native wire stays on after Ollama\'s own error');
+      A.ok(!urls.some(u => u.endsWith('/chat/completions')), 'and nothing moved to the /v1 wire');
+      const html = makeOpenAICompatibleProvider({ baseUrl: 'http://127.0.0.1:11434/v1', nativeOllama: true, fetch: async (url) => {
+        if (url.endsWith('/api/chat')) return new Response('<html>\n<body>proxy page</body>\n</html>', { status: 200 });
+        return new Response('{"data":[]}', { status: 200 });
+      } });
+      const ev = await collect(html, { model: 'q', messages: [{ role: 'user', content: 'hi' }] });
+      A.eq(ev.map(e => e.type + ':' + e.truncated), ['done:true'], 'a non-JSON 200 body still ends as one cut (truncated) stream');
+    }
+    // The real host loop: the named error reaches agent.run.error at once, with no retry ladder swallowing it into a
+    // second (silent) attempt, and the run records why it failed.
+    {
+      const s = lmStudio('compact');
+      const seq = [], waits = [];
+      const p = makeOpenAICompatibleProvider({ fetch: s.fetch, baseUrl: 'http://127.0.0.1:1234/v1', nativeOllama: true });
+      const result = await require('../sidecar/loop.js').runAgentLoop({ provider: p, model: 'qwen2.5-7b-instruct', agentId: 'lms-test', runId: 'lms-test',
+        messages: [{ role: 'user', content: 'hello' }], emit: (name, payload) => seq.push({ name, payload }), sleep: async ms => { waits.push(ms); } });
+      A.eq(s.urls.filter(u => /\/(?:api\/chat|chat\/completions)$/.test(u)).length, 1, 'the loop sends the turn once');
+      A.eq(waits, [], 'no retry wait');
+      A.eq([result.reason, result.failureStage, result.failureCode], ['error', 'provider_stream', 'endpoint_mismatch'], 'the run records the wrong-server failure');
+      const error = seq.find(row => row.name === 'agent.run.error');
+      A.ok(error && /is not an Ollama server/.test(error.payload.message) && /CUSTOM/.test(error.payload.message), 'the error event carries the named hint: ' + (error && error.payload.message));
+      A.eq(error && error.payload.transient, false, 'and is terminal');
+      A.ok(!seq.some(row => row.name === 'provider.retry'), 'no retry is reported');
+    }
+  }
+
   A.report('provider.ollama-native.test');
 })();
