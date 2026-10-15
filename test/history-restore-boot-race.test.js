@@ -15,7 +15,8 @@
      · the message is in the conversation exactly once, earlier history intact (never lost, never doubled);
      · a station that never answers ends in the honest refusal after a bounded wait, message kept, no hot loop;
      · STOP (the send's abort) or a removed conversation ends the wait at once and asks nothing more;
-     · an answer the station gave on purpose (4xx) is final — no retry loop.
+     · an answer the station gave on purpose (4xx) is final — no retry loop;
+     · a server error (5xx) is an answer too, not silence: one fresh ask, then the honest refusal at once.
    The diagnostics (page-local events, no prose) say "loaded" only when a read really answered. */
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -184,6 +185,45 @@ async function answeredRefusalIsFinal(root) {
   assert.ok(h.requests.length <= 2, root + ': no retry loop on a deliberate refusal (' + h.requests.length + ' reads)');
 }
 
+/* A SERVER ERROR IS AN ANSWER (night-sr-fix, 2026-10-15). The station is up and answers every read at once with a
+   server error — a degraded station's 503, a broken transcript store's 500. The send above treated that like silence:
+   it asked again 12 times over the whole 45 s bound, holding the message at 'connecting…' against identical answers,
+   and test/session-reliability.e2e.test.js (transcript answering 503) hung its 30 s CDP evaluate on exactly that wait.
+   An answered failure gets ONE fresh ask (the open-time failure may be stale), then the honest refusal at once. */
+async function serverErrorRefusesAtOnce(root) {
+  const h = harness(root, { busy: true, server: (req, io) => io.respond(503, null) });
+  assert.equal(await h.api.loadServerHistory(h.w, 3), false);
+  const before = JSON.stringify(h.w.history.concat([{ role: 'user', content: SEND_TEXT }]).map(m => [m.role, m.content]));
+  const s = h.send(new AbortController().signal);
+  await h.advance(1000);
+  assert.ok(s.settled, root + ': a station that answers 503 is refused at once, not after the 45 s unanswered-read bound');
+  assert.ok(s.error && s.error.code === 'HISTORY_UNAVAILABLE', root + ': with the honest refusal');
+  assert.match(s.error.message, /history could not be restored/, root + ': worded as before');
+  assert.equal(h.requests.length, 2, root + ': the send asked the station exactly once more (' + h.requests.length + ' reads)');
+  assert.equal(JSON.stringify(h.w.history.map(m => [m.role, m.content])), before, root + ': the message is kept, nothing erased');
+  const ev = h.events();
+  assert.ok(ev.includes('send-held-history-unavailable') && !ev.includes('history-loaded') && !ev.includes('send-history-ready'), root + ': never claims a restore that did not happen');
+  await h.advance(120000);
+  assert.equal(h.requests.length, 2, root + ': and asks nothing more after refusing');
+}
+
+async function staleServerErrorAsksAgain(root) {
+  // The open-time read met a 500; the station has recovered by the time the Commander sends. The settled failure is
+  // not the answer to THIS send: it asks again at once and goes, exactly once.
+  let failing = true;
+  const h = harness(root, { busy: true, server: (req, io) => { if (failing) io.respond(500, null); } });
+  assert.equal(await h.api.loadServerHistory(h.w, 3), false);
+  failing = false;
+  const s = h.send(new AbortController().signal);
+  await h.advance(10);
+  assert.equal(s.settled, false, root + ': nothing is admitted before the history has arrived');
+  assert.equal(h.requests.length, 2, root + ': the send asks the station again at once');
+  h.respond(h.requests[1], 200, h.serverRows);
+  await h.advance(10);
+  assert.ok(s.settled && s.ok && !s.error, root + ': admitted once the recovered station answered (' + (s.error && s.error.message) + ')');
+  assert.equal(sends(h.w), 1, root + ': exactly once');
+}
+
 (async () => {
   for (const root of ['frontend/app', 'website/app/app']) {
     for (const [name, fn] of [['boot race: the first send asks again and goes once', bootRaceSendsOnce],
@@ -191,7 +231,9 @@ async function answeredRefusalIsFinal(root) {
       ['a station that never answers ends honestly', neverAnswersIsHonest],
       ['STOP ends the wait', stopEndsTheWait],
       ['a removed conversation ends the wait', removedConversationEndsTheWait],
-      ['an answered refusal is final', answeredRefusalIsFinal]]) {
+      ['an answered refusal is final', answeredRefusalIsFinal],
+      ['a server error is an answer: one fresh ask, then the honest refusal at once', serverErrorRefusesAtOnce],
+      ['a stale open-time server error is asked again', staleServerErrorAsksAgain]]) {
       try { await fn(root); A.ok(true, root + ': ' + name); }
       catch (e) { A.ok(false, root + ': ' + name + ' — ' + (e && e.message)); }
     }
