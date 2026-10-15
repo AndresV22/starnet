@@ -363,7 +363,7 @@ const tick = () => new Promise(r => setTimeout(r, 15));
     A.ok(!/TO REVIEW/.test(rated) && !/wfw-rate/.test(rated), 'a job already rated (no pending row) says nothing about TO REVIEW and offers no rating');
     ctx.ReturnStore.pendingRows = was;
     A.ok(/Chat\.awayRate\(host, rw, clear\)/.test(src) && /ReturnStore\.resolve\(rw\.runId, 'workflows'\)/.test(src), 'rating here resolves the same crate TO REVIEW holds (the windows/outbox.js path), naming itself so ReturnStore repaints TO REVIEW');
-    A.ok(/\brefresh\b/.test(src.slice(src.lastIndexOf('return {'))) && /const refresh = \(\) => \{ if \(alive\(\)\) schedule\(\); \}/.test(src), 'WORKFLOWS exports refresh (ReturnStore\'s nudge when its run is rated in TO REVIEW or COMMS), a no-op while closed');
+    A.ok(/\brefresh\b/.test(src.slice(src.lastIndexOf('return {'))) && /const refresh = runIds => \{\s*if \(!alive\(\)\) return;/.test(src), 'WORKFLOWS exports refresh (ReturnStore\'s nudge when its run is rated in TO REVIEW or COMMS), a no-op while closed (returnstore-rate-sync runs it: only the shown run\'s rating repaints)');
     A.ok(!/toreview/.test(src) && !/waiting in DELIVERABLES/.test(src), 'no TO REVIEW door and no handler for one anywhere in WORKFLOWS');
     A.ok(src.includes('The result comes back here, lands in this line’s OUTBOX and is also filed in DELIVERABLES.'), 'the send helper says the result lands in this line\'s OUTBOX and is also filed in DELIVERABLES (one wording with the panel, g7 D7)');
   }
