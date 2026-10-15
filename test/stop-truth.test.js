@@ -216,7 +216,7 @@ function stopRig(opts) {
       { id: 'g2:report:1', status: 'reviewing', parentStreamId: 'ws-other', reviewRunId: 'review-run-2' },   // another conversation's
       { id: 'g3:report:1', status: 'done', parentStreamId: 'ws1', reviewRunId: 'review-run-0' }              // a finished one
     ];
-    const r = stopRig({ Harness: { cancel: rid => { cancels.push(rid); return Promise.resolve({ ok: true }); }, api: { get: async p => { gets.push(p); return { reviews }; } } } });
+    const r = stopRig({ Harness: { cancel: rid => { cancels.push(rid); return Promise.resolve({ ok: true, stopped: true }); }, api: { get: async p => { gets.push(p); return { reviews }; } } } });
     Channels.begin('ws1', Date.now());   // the send is out, the station has not started it: "connecting"
     A.eq(Channels.runIdOf('ws1'), null, 'fixture: the waiting send has no run id yet');
     r.ctx.__stop('click');
@@ -224,7 +224,7 @@ function stopRig(opts) {
     for (let i = 0; i < 5; i++) await new Promise(res => setTimeout(res, 0));
     A.eq(gets, ['/api/overseer'], 'the station\'s own list of reports is read fresh at STOP time');
     A.eq(cancels, ['review-run-1'], 'STOP reaches exactly the report holding THIS conversation — never another conversation\'s, never a finished one');
-    A.ok(r.lines.some(l => /also ended the report on your delegated work/i.test(l)), 'one line says the report was stopped too: ' + JSON.stringify(r.lines));
+    A.eq(r.lines.filter(l => /also ended the report on your delegated work/i.test(l)).length, 1, 'one line says the report was stopped too: ' + JSON.stringify(r.lines));
   }
   {
     // a send that has its run id is stopped by that id alone: no report lookup, no extra stop
@@ -242,6 +242,64 @@ function stopRig(opts) {
     r.ctx.__stop('click');
     for (let i = 0; i < 5; i++) await new Promise(res => setTimeout(res, 0));
     A.ok(!r.lines.some(l => /report/i.test(l)), 'a refused report stop claims nothing: ' + JSON.stringify(r.lines));
+  }
+  {
+    // the line is said only for a stop the STATION proves (review 2026-10-14): /api/cancel answers 200 for an id it no longer
+    // holds, so a report that finished between the read and the stop, or a 'reviewing' row left over from a restart, used to
+    // print "STOP also ended the report…" over nothing. { stopped:false }, or an answer that does not say, claims nothing.
+    for (const answer of [{ ok: true, stopped: false }, { ok: true }]) {
+      const cancels = [];
+      const r = stopRig({ Harness: { cancel: rid => { cancels.push(rid); return Promise.resolve(answer); }, api: { get: async () => ({ reviews: [{ status: 'reviewing', parentStreamId: 'ws1', reviewRunId: 'review-run-1' }] }) } } });
+      Channels.begin('ws1', Date.now());
+      r.ctx.__stop('click');
+      for (let i = 0; i < 5; i++) await new Promise(res => setTimeout(res, 0));
+      A.eq(cancels, ['review-run-1'], 'the stop is still asked for (' + JSON.stringify(answer) + ')');
+      A.ok(!r.lines.some(l => /report/i.test(l)), 'a stop the station did not prove claims nothing (' + JSON.stringify(answer) + '): ' + JSON.stringify(r.lines));
+    }
+  }
+  {
+    // THE STATION HALF OF THE CONTRACT (review 2026-10-14). The page finds the report by reading GET /api/overseer for a row
+    // { status:'reviewing', parentStreamId:<this conversation>, reviewRunId } and stops it by that id through /api/cancel.
+    // Nothing above can see the station, so these pins break the moment either side stops matching.
+    const idx = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
+    const ovs = fs.readFileSync(path.join(__dirname, '../sidecar/overseer.js'), 'utf8');
+    const tick = A.fnBody(idx, 'async function tickOverseer');
+    A.ok(tick.length > 1000, 'tickOverseer located');
+    const thread = tick.indexOf('await overseer.withThread(parent.id, async () => {');
+    const patch = tick.indexOf("overseer.patchReview(review.id, { status: 'reviewing', reviewRunId: runId");
+    const reg = tick.indexOf('runs.set(runId, reviewAbort);');
+    const run = tick.indexOf('signal: reviewAbort.signal, streamId: parent.id, runId,');
+    A.ok(thread > 0 && patch > thread && reg > patch && run > reg, 'inside the conversation\'s turn, the report row reads reviewing + its run id, then that run id is registered in runs (what /api/cancel stops), then the report runs on that signal for that conversation');
+    A.ok(!/await/.test(tick.slice(patch, reg)), 'nothing awaits between the row naming the run and the run becoming stoppable');
+    A.ok(tick.slice(reg).includes('finally { runs.delete(runId);'), 'and it leaves runs when it ends (a stop after that proves nothing)');
+    const routeAt = idx.indexOf("{ m: 'GET', exact: '/api/overseer', h:");
+    A.ok(routeAt > 0 && idx.slice(routeAt, routeAt + 300).includes('respondJson(res, 200, { ...overseer.snapshot(),'), 'GET /api/overseer hands the page overseer.snapshot() as is (reviews included)');
+    A.ok(A.fnBody(ovs, 'function snapshot').includes('reviews: copy(state.reviews)'), 'the snapshot lists every review row unchanged');
+    A.ok(A.fnBody(ovs, 'function freshReviews').includes('parentStreamId: lead.parentStreamId,'), 'a report row carries the conversation it reports into');
+    // and /api/cancel says whether it stopped anything: run the REAL handler against the real respond.js helpers
+    const respond = require('../sidecar/respond.js');
+    const cancelSrc = A.fnBody(idx, 'async function handleCancel');
+    A.ok(cancelSrc.length > 100, 'handleCancel located');
+    const call = async (body, runs, handles) => {
+      const out = { code: 0, headers: null, body: '' };
+      const res = { headersSent: false, writeHead(c, h) { out.code = c; out.headers = h || null; this.headersSent = true; }, end(b) { out.body = String(b == null ? '' : b); } };
+      const readBody = async () => body;
+      const fn = new Function('readJsonBody', 'readBody', 'respondJson', 'runs', 'runStopHandles', cancelSrc + ';return handleCancel;')(respond.readJsonBody, readBody, respond.json, runs, handles);
+      await fn({}, res);
+      return out;
+    };
+    const bodyOf = o => { try { return JSON.parse(o.body); } catch (e) { return 'not json: ' + o.body; } };
+    const aborted = [];
+    const live = new Map([['review-run-1', { abort: () => aborted.push('review-run-1') }]]);
+    const hop = new Map([['hop-1', { abort: () => aborted.push('hop-1') }]]);
+    let o = await call(JSON.stringify({ runId: 'review-run-1' }), live, new Map());
+    A.eq([o.code, bodyOf(o), aborted], [200, { ok: true, stopped: true }, ['review-run-1']], 'a live run is aborted and the answer says it was stopped');
+    o = await call(JSON.stringify({ runId: 'hop-1' }), new Map(), hop);
+    A.eq([o.code, bodyOf(o)], [200, { ok: true, stopped: true }], 'a routine/line run reached by its stop handle is stopped too');
+    o = await call(JSON.stringify({ runId: 'gone' }), live, hop);
+    A.eq([o.code, bodyOf(o)], [200, { ok: true, stopped: false }], 'an id the station no longer holds still answers 200 (nothing to stop is not an error) but says nothing was stopped');
+    o = await call('{not json', live, hop);
+    A.eq(o.code, 400, 'bad json is still a 400');
   }
 
   // ── 2. the stopped run's open asks settle everywhere once the station CONFIRMS the stop ──

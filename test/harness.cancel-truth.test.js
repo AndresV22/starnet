@@ -36,6 +36,13 @@ const fetchDown = async () => { throw new TypeError('Failed to fetch'); };
   A.eq([down.ok, down.transport], [false, true], 'a thrown fetch is ok:false and flagged transport (LINK DOWN wording upstream)');
   A.ok(/Failed to fetch/.test(down.error), 'the original transport error is kept, not invented');
   A.eq((await cancel(fetchOk)('')).ok, false, 'no run id -> ok:false (nothing was cancelled)');
+  // (review 2026-10-14) the station's answer says whether a live run was there to stop; the page passes that fact on
+  // unchanged, and never invents it when the answer does not say
+  const fetchSays = said => async () => ({ ok: true, status: 200, json: async () => said });
+  A.eq(await cancel(fetchSays({ ok: true, stopped: true }))('r1'), { ok: true, stopped: true }, 'stopped:true from the station is passed on');
+  A.eq(await cancel(fetchSays({ ok: true, stopped: false }))('r1'), { ok: true, stopped: false }, 'stopped:false (the id was already gone) is passed on — still a confirmed 2xx');
+  A.eq(await cancel(fetchSays({ ok: true, stopped: 'yes' }))('r1'), { ok: true }, 'a non-boolean stopped is not trusted');
+  A.eq(await cancel(async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token o'); } }))('r1'), { ok: true }, 'a 2xx whose body is not JSON is still ok, and says nothing about stopped');
 
   /* ---- Harness.consentAck: same honesty ---- */
   const consentAck = lift('consentAck');

@@ -1229,7 +1229,11 @@ const Harness = (() => {
     try {
       const r = await fetch('/api/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }) });
       if (!r.ok) return { ok: false, error: 'the station refused the stop (http ' + r.status + ')', status: r.status };
-      return { ok: true };
+      // ADDITIVE (2026-10-14): the station says whether a live run was there to stop. Passed on only when it says so —
+      // a body that is not JSON is still a confirmed stop, it just proves nothing more.
+      let said = null;
+      try { said = typeof r.json === 'function' ? await r.json() : null; } catch (e) { said = null; }
+      return said && typeof said.stopped === 'boolean' ? { ok: true, stopped: said.stopped } : { ok: true };
     } catch (e) { return { ok: false, error: (e && e.message) || String(e), transport: true }; }
   }
 
