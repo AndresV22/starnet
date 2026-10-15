@@ -621,6 +621,13 @@ for (const raw of [
   const codexAuth = friendlyError(Object.assign(new Error('codex http 401 — Unauthorized'), { status: 401 }));
   A.eq(codexAuth.provider, 'codex', 'a codex 401 names codex');
   A.eq(actionButton(codexAuth).label, '⏼ RECONNECT CHATGPT', 'its door reconnects ChatGPT');
+  // (org P03 wiring) and its words say the same thing as that door: the sign-in was refused, never "no model is connected"
+  for (const [raw, status] of [['codex http 401 — Unauthorized', 401], ['codex http 403 — Forbidden', 403], ['codex http 401 — {"error":"token has expired"}', 401]]) {
+    const v = friendlyError(Object.assign(new Error(raw), { status }));
+    A.eq(v.userMessage, 'ChatGPT refused this sign-in — reconnect it (or add a provider key instead).', 'a ChatGPT ' + status + ' names the refused sign-in: ' + raw);
+    A.ok(v.userMessage !== KINDS.auth.msg, 'never the bare "No model is connected yet" beside RECONNECT CHATGPT');
+    A.eq(actionButton(v).label, '⏼ RECONNECT CHATGPT', 'copy and door agree for ' + raw);
+  }
 }
 
 A.report('friendlyerror.test');
