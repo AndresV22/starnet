@@ -47,7 +47,12 @@ A.ok(/r\.hidden = !showAll && i >= FEW/.test(outbox), 'rows past the first few w
 A.ok(/RS\.resolveAll\(ids\)/.test(outbox) && /ArmConfirm\.wire\(clearAll,/.test(outbox), 'CLEAR ALL arms, then collects every crate in one go');
 // org pass 10-14 (P12): the key says what it does (files them unrated), and the dim line says what the list holds
 A.ok(/class="bb sm ob-clearall" data-tip="Takes every run off this list without a rating[^"]*">' \+ markLabel\(rows\.length\)/.test(outbox) && /const markLabel = n => '✓ MARK ALL ' \+ n \+ ' REVIEWED';/.test(outbox) && /b\.textContent = 'MARK ALL ' \+ list\.children\.length \+ ' REVIEWED — SURE\?'/.test(outbox), 'the clear key reads ✓ MARK ALL N REVIEWED (armed: MARK ALL N REVIEWED — SURE?, the count in one place), a glass key with a data-tip (no title=)');
-A.ok(/armedLabel: 'MARK ALL REVIEWED — SURE\?'/.test(outbox) && /'Marked ' \+ ids\.length \+ ' reviewed\. The work stays in your library\.'/.test(outbox), 'its armed label and toast say mark reviewed');
+A.ok(/armedLabel: 'MARK ALL REVIEWED — SURE\?'/.test(outbox) && /'Marked ' \+ ids\.length \+ ' reviewed\. Nothing was deleted\.'/.test(outbox), 'its armed label and toast say mark reviewed');
+// org live walk 10-14 (P12): a run with no files is NOT in the library (sidecar deliverableRows drops it), so no TO REVIEW
+// copy may say every row is — the note, MARK ALL's tip and its toast claimed it for 3 of 4 rows
+A.ok(!/already in the library|work stays in your library/i.test(outbox), 'no TO REVIEW text claims every row is filed in the library');
+A.ok(/const reviewNote = 'Away runs and workflow jobs waiting for your rating\. Files they made are in the library below; each one keeps its session \(↗ OPEN SESSION\)\./.test(outbox) && /class="consent-btn ob-open">↗ OPEN SESSION</.test(outbox), 'the note says what is true of every row: files in the library, the run in its session (every row carries ↗ OPEN SESSION)');
+A.ok(/data-tip="Takes every run off this list without a rating\. Nothing is deleted: files stay in your library, each run in its session\."/.test(outbox), 'MARK ALL\'s tip says nothing is deleted, without claiming library filing');
 A.ok(/Away runs and workflow jobs waiting for your rating/.test(outbox) && /Chats are rated in COMMS/.test(outbox) && !/waiting for your verdict \(/.test(outbox), 'the TO REVIEW dim line names what it holds');
 A.ok(/<span class="dlv-review-lbl">TO REVIEW<\/span> <span class="dlv-review-n">' \+ rows\.length/.test(outbox) && /<p class="dim dlv-review-note">' \+ reviewNote/.test(outbox), 'P12 polish: the heading is one line (TO REVIEW N); what it holds is a note under it');
 A.ok(!/CLEAR ALL ' \+ (rows|live)\.length/.test(outbox), 'no second CLEAR ALL label sits above the library’s own CLEAR ALL');

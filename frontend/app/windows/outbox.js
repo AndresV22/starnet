@@ -72,10 +72,12 @@
   function buildOutbox(body) {
     // what TO REVIEW really holds (org pass 10-14, P12): ReturnStore.pendingRows = runs that finished while you were away
     // (schedules too) plus folded line jobs, workflow samples and SEND TO hand-offs — never an attended chat, which is
-    // rated in COMMS. Each one is ALREADY filed in the library below; this list is only the rating reminder.
+    // rated in COMMS. This list is only the rating reminder: what a run made is filed in the library below, and every row keeps
+    // its session. A run that made no files is NOT in the library (sidecar deliverableRows drops it), so the copy never says
+    // every row is (org live walk 10-14: the note, MARK ALL's tip and its toast all claimed library filing for 3 of 4 rows).
     /* ONE CLEAN HEADING (org pass 10-14, P12 polish): '▾ TO REVIEW 3' on one line, like every other section heading — the count
        is its own number, not buried mid-sentence — and what the list holds is a dim note UNDER it, never a hanging paragraph */
-    const reviewNote = 'Away runs and workflow jobs waiting for your rating — they’re already in the library below. Chats are rated in COMMS.';
+    const reviewNote = 'Away runs and workflow jobs waiting for your rating. Files they made are in the library below; each one keeps its session (↗ OPEN SESSION). Chats are rated in COMMS.';
     // the count sits after ALL, idle and armed alike ('✓ MARK ALL 3 REVIEWED' → 'MARK ALL 3 REVIEWED — SURE?'), the way the
     // toolbar's CLEAR ALL 3 carries its own (P12 polish 2)
     const markLabel = n => '✓ MARK ALL ' + n + ' REVIEWED';
@@ -85,7 +87,7 @@
     body.hidden = !rows.length;
     body.innerHTML =
       '<h4 class="ms-h dlv-review-h"><button type="button" class="dlv-review-tog" aria-expanded="true"><span class="ob-caret-all" aria-hidden="true">▾</span> <span class="dlv-review-lbl">TO REVIEW</span> <span class="dlv-review-n">' + rows.length + '</span></button>' +
-        '<button type="button" class="bb sm ob-clearall" data-tip="Takes every run off this list without a rating — the work stays in your library.">' + markLabel(rows.length) + '</button></h4>' +
+        '<button type="button" class="bb sm ob-clearall" data-tip="Takes every run off this list without a rating. Nothing is deleted: files stay in your library, each run in its session.">' + markLabel(rows.length) + '</button></h4>' +
       '<p class="dim dlv-review-note">' + reviewNote + '</p>' +
       '<div id="ob-list" class="ob-list"></div>' +
       '<button type="button" class="bb sm ob-showall" hidden></button>' +
@@ -99,7 +101,7 @@
     /* A LIST THAT CAN'T BURY THE LIBRARY (2026-10-10): a routine left running overnight used to stack 30+ tall cards here,
        pushing the library thousands of pixels down with no way to fold them. Now the heading folds the whole section (the
        choice is remembered), only the first FEW rows show until SHOW ALL, and CLEAR ALL collects every crate in one go —
-       the work itself stays in the library below; only the "waiting for your verdict" reminder goes. */
+       nothing is deleted (files stay in the library below, each run in its session); only the "waiting for your verdict" reminder goes. */
     const FOLD_KEY = 'starnet.dlv.review.open', FEW = 3;
     let sectionOpen = true; try { sectionOpen = localStorage.getItem(FOLD_KEY) !== '0'; } catch (_) {}
     let showAll = false;
@@ -123,7 +125,7 @@
     const clearEvery = () => {
       const ids = Array.from(list.children).filter(r => r.dataset.collected !== '1').map(r => r.dataset.runId).filter(Boolean);
       if (RS && RS.resolveAll) RS.resolveAll(ids); else if (RS && RS.resolve) ids.forEach(id => RS.resolve(id));
-      notify('Marked ' + ids.length + ' reviewed. The work stays in your library.', '');
+      notify('Marked ' + ids.length + ' reviewed. Nothing was deleted.', '');
       renderEmpty();
     };
     if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) ArmConfirm.wire(clearAll, { armedLabel: 'MARK ALL REVIEWED — SURE?', onArm: b => { b.textContent = 'MARK ALL ' + list.children.length + ' REVIEWED — SURE?'; }, onDisarm: paintFold, onConfirm: clearEvery });

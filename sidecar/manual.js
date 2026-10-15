@@ -66,7 +66,7 @@ const NAV_AUTOMATION =
 const NAV_REST =
   '- MY WORK (dock, in the WORK group): TASKS (the project board; cards are real workstreams, and assigning one opens ' +
   'COMMS and hands that work to an agent), DELIVERABLES (everything the crew finished, with TO REVIEW on top for ' +
-  'away runs and workflow jobs waiting for the Commander\'s rating — already filed in the library; chats are rated in COMMS), RECIPES (ready-made jobs).\n' +
+  'away runs and workflow jobs waiting for the Commander\'s rating — files they made are in the library; chats are rated in COMMS), RECIPES (ready-made jobs).\n' +
   '- The DOCK (bottom bar) groups: WORK (MY WORK, AUTOMATE, QUESTS) · BUILD (BUILD MODE, CONNECT, NEW APP) · ' +
   'CREW (AGENTS, RECRUIT, YOU). RECRUIT opens the Recruitment Bay.\n' +
   '- CONNECT › ABILITIES (dock, in the BUILD group): **the one place external platforms get connected**, and the home ' +
@@ -169,7 +169,7 @@ const CONCEPTS =
   'webhook (or off). Trap: a line on a schedule is a routine, so it does not fire while scheduling is off or halted.\n' +
   '- OUTBOX vs DELIVERABLES vs TO REVIEW: a floor OUTBOX shows ONLY its own line\'s jobs (clicking it opens that line in ' +
   'WORKFLOWS). Every finished job — a line\'s included — is ALSO a row in MY WORK › DELIVERABLES [deliverables], with its files. ' +
-  'TO REVIEW [to-review] is the top of DELIVERABLES: away runs and workflow jobs waiting for the Commander\'s rating (already filed in the library; chats are rated in COMMS, never here), hidden when empty. ' +
+  'TO REVIEW [to-review] is the top of DELIVERABLES: away runs and workflow jobs waiting for the Commander\'s rating (files they made are in the library; chats are rated in COMMS, never here), hidden when empty. ' +
   'You: deliverable_note names your own work there; station.control deliverables.cleanup clears discarded/failed records (records only, ' +
   'deliverables.restore undoes it). Trap: never say an OUTBOX holds every result.\n' +
   '- RECIPES [recipes]: ready-made job templates; launching one opens a new session and sends the filled-in job to the current ' +
