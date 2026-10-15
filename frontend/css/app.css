@@ -6060,10 +6060,21 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
 .con-intents + .con-rail-list { padding-left: 10px; }
 .ws-kind-filter { display: flex; gap: 3px; margin: 5px 0; }
 .ws-kind-filter button { flex: 1; min-width: 0; padding: 5px 2px; font-size: 11px; }
-.ws-auto-group { list-style: none; margin-top: 8px; }
-.ws-auto-group button { display: grid; width: 100%; min-width: 0; text-align: left; padding: 7px 8px; border: 1px solid var(--ph-faint); }
-.ws-auto-group span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws-auto-group small { color: var(--ph-dim); font-size: 10px; }
+/* a routine is ONE rail row, its newest run (Andrew 10-15): "21 runs" on that row folds its older runs out under it.
+   Plain text in the row's own voice (the title's size in a one-line row), never a boxed header */
+#workstreams .ws-runs {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-height: 0; padding: 0; margin: 0;
+  font: inherit; font-size: 14px; letter-spacing: .3px; color: var(--ph-dim); white-space: nowrap; cursor: pointer;
+  background: none; border: 0; box-shadow: none; text-shadow: none;
+}
+#workstreams .ws-runs::before {
+  content: ''; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent currentColor; transition: transform var(--t-fast, .12s) ease;
+}
+#workstreams .ws-runs[aria-expanded="true"]::before { transform: rotate(90deg); }
+#workstreams .ws-runs:is(:hover, :focus-visible) { color: var(--ph-bright); }
+#workstreams .ws-runs:focus-visible { outline: 1px solid var(--ph); outline-offset: 3px; border-radius: 4px; }
+#workstreams .ws-row[data-runs="older"] { margin-left: 22px; }
 .ag-effective { margin: 8px 0; }
 .ag-effective .perk-desc { white-space: normal; }
 .cf-group-summary { overflow-wrap: anywhere; }

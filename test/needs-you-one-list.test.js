@@ -71,11 +71,14 @@ const NY = require('../frontend/app/needsyou.js');
   // each keeps its existing action words
   const k = NY._internals.keysFor;
   const keys = i => [...k(i).matchAll(/data-ny-act="([a-z-]+)"[^>]*>([^<]+)</g)].map(m => m[1] + ':' + m[2]).join(' · ');
-  A.eq(keys(step), 'open:Open', 'STEP-IN → Open');
+  // (Andrew 10-15) the row is the door: a wait whose only action was Open has no key (a click on its row opens it)
+  A.eq(keys(step), '', 'STEP-IN → no key, its row opens it');
   A.eq(keys(att), 'attest-yes:Confirm · attest-no:Not yet', 'a quest attest → Confirm / Not yet (the QUESTS card\'s own words, without its fallback-font ✓)');
-  A.eq(keys(byKind('loop')[0]), 'open:Open', 'loop review → Open');
-  A.eq(keys(byKind('extension')[0]), 'open:Open', 'extensions → Open');
-  A.eq(keys(byKind('build')[0]), 'open:Open', 'a build → Open');
+  A.eq(keys(byKind('loop')[0]), '', 'loop review → no key, its row opens it');
+  A.eq(keys(byKind('extension')[0]), '', 'extensions → no key, its row opens it');
+  A.eq(keys(byKind('build')[0]), '', 'a build → no key, its row opens it');
+  const buildRow = NY._internals.html([byKind('build')[0]], NOW);
+  A.ok(!/class="ny-keys"/.test(buildRow) && /<span class="ny-verb">keep or discard<\/span> · Pricing page v2/.test(buildRow), 'a build row leads with its ask and carries no empty key strip');
 
   // the doors
   NY.openKey('stepin:h1'); A.eq(opened.pop(), ['stepin', 'h1'], 'STEP-IN opens its window on THAT handoff');
@@ -189,7 +192,7 @@ const NY = require('../frontend/app/needsyou.js');
     A.eq(rail.map(i => i.kind).join(','), 'approval,stepin,attest,loop,build,asked,extension', 'the rail lists the stored question with the station\'s other waits (it blocks no running conversation: never above an ask)');
     const q = rail.find(i => i.key === 'asked:n5');
     A.eq(q && [q.who, q.what, q.where, q.wsId].join(' | '), 'NOVA | has a question for you | Launch plan | other', 'the rail row: who, the line, "in <conversation>" (said once each)');
-    A.eq(keys(q), 'open:Open', 'its key is Open (a question in a reply is answered in its conversation)');
+    A.eq(keys(q), '', 'no key: its row opens its conversation (a question in a reply is answered there)');
     A.ok(!NY.canDismiss(q) && !NY.dismissKey('asked:n5'), 'a stored wait with a conversation is never dismissed away: opening it settles it');
     A.eq(NY.openKey('asked:n5'), { conversation: true }, 'OPEN lands on its conversation (NOTIFICATIONS steps aside with a way back)');
     A.eq(opened.pop(), ['ws', 'other'], '…that conversation');
