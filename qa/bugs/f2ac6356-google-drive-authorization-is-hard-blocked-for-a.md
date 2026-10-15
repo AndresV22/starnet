@@ -3,10 +3,10 @@ fingerprint: f2ac6356
 slug: google-drive-authorization-is-hard-blocked-for-a
 title: Google Drive authorization is hard blocked for a fresh personal account
 surface: onboarding
-severity: P1
+severity: P2
 status: open
 found: 2026-10-12
-lane: memory-proof-1011
+lane: release-0135-prep
 fix:
 origin: customer
 report: support-2026-10-09-drive-oauth-hard-block
@@ -40,10 +40,12 @@ Investigation anchors: sidecar/mcp/google-client.js, sidecar/mcp/catalog.js and 
 
 ## Verdict
 
-_Filled in when the bug leaves the backlog: what was true, and why it is closed._
+Re-triaged P1 to P2 (external): Google Drive authorization is blocked by Google app verification, outside StarNet code; tracked until Google verifies the app. Andrew approved this disposition for the 0.13.5 cut (10-15).
 
 ## Regression
 
 
 
 ## Sibling coverage
+
+
