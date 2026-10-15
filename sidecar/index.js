@@ -17127,11 +17127,12 @@ async function deliverableRows() {
     }
     // UNNAMED run: unchanged behaviour — one row per artifact, titled by basename. We do NOT invent a grouping the
     // agent never declared, and `authored:false` lets the card show the basename as the plain fact it is instead of
-    // dressing it up as a description.
+    // dressing it up as a description. A run artifact's 'file' is the library's 'files' kind (a named run's and the
+    // Workshop's rows): one KIND chip, never "FILES" and "FILE" side by side (org live walk 10-14, P13).
     arts.forEach((a, i) => {
       const p = a.path || '';
       const files = p ? [deliverableFile(run.agentId, run.runId, a, false, run.projectRoot || '')] : [];
-      rows.push({ id: 'run:' + run.runId + ':' + i, agentId: run.agentId, runId: run.runId, title: path.basename(p || a.target || (run.title + ' output')), source: 'run', status: status, kind: a.kind, summary: '', authored: false, ask: ask, files, target: a.target || '', size: deliverableSize(files), createdAt: run.ts || 0, updatedAt: run.ts || 0, actions: { open: files.length > 0, keep: false, discard: false } });
+      rows.push({ id: 'run:' + run.runId + ':' + i, agentId: run.agentId, runId: run.runId, title: path.basename(p || a.target || (run.title + ' output')), source: 'run', status: status, kind: a.kind === 'file' ? 'files' : a.kind, summary: '', authored: false, ask: ask, files, target: a.target || '', size: deliverableSize(files), createdAt: run.ts || 0, updatedAt: run.ts || 0, actions: { open: files.length > 0, keep: false, discard: false } });
     });
   }
   for (const row of jobRows) { row.size = deliverableSize(row.files); row.actions.open = row.files.length > 0; rows.push(row); }

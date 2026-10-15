@@ -96,6 +96,18 @@ A.ok(/el\.addEventListener\('click', \(\) => showInterruption\(''\)\)/.test(voic
   A.ok(/id="dl-clean" data-tip="[^"]+">DELETE FAILED &amp; DISCARDED RECORDS</.test(bar) && !/CLEAN OLD RECORDS<\/button>/.test(dlv), 'the cleanup key names what it removes (its preview + UNDO stay)');
   A.ok(/\/api\/deliverables\/cleanup-preview', \{ statuses: \['discarded', 'failed'\] \}/.test(dlv) && /id="dl-undo">UNDO/.test(dlv), 'the cleanup still previews failed + discarded and offers UNDO');
   A.ok(/kinds\.map\(k => chip\(k\.kind, kindLabel\(k\.kind\), k\.count\)\)/.test(dlv) && /workflow: 'WORKFLOW JOBS'/.test(dlv) && /files: 'FILES'/.test(dlv), 'KIND chips read a plain label; the raw kind stays the filter value');
+  {
+    // org live walk 10-14 (P13): a real run's file read "FILE" — the shots used mocked rows with kind 'files'. GENUINE: the
+    // REAL label map, against every kind a run artifact really carries (runstore's own ARTIFACT_KINDS)
+    const KIND_LABEL = new Function('return ' + /const KIND_LABEL = (\{[^}]*\});/.exec(dlv)[1])();
+    const kindLabel = new Function('KIND_LABEL', 'return ' + /const kindLabel = (k => [^;]*);/.exec(dlv)[1])(KIND_LABEL);
+    const artifactKinds = JSON.parse(/const ARTIFACT_KINDS = new Set\((\[[^\]]*\])\)/.exec(read('sidecar/runstore.js'))[1].replace(/'/g, '"'));
+    A.ok(artifactKinds.length >= 3, 'fixture: read the artifact kinds runstore keeps: ' + artifactKinds.join(','));
+    for (const k of artifactKinds) A.ok(Object.prototype.hasOwnProperty.call(KIND_LABEL, k) && /S$/.test(KIND_LABEL[k]), 'the "' + k + '" kind chip reads a plain plural: ' + kindLabel(k));
+    A.eq(kindLabel('file'), 'FILES', 'a run artifact\'s file reads FILES, never FILE');
+    // and one chip, not two: the sidecar files an unnamed run's 'file' artifact under the library's 'files' kind
+    A.ok(/source: 'run', status: status, kind: a\.kind === 'file' \? 'files' : a\.kind,/.test(read('sidecar/index.js')), 'an unnamed run\'s file row carries the library\'s "files" kind (one FILES chip beside a named run\'s rows)');
+  }
   A.ok(/class="dlv-bclear" data-bucket=/.test(dlv), 'per-bucket CLEAR stays a visible key');
   A.ok(!/data-act="clear" title=/.test(dlv) && /data-act="clear" data-tip="Takes it out of this library\. The files stay on disk\.">✓ DONE · CLEAR</.test(dlv), 'DONE · CLEAR carries a data-tip, not a native title');
   const css = read('frontend/css/deliverables-glass.css');

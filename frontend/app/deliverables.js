@@ -455,8 +455,10 @@
     }
 
     // KIND chips — the second axis, after project. Counts are pre-filter for the same reason the rail's are.
-    // the chip reads a plain plural (org pass 10-14, P13) — the raw kind word stays the filter value; an unknown kind reads in caps
-    const KIND_LABEL = { files: 'FILES', workflow: 'WORKFLOW JOBS', build: 'BUILDS', patch: 'CODE PATCHES', skill: 'SKILLS', report: 'REPORTS', damaged: 'DAMAGED RECORDS' };
+    // the chip reads a plain plural (org pass 10-14, P13) — the raw kind word stays the filter value; an unknown kind reads in caps.
+    // It covers every kind a row really carries: a run artifact's own kind too (runstore ARTIFACT_KINDS — the live walk read
+    // 'FILE', because the mocked rows only ever said 'files'; the sidecar now files a run's 'file' under 'files')
+    const KIND_LABEL = { files: 'FILES', file: 'FILES', image: 'IMAGES', message: 'MESSAGES', workflow: 'WORKFLOW JOBS', build: 'BUILDS', patch: 'CODE PATCHES', skill: 'SKILLS', report: 'REPORTS', damaged: 'DAMAGED RECORDS' };
     const kindLabel = k => KIND_LABEL[String(k || '').toLowerCase()] || String(k || '').toUpperCase();
     function renderKinds() {
       if (!kinds.length) { kindbar.innerHTML = ''; return; }
