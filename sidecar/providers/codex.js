@@ -33,6 +33,8 @@
   const timeouts = provider.timeouts;
   const isAbort = provider.runtime.isAbort;
   const delay = provider.runtime.abortableDelay;
+  // failopen.note — the tagged SYNC swallow (per-tag count + throttled warn): a fail-open catch must never be invisible.
+  const { note: failNote } = (typeof require === 'function') ? require('../failopen.js') : { note: function (tag, e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); } };
   const BASE = 'https://chatgpt.com/backend-api/codex';
 
   // The ChatGPT-account Codex backend exposes its OWN model list (DIFFERENT from the public OpenAI API
@@ -512,14 +514,37 @@
     }
     return out;
   }
-  // The account's first live model, else `fallback` (offline, empty, failed, or no answer within timeoutMs: the
-  // listing has no abort seam, so a silent one must not hold its caller).
-  async function liveDefaultModel(listModels, fallback, timeoutMs) {
+  // The slug an aux pass names on this sign-in: `pinned` while the account's live list still offers it (an account it
+  // already serves never moves to a newer, costlier flagship by itself), the list's top model when the list no longer
+  // offers it, and `pinned` again when the list is offline, empty, failed, or silent past timeoutMs (the listing has no
+  // abort seam, so a silent one must not hold its caller).
+  async function liveDefaultModel(listModels, pinned, timeoutMs) {
     let timer = null;
     const silent = new Promise(resolve => { timer = setTimeout(() => resolve(null), Math.max(1, Number(timeoutMs) || 10000)); });
-    try { return liveModelIds(await Promise.race([Promise.resolve().then(() => listModels()), silent]))[0] || fallback; }
-    catch (e) { return fallback; }   // value default: the pinned slug is what ran before the live list existed
+    try {
+      const ids = liveModelIds(await Promise.race([Promise.resolve().then(() => listModels()), silent]));
+      return (!ids.length || (pinned && ids.indexOf(pinned) >= 0)) ? pinned : ids[0];
+    } catch (e) { failNote('codex.live-default', e); return pinned; }   // value default: the pinned slug is what ran before the live list existed
     finally { clearTimeout(timer); }
+  }
+  // One live-list read shared by a caller's scope (a run's image host choices). Concurrent asks share the read in
+  // flight; only a list that proves something is kept, so a failed read (rejects: the caller records it) or an
+  // offline/empty answer is asked again next time.
+  function memoLiveModelIds(listModels) {
+    let kept = null, pending = null;
+    return () => {
+      if (kept) return Promise.resolve(kept.slice());
+      if (!pending) {
+        pending = Promise.resolve().then(() => listModels()).then(models => {
+          const ids = liveModelIds(models);
+          if (ids.length) kept = ids;
+          return ids.slice();
+        });
+        const clear = () => { pending = null; };
+        pending.then(clear, clear);
+      }
+      return pending;
+    };
   }
 
   // Responses usage uses input_tokens/output_tokens; remap to the prompt_tokens/completion_tokens shape
@@ -538,5 +563,5 @@
     };
   }
 
-  return { makeCodexProvider, STATIC_MODELS, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, liveModelIds, liveDefaultModel, _internals: { messagesToInput, extractInstructions, toResponsesTools, normalizeUsage, normalizeCodexReasoningEffort } };
+  return { makeCodexProvider, STATIC_MODELS, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, liveModelIds, liveDefaultModel, memoLiveModelIds, _internals: { messagesToInput, extractInstructions, toResponsesTools, normalizeUsage, normalizeCodexReasoningEffort } };
 });

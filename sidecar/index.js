@@ -175,7 +175,7 @@ function selectProvider(opts) {
    "this meter is nearly spent" BEFORE the wall instead of after it. */
 const rateLimits = require('./providers/ratelimits.js').makeRateLimits({ clock: { now: () => Date.now() } });
 attachRateLimits(rateLimits);
-const { DEFAULT_MODEL: CODEX_DEFAULT_MODEL, liveModelIds: codexLiveModelIds, liveDefaultModel: codexLiveDefaultModel } = require('./providers/codex.js');
+const { DEFAULT_MODEL: CODEX_DEFAULT_MODEL, liveDefaultModel: codexLiveDefaultModel, memoLiveModelIds: codexMemoLiveModelIds } = require('./providers/codex.js');
 const codexAuth = require('./providers/codex-auth.js');
 const codexTokenStore = require('./providers/codex-token-store.js');
 const codexAuthState = require('./providers/codex-auth-state.js');
@@ -9839,8 +9839,9 @@ async function runQuestRefreshCycle(why) {
     else if (usingCodex) { const token = await ensureCodexAccessToken(); provider = selectProvider({ provider: providerId, fetch: globalThis.fetch, token, renewToken: forceRefreshCodexAccessToken, baseUrl }); }
     else if (usingDeviceOAuth) { const token = await ensureOAuthAccessToken(providerId); provider = selectProvider({ provider: providerId, fetch: globalThis.fetch, token, headers: oauthInferenceHeaders(providerId), baseUrl }); }
     else provider = selectProvider({ provider: providerId, fetch: globalThis.fetch, key, baseUrl });
-    // #118: the pinned Codex default can be a slug this account refuses; ask the SAME sign-in's live list first (pinned
-    // slug only when the list is offline, empty or silent). An explicit aux model is the Commander's choice and wins.
+    // #118: the pinned Codex default can be a slug this account refuses. The SAME sign-in's live list keeps the pinned
+    // slug while it still offers it (no silent move to a costlier flagship), names its top model only when it does not,
+    // and the pinned slug stays when the list is offline, empty or silent. An explicit aux model is the Commander's and wins.
     if (usingCodex && !auxModel) model = await codexLiveDefaultModel(() => provider.listModels(), CODEX_DEFAULT_MODEL, 10000);
     const cost = makeCostEngine({ priceOf: provider.priceOf });
     const directive = QuestRefresh.buildDirective(evidenceCtx);
@@ -20275,13 +20276,9 @@ async function runOnceCore(o) {
     }
   };
   // #118: the plan's image host follows the live Codex list of the SAME sign-in image.js posts with (the primary, never an
-  // extra account's list), read at most once per run and only when image.js needs a host choice. The offline fallback
-  // list proves nothing about the account, so it yields no ids. A failed read is not kept: the next image asks again.
-  let codexHostCatalog = null;
-  const codexHostModels = () => codexHostCatalog || (codexHostCatalog = (async () => {
-    const lister = selectProvider({ provider: 'codex', fetch: globalThis.fetch, token: await ensureCodexAccessToken(), renewToken: forceRefreshCodexAccessToken, baseUrl: studioRoute.baseUrl || '' });
-    return codexLiveModelIds(await lister.listModels()).filter(id => ImageTask.isAgentModel('codex', id));
-  })().catch(e => { codexHostCatalog = null; throw e; }));
+  // extra account's list), read only after ChatGPT refused the historical host and kept for the run once it proves
+  // something (codex.js memoLiveModelIds: the offline fallback list yields no ids; a failed or empty read is asked again).
+  const codexHostModels = codexMemoLiveModelIds(async () => selectProvider({ provider: 'codex', fetch: globalThis.fetch, token: await ensureCodexAccessToken(), renewToken: forceRefreshCodexAccessToken, baseUrl: studioRoute.baseUrl || '' }).listModels());
   const imageTools = makeImageTools({ openrouter: studioRoute.ok ? { apiKey: studioRoute.key, model, baseUrl: studioRoute.baseUrl, provider: studioRoute.provider, protocol: studioRoute.protocol,
     getToken: studioRoute.protocol === 'codex-responses' ? ensureCodexAccessToken : undefined,
     renewToken: studioRoute.protocol === 'codex-responses' ? forceRefreshCodexAccessToken : undefined } : null, fsp, pathMod: path, root: WORKSPACES, imageModel: String(ENV('IMAGE_MODEL') || '').trim() || undefined, auxVision: auxVisionCall, signal, onUsage: recordMediaUsage,

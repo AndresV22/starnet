@@ -625,20 +625,34 @@ const imageReply = png => jsonResp({ choices: [{ message: { images: [{ image_url
       A.eq(lists(retryFetch).length, 1, '#118: the live list is read once, and only after the refusal');
       A.ok(fssync.existsSync(outPath('issue118-retry.png')) && /issue118-retry\.png/.test(retried.content), '#118: the retried render is saved: ' + JSON.stringify(retried.content));
 
-      // a Codex run on a model its account LISTS hosts on that model first (its chat already rides it): one POST
-      const runFetch = wire({ models: [{ slug: 'gpt-5.5', priority: 1 }, { slug: 'gpt-5.6-luna', priority: 2 }] }, () => sse(planEvents));
-      await planTools(runFetch, { codexRunModel: () => 'gpt-5.6-luna' }).generateTool.run({ prompt: 'x' }, ctx);
-      A.eq(posts(runFetch).map(c => c.body.model), ['gpt-5.6-luna'], 'a Codex run on a listed model hosts on it first');
-      // ...an unlisted run model, or an offline list, proves nothing: the historical host leads, unchanged
-      for (const [tag, catalog] of [['unlisted', luna], ['offline', null]]) {
+      // the historical host ALWAYS leads: an account that accepts it sends today's exact request and its list is never
+      // read, whatever the run's model (listed, unlisted, or an offline list)
+      for (const [tag, catalog, runModel] of [['listed', { models: [{ slug: 'gpt-5.5', priority: 1 }, { slug: 'gpt-5.6-luna', priority: 2 }] }, () => 'gpt-5.6-luna'], ['unlisted', luna, 'gpt-9-unlisted'], ['offline', null, 'gpt-9-unlisted']]) {
         const f = wire(catalog, () => sse(planEvents));
-        await planTools(f, { codexRunModel: 'gpt-9-unlisted' }).generateTool.run({ prompt: 'x' }, ctx);
-        A.eq(posts(f).map(c => c.body.model), ['gpt-5.5'], tag + ' run model: the historical host leads');
+        await planTools(f, { codexRunModel: runModel }).generateTool.run({ prompt: 'x' }, ctx);
+        A.eq([posts(f).map(c => c.body.model), lists(f).length], [['gpt-5.5'], 0], tag + ' run model: the historical host leads and the list is never read');
       }
-      // ...and a refused run model falls to the next live host in the backend's priority order
-      const runRefused = wire({ models: [{ slug: 'gpt-5.6-luna', priority: 1 }, { slug: 'gpt-5.4', priority: 2 }] }, body => body.model === 'gpt-5.4' ? hostReject('gpt-5.4') : sse(planEvents));
-      await planTools(runRefused, { codexRunModel: 'gpt-5.4' }).generateTool.run({ prompt: 'x' }, ctx);
-      A.eq(posts(runRefused).map(c => c.body.model), ['gpt-5.4', 'gpt-5.6-luna'], 'a refused run model retries on the top live host');
+      // control (review repro): a LISTED run model that cannot host the image tool (a non-refusal 400 on it) never
+      // costs an account the proven host: one POST on gpt-5.5, the file is saved
+      const sparkFetch = wire({ models: [{ slug: 'gpt-5.6-luna', priority: 1 }, { slug: 'gpt-5.5', priority: 2 }, { slug: 'gpt-5.3-codex-spark', priority: 3 }] },
+        body => body.model === 'gpt-5.3-codex-spark' ? { status: 400, text: async () => JSON.stringify({ detail: "Tool 'image_generation' is not supported with gpt-5.3-codex-spark." }) } : sse(planEvents));
+      await planTools(sparkFetch, { codexRunModel: () => 'gpt-5.3-codex-spark' }).generateTool.run({ prompt: 'a basil plant', path: 'issue118-spark.png' }, ctx);
+      A.eq([posts(sparkFetch).map(c => c.body.model), lists(sparkFetch).length], [['gpt-5.5'], 0], 'a listed run model never displaces the proven host');
+      A.ok(fssync.existsSync(outPath('issue118-spark.png')), 'a listed run model: the proven host\'s render is saved');
+      // gpt-5.5 refused + a Codex run on a LISTED lower-priority model: the retry rides the run's model (chat rides it)
+      const runRetry = wire({ models: [{ slug: 'gpt-5.6-luna', priority: 1 }, { slug: 'gpt-5.4', priority: 2 }] }, body => body.model === 'gpt-5.5' ? hostReject('gpt-5.5') : sse(planEvents));
+      await planTools(runRetry, { codexRunModel: 'gpt-5.4' }).generateTool.run({ prompt: 'x', path: 'issue118-run.png' }, ctx);
+      A.eq(posts(runRetry).map(c => c.body.model), ['gpt-5.5', 'gpt-5.4'], 'gpt-5.5 refused: the retry rides the listed run model first');
+      A.ok(fssync.existsSync(outPath('issue118-run.png')), 'the run-model retry\'s render is saved');
+      // ...an unlisted run model never hosts: the retry rides the list's top host
+      const unlistedRetry = wire(luna, body => body.model === 'gpt-5.5' ? hostReject('gpt-5.5') : sse(planEvents));
+      await planTools(unlistedRetry, { codexRunModel: 'gpt-9-unlisted' }).generateTool.run({ prompt: 'x' }, ctx);
+      A.eq(posts(unlistedRetry).map(c => c.body.model), ['gpt-5.5', 'gpt-5.6-luna'], 'gpt-5.5 refused, run model unlisted: the retry rides the top live host');
+      // ...and an image-only slug the list offers never hosts the hosted tool
+      const imageSlugRetry = wire({ models: [{ slug: 'gpt-image-2', priority: 0 }, { slug: 'gpt-5.6-luna', priority: 1 }] }, body => body.model === 'gpt-5.5' ? hostReject('gpt-5.5') : sse(planEvents));
+      await planTools(imageSlugRetry, { codexRunModel: 'gpt-image-2' }).generateTool.run({ prompt: 'x' }, ctx);
+      A.eq(posts(imageSlugRetry).map(c => c.body.model), ['gpt-5.5', 'gpt-5.6-luna'], 'an image-only slug never hosts the retry');
+      A.eq(T0._internals.codexHostOrder('', ['dall-e-3', 'chatgpt-image-latest', 'GPT-IMAGE-1', 'gpt-5.6-luna', 'bad slug']), ['gpt-5.6-luna', 'gpt-5.5'], 'host order drops image-only and malformed slugs, historical host last');
 
       // an unrelated 400 is never retried and never reads the list
       const otherFetch = wire(luna, () => failWith(400, 'invalid request'));

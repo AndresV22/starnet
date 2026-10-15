@@ -50,14 +50,18 @@
   const CODEX_HOST_MODEL = 'gpt-5.5';
   /* #118 phase B (2026-10-15): two 0.13.3 reporters' accounts refuse that pinned host ("The 'gpt-5.5' model is not
      supported when using Codex with a ChatGPT account"), so every image failed while their chat (which rides the
-     account's live catalog) worked. The host order: the run's own Codex model when the account's LIVE list offers it
-     (chat already rides it), else the historical host, unchanged. After an explicit refusal of that host (phase A's
-     codexHostRejected, nothing looser) ONE retry rides the next host the live list offers, in the backend's priority
-     order, with the historical host last. An offline/unknown list adds nothing: it proves nothing about the account. */
+     account's live catalog) worked. The FIRST attempt always rides the historical host, so every account it already
+     serves keeps the exact request it sends today, and the live list is never read for it. Only after an explicit
+     refusal of that host (phase A's codexHostRejected, nothing looser) is the account's LIVE list read, and ONE retry
+     rides the run's own Codex model when that list offers it (chat already rides it), else the list's top host in the
+     backend's priority order. List membership proves the account serves a chat model, not that the model can host the
+     image tool, so it is never trusted ahead of the proven host. An offline/unknown list adds nothing: it proves
+     nothing about the account. An image-only slug never hosts: the hosted tool needs a chat model under it. */
   const HOST_SLUG = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/;
+  const IMAGE_ONLY_SLUG = /^(?:gpt-image-|chatgpt-image-|dall-e-)/i;
   const CODEX_CATALOG_TIMEOUT_MS = 10000;   // the live list has no abort seam: a silent one must not hold the render
   function codexHostOrder(runModel, live) {
-    const listed = (Array.isArray(live) ? live : []).filter(id => typeof id === 'string' && HOST_SLUG.test(id));
+    const listed = (Array.isArray(live) ? live : []).filter(id => typeof id === 'string' && HOST_SLUG.test(id) && !IMAGE_ONLY_SLUG.test(id));
     const order = [];
     const add = id => { if (id && order.indexOf(id) < 0) order.push(id); };
     if (runModel && listed.indexOf(runModel) >= 0) add(runModel);
@@ -537,8 +541,8 @@
           .then(async r => ({ status: r.status, text: await r.text() })), timeoutMs, parentSignal || deps.signal);
       };
       const stopSignal = parentSignal || deps.signal;
-      // #118: the account's live list, read at most once per render and only when a host choice needs it. Bounded and
-      // abortable; a failed, silent or offline read is null (unknown), which adds no host.
+      // #118: the account's live list, read at most once per render and only after the historical host was refused.
+      // Bounded and abortable; a failed, silent or offline read is null (unknown), which adds no host.
       let live;
       const readLive = async () => {
         checkCancelled(stopSignal);
@@ -557,12 +561,8 @@
         checkCancelled(stopSignal);
         return live;
       };
+      // the run's own Codex model leads the retry order (only when the live list offers it); never the first attempt
       const runModel = String((codexRunModel && codexRunModel()) || '').trim();
-      // the run's own Codex model hosts first only when the live list proves this sign-in offers it
-      if (runModel && runModel !== CODEX_HOST_MODEL && HOST_SLUG.test(runModel) && codexHostModels) {
-        const listed = await readLive();
-        if (listed && listed.indexOf(runModel) >= 0) body.model = runModel;
-      }
       let token = await getCodexToken();
       const errorSecrets = [token, jwtAccountId(token), apiKey, prompt, originalPrompt, refUrl];
       let renewed = false;
