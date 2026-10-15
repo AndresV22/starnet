@@ -343,6 +343,14 @@ const tick = () => new Promise(r => setTimeout(r, 15));
       && /const started = !!t && t\.split\(' · '\)\.slice\(1\)\.some\(p => !\/could not be read\$\/\.test\(p\)\);/.test(src) && /B\(\)\.editLine\(l\.intakeId\)\)\) return;\s*\n\s*if \(typeof WorkflowPanel !== 'undefined' && WorkflowPanel\.revealStarts\)/.test(src), '⊕ MAKE IT AUTOMATIC opens the editor on the INBOX and reveals its starts');
     const panelSrc = rd('frontend/app/workflowpanel.js');
     A.ok(/<section class="wf-sec" id="wf-starts"><h3>Or start it automatically<\/h3>/.test(panelSrc) && /selectFromFloor, revealStarts, showTest,/.test(panelSrc), 'the panel names that section and exports revealStarts');
+    // (live walk 10-14) the section lands BELOW the pinned line map (sticky at top:0), never under it
+    const WP = require('../frontend/app/workflowpanel.js');
+    A.eq(WP._startsScrollBy(400, 68, 183, 1), 400 - 68 - 183 - 8, 'a pinned map: the section heading lands just below the map\'s bottom edge');
+    A.eq(WP._startsScrollBy(400, 68, 0, 1), 332, 'no pinned map (a stacked diagram or a short panel): the section lands at the scroll\'s top');
+    A.eq(WP._startsScrollBy(468, 68, 183, 1.15), (468 - 68 - 183 - 8) / 1.15, 'visual px are divided by uiZoom exactly once');
+    A.ok(/const pinned = !!\(map && typeof getComputedStyle === 'function' && getComputedStyle\(map\)\.position === 'sticky'\);/.test(panelSrc)
+      && /sc\.scrollTop \+= startsScrollBy\(sec\.getBoundingClientRect\(\)\.top, sc\.getBoundingClientRect\(\)\.top, pinned \? map\.getBoundingClientRect\(\)\.height : 0, z\);/.test(panelSrc),
+      'scrollToStarts subtracts the map\'s height only while the map is actually sticky');
     A.ok(src.includes('scheduled, channel, folder and webhook runs are filed in DELIVERABLES'), 'an empty LAST JOBS says where scheduled, channel, folder and webhook runs are filed');
     // (org wire AUTO-P15-3) every start that writes no job record is named there: a folder or webhook trigger never records a line job
     const trSrc = rd('sidecar/routing/trigger-runner.js');

@@ -229,13 +229,19 @@ const WorkflowPanel = (() => {
   }
   /* ⊕ MAKE IT AUTOMATIC (org P15, 2026-10-14): WORKFLOWS' door lands on this INBOX's 'Or start it automatically' — the one
      place a line's starts are made (no second trigger editor). It stays in view through the first repaints the open sets off
-     (server facts, TODAY) for a moment, then the Commander's own scrolling owns the view again. */
+     (server facts, TODAY) for a moment, then the Commander's own scrolling owns the view again.
+     (live walk 10-14: the section landed at the scroll's top edge — UNDER the pinned line map, which is sticky at top:0, so
+     'Or start it automatically' and its 'A schedule' row were hidden. The section now lands just below the map's bottom.) */
+  const STARTS_GAP = 8;   // visual px between the pinned map's bottom edge and the section's heading
+  function startsScrollBy(secTop, scTop, mapH, z) { return (secTop - scTop - (mapH > 0 ? mapH + STARTS_GAP : 0)) / (z || 1); }
   function scrollToStarts() {
-    const sc = $('#wf-scroll'), sec = $('#wf-starts');
+    const sc = $('#wf-scroll'), sec = $('#wf-starts'), map = $('#wf-map');
     if (!sc || !sec) return false;
+    // the map covers the scroll's top only while it is actually sticky (.pin on a one-row diagram, and not on a short panel)
+    const pinned = !!(map && typeof getComputedStyle === 'function' && getComputedStyle(map).position === 'sticky');
     // rects are VISUAL px, scrollTop is ZOOMED px (the uiZoom law): divide once
     const z = (typeof U !== 'undefined' && U.uiZoom) ? (U.uiZoom() || 1) : 1;
-    sc.scrollTop += (sec.getBoundingClientRect().top - sc.getBoundingClientRect().top) / z;
+    sc.scrollTop += startsScrollBy(sec.getBoundingClientRect().top, sc.getBoundingClientRect().top, pinned ? map.getBoundingClientRect().height : 0, z);
     return true;
   }
   function revealStarts() {
@@ -2352,7 +2358,7 @@ const WorkflowPanel = (() => {
     });
   }
 
-  return { open, close, isOpen, refresh, select, selectFromFloor, revealStarts, showTest, _state: S, _flow: () => flow() };
+  return { open, close, isOpen, refresh, select, selectFromFloor, revealStarts, showTest, _state: S, _flow: () => flow(), _startsScrollBy: startsScrollBy };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = WorkflowPanel;
