@@ -594,6 +594,101 @@ const imageReply = png => jsonResp({ choices: [{ message: { images: [{ image_url
     A.eq([repeated401.calls.length, twiceRenewed], [2, 1], 'repeated 401 remains bounded at one renewal and two sends');
     A.ok(repeatedMessage.startsWith('ChatGPT 401:') && !repeatedMessage.includes(jwt), 'renewed credential is redacted from generic failure');
     A.eq(await fsp.readFile(existingPath, 'utf8'), 'original image bytes', 'repeated auth failure does not overwrite output');
+    // #118 phase B: when ChatGPT refuses the image HOST, the account's LIVE model list names the retry host. Every wire
+    // answer below is synthetic (a fake fetch); nothing here reaches the ChatGPT backend.
+    {
+      const codexMod = require('../sidecar/providers/codex.js');
+      const hostReject = host => ({ status: 400, text: async () => JSON.stringify({ error: { message: "The '" + host + "' model is not supported when using Codex with a ChatGPT account." } }) });
+      const failWith = (status, message) => ({ status, text: async () => JSON.stringify({ error: { message } }) });
+      // ONE fake wire for both seams: GET /models serves `catalog` (null = offline), POST /responses answers per host
+      const wire = (catalog, answer) => stubFetch((url, body) => /\/models\?/.test(url)
+        ? (catalog ? { ok: true, status: 200, json: async () => catalog } : { ok: false, status: 503, json: async () => ({}) })
+        : answer(body));
+      const posts = f => f.calls.filter(c => /\/responses$/.test(c.url));
+      const lists = f => f.calls.filter(c => /\/models\?/.test(c.url));
+      // the run host's catalog dep, built the way the composition root builds it: the codex adapter's own listModels
+      // on the SAME sign-in and wire as the image POST, reduced to the ids the account's live list offered
+      const liveCatalog = f => async () => codexMod.liveModelIds(await codexMod.makeCodexProvider({ fetch: f, token: jwt }).listModels());
+      const planTools = (f, extra) => makeImageTools(Object.assign({ openrouter: { provider: 'codex', protocol: 'codex-responses', getToken: async () => jwt }, fsp, pathMod: path, root: ROOT, fetchImpl: f, codexHostModels: liveCatalog(f) }, extra || {}));
+      const luna = { models: [{ slug: 'gpt-5.6-luna', priority: 1, visibility: 'list' }] };
+      const outPath = name => path.join(ROOT, 'hero', name);
+      const failure = async p => { try { await p; } catch (e) { return String(e && e.message || e); } return ''; };
+
+      // the reported failure: gpt-5.5 refused, the account lists gpt-5.6-luna -> ONE retry on it, and that image is saved
+      const retryFetch = wire(luna, body => body.model === 'gpt-5.5' ? hostReject('gpt-5.5') : sse(planEvents));
+      const refusedTally = () => require('../sidecar/failopen.js').counts()['image.codex.host-refused'] || 0;
+      const refusedBefore = refusedTally();
+      const retried = await planTools(retryFetch).generateTool.run({ prompt: 'a fox logo', path: 'issue118-retry.png' }, ctx);
+      A.eq(refusedTally() - refusedBefore, 1, '#118: a recovered refusal still leaves a failopen trace');
+      A.eq(posts(retryFetch).map(c => c.body.model), ['gpt-5.5', 'gpt-5.6-luna'], '#118: a refused host retries ONCE, on the live list\'s host');
+      A.eq(posts(retryFetch).map(c => c.body.tools[0].model), ['gpt-image-2', 'gpt-image-2'], '#118: both attempts ask for the same image model');
+      A.eq(lists(retryFetch).length, 1, '#118: the live list is read once, and only after the refusal');
+      A.ok(fssync.existsSync(outPath('issue118-retry.png')) && /issue118-retry\.png/.test(retried.content), '#118: the retried render is saved: ' + JSON.stringify(retried.content));
+
+      // a Codex run on a model its account LISTS hosts on that model first (its chat already rides it): one POST
+      const runFetch = wire({ models: [{ slug: 'gpt-5.5', priority: 1 }, { slug: 'gpt-5.6-luna', priority: 2 }] }, () => sse(planEvents));
+      await planTools(runFetch, { codexRunModel: () => 'gpt-5.6-luna' }).generateTool.run({ prompt: 'x' }, ctx);
+      A.eq(posts(runFetch).map(c => c.body.model), ['gpt-5.6-luna'], 'a Codex run on a listed model hosts on it first');
+      // ...an unlisted run model, or an offline list, proves nothing: the historical host leads, unchanged
+      for (const [tag, catalog] of [['unlisted', luna], ['offline', null]]) {
+        const f = wire(catalog, () => sse(planEvents));
+        await planTools(f, { codexRunModel: 'gpt-9-unlisted' }).generateTool.run({ prompt: 'x' }, ctx);
+        A.eq(posts(f).map(c => c.body.model), ['gpt-5.5'], tag + ' run model: the historical host leads');
+      }
+      // ...and a refused run model falls to the next live host in the backend's priority order
+      const runRefused = wire({ models: [{ slug: 'gpt-5.6-luna', priority: 1 }, { slug: 'gpt-5.4', priority: 2 }] }, body => body.model === 'gpt-5.4' ? hostReject('gpt-5.4') : sse(planEvents));
+      await planTools(runRefused, { codexRunModel: 'gpt-5.4' }).generateTool.run({ prompt: 'x' }, ctx);
+      A.eq(posts(runRefused).map(c => c.body.model), ['gpt-5.4', 'gpt-5.6-luna'], 'a refused run model retries on the top live host');
+
+      // an unrelated 400 is never retried and never reads the list
+      const otherFetch = wire(luna, () => failWith(400, 'invalid request'));
+      A.eq(await failure(planTools(otherFetch).generateTool.run({ prompt: 'x' }, ctx)), 'ChatGPT 400: invalid request', 'an unrelated 400 keeps the generic error');
+      A.eq([posts(otherFetch).length, lists(otherFetch).length], [1, 0], 'an unrelated 400: one POST, the list is never read');
+
+      // an offline list: a single gpt-5.5 attempt in phase A's wording, which also says why no other host was tried
+      const offFetch = wire(null, body => hostReject(body.model));
+      const offMsg = await failure(planTools(offFetch).generateTool.run({ prompt: 'x', path: 'issue118-off.png' }, ctx));
+      A.eq(posts(offFetch).map(c => c.body.model), ['gpt-5.5'], 'an offline list: a single attempt on the historical host');
+      A.ok(offMsg.startsWith('ChatGPT rejected image host gpt-5.5 for this request (HTTP 400). Requested image model: gpt-image-2. No image was returned or saved by this attempt.')
+        && /No other image host was tried: the account's live model list was unavailable/.test(offMsg), 'offline: phase A wording plus why nothing else was tried: ' + offMsg);
+      A.ok(!fssync.existsSync(outPath('issue118-off.png')), 'offline: nothing is saved');
+      // a live list that offers nothing new says so
+      const onlyFetch = wire({ models: [{ slug: 'gpt-5.5', priority: 1 }] }, body => hostReject(body.model));
+      const onlyMsg = await failure(planTools(onlyFetch).generateTool.run({ prompt: 'x' }, ctx));
+      A.ok(posts(onlyFetch).length === 1 && /No other image host was tried: the account's live model list offers no other model/.test(onlyMsg), 'a list with no other host: one attempt, said plainly: ' + onlyMsg);
+
+      // both hosts refused: exactly one retry, both hosts named, nothing saved
+      const bothFetch = wire(luna, body => hostReject(body.model));
+      const bothMsg = await failure(planTools(bothFetch).generateTool.run({ prompt: 'x', path: 'issue118-both.png' }, ctx));
+      A.eq(posts(bothFetch).map(c => c.body.model), ['gpt-5.5', 'gpt-5.6-luna'], 'both refused: exactly one retry');
+      A.ok(bothMsg.startsWith('ChatGPT rejected image hosts gpt-5.5 and gpt-5.6-luna for this request (HTTP 400). Requested image model: gpt-image-2. No image was returned or saved by these attempts.'), 'both refused: both hosts named: ' + bothMsg);
+      A.ok(!fssync.existsSync(outPath('issue118-both.png')), 'both refused: nothing is saved');
+      // a retry that fails another way says it was the retry
+      const limitFetch = wire(luna, body => body.model === 'gpt-5.5' ? hostReject('gpt-5.5') : failWith(403, 'plan limit reached'));
+      A.eq(await failure(planTools(limitFetch).generateTool.run({ prompt: 'x' }, ctx)), 'ChatGPT 403: plan limit reached (retried on image host gpt-5.6-luna after ChatGPT rejected image host gpt-5.5)', 'a retry failure names the retry');
+
+      // the ONE 401 renew spans the host retry: 401 -> renew -> refused -> retry -> 401 again = no second renew
+      for (const [tag, last, expectErr] of [['retry 401', failWith(401, 'expired'), true], ['retry ok', null, false]]) {
+        let renewals = 0, n401 = 0;
+        const authFetch = wire(luna, body => {
+          if (++n401 === 1) return failWith(401, 'expired');
+          if (body.model === 'gpt-5.5') return hostReject('gpt-5.5');
+          return last || sse(planEvents);
+        });
+        const tools = planTools(authFetch, { openrouter: { provider: 'codex', protocol: 'codex-responses', getToken: async () => jwt, renewToken: async () => { renewals++; return jwt; } } });
+        const msg = await failure(tools.generateTool.run({ prompt: 'x' }, ctx));
+        A.eq([posts(authFetch).map(c => c.body.model), renewals, msg.startsWith('ChatGPT 401:')], [['gpt-5.5', 'gpt-5.5', 'gpt-5.6-luna'], 1, expectErr], tag + ': at most one renewal across the host retry');
+      }
+
+      // Stop after the refusal sends no retry
+      const stop = new AbortController();
+      const stopFetch = wire(luna, body => { stop.abort(); return hostReject(body.model); });
+      A.ok(/cancelled/.test(await failure(planTools(stopFetch).generateTool.run({ prompt: 'x' }, Object.assign({}, ctx, { signal: stop.signal })))) && posts(stopFetch).length === 1, 'Stop after a host refusal: no retry is sent');
+      // a silent list never hangs the tool: past its bound it counts as unavailable
+      const hangFetch = wire(null, body => hostReject(body.model));
+      const hangMsg = await failure(planTools(hangFetch, { codexHostModels: () => new Promise(() => {}), codexCatalogTimeoutMs: 30 }).generateTool.run({ prompt: 'x' }, ctx));
+      A.ok(posts(hangFetch).length === 1 && /live model list was unavailable/.test(hangMsg), 'a silent list is bounded and reported as unavailable: ' + hangMsg);
+    }
     const textOnly = stubFetch(() => sse([{ type: 'response.output_text.done', text: 'I cannot draw that.' }, { type: 'response.completed', response: { output: [] } }]));
     await rejects(makeImageTools({ openrouter: { provider: 'codex', protocol: 'codex-responses', getToken: async () => jwt }, fsp, pathMod: path, root: ROOT, fetchImpl: textOnly }).generateTool.run({ prompt: 'x' }, ctx),
       /model returned no image \(I cannot draw that\.\)/, 'a text-only reply is an honest failure that quotes the model');

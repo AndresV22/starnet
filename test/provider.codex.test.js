@@ -302,5 +302,32 @@ async function collect(provider, req) { const out = []; for await (const e of pr
     A.ok(offline.length > 0 && offline.every(m => m.fallback === true), 'the curated offline list is marked fallback:true on every entry');
   }
 
+  // M. #118: a slug this sign-in accepts comes from the account's LIVE list. liveModelIds keeps only what that list
+  //    offered (priority order, deduped); liveDefaultModel picks its top entry and never guesses or hangs.
+  {
+    const codexMod = require('../sidecar/providers/codex.js');
+    const { liveModelIds, liveDefaultModel, DEFAULT_MODEL } = codexMod;
+    A.eq(liveModelIds([{ id: 'b' }, { id: ' a ' }, { id: 'b' }, null, { id: '' }, { id: 7 }]), ['b', 'a'], 'live ids: trimmed, deduped, malformed entries dropped');
+    A.eq(liveModelIds([{ id: 'gpt-5.5', fallback: true }, { id: 'gpt-5.4', fallback: true }]), [], 'the curated offline list proves nothing about the account');
+    A.eq(liveModelIds(null), [], 'no answer, no ids');
+    const json = obj => async () => new Response(JSON.stringify(obj), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const live = makeCodexProvider({ fetch: json({ models: [{ slug: 'gpt-5.5', priority: 2 }, { slug: 'gpt-5.6-luna', priority: 1 }, { slug: 'gpt-old', priority: 0, visibility: 'hide' }] }), token: 'acc' });
+    A.eq(liveModelIds(await live.listModels()), ['gpt-5.6-luna', 'gpt-5.5'], 'live ids follow the backend priority and skip hidden slugs');
+    A.eq(await liveDefaultModel(() => live.listModels(), DEFAULT_MODEL, 1000), 'gpt-5.6-luna', 'the default is the account\'s top live model');
+    const offline = makeCodexProvider({ fetch: async () => new Response('nope', { status: 500 }), token: 'acc' });
+    A.eq(await liveDefaultModel(() => offline.listModels(), 'pinned-slug', 1000), 'pinned-slug', 'an offline list falls back to the pinned slug, never a curated guess');
+    A.eq(await liveDefaultModel(() => { throw new Error('no sign-in'); }, 'pinned-slug', 1000), 'pinned-slug', 'a throwing lister falls back');
+    A.eq(await liveDefaultModel(() => new Promise(() => {}), 'pinned-slug', 20), 'pinned-slug', 'a silent lister is bounded');
+    // Composition root: the quest refresh's Codex pass rides the SAME sign-in's live list (built after its provider),
+    // and an explicit aux model still wins. Source pin only: requiring index.js boots a sidecar.
+    const fs = require('node:fs'), path = require('node:path');
+    const src = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+    const at = src.indexOf('async function runQuestRefreshCycle(');
+    const quest = src.slice(at, src.indexOf('\n}\n', at));
+    A.ok(at > 0 && /const auxModel = resolveAuxModel\(\);/.test(quest), 'quest refresh reads the aux model once');
+    const providerAt = quest.indexOf('provider = selectProvider'), pickAt = quest.search(/if \(usingCodex && !auxModel\) model = await codexLiveDefaultModel\(\(\) => provider\.listModels\(\), CODEX_DEFAULT_MODEL, \d+\);/);
+    A.ok(providerAt > 0 && pickAt > providerAt && pickAt < quest.indexOf('const req = {'), 'a Codex quest refresh with no aux model asks its own provider\'s live list before the request');
+  }
+
   A.report('provider.codex.test');
 })();

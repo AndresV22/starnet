@@ -501,6 +501,27 @@
     return { stream, listModels, contextLimit, priceOf, supportsTools, reasoningEfforts };
   }
 
+  /* #118 (2026-10-15): the ids a listModels() answer proves the ACCOUNT offers, in the backend's priority order. The
+     curated offline list (fallback:true) proves nothing about the account, so it yields []. A caller that must name
+     a slug this sign-in accepts (the plan's image host, an aux pass) reads this instead of trusting DEFAULT_MODEL. */
+  function liveModelIds(models) {
+    const out = [];
+    for (const m of Array.isArray(models) ? models : []) {
+      const id = m && !m.fallback && typeof m.id === 'string' ? m.id.trim() : '';
+      if (id && out.indexOf(id) < 0) out.push(id);
+    }
+    return out;
+  }
+  // The account's first live model, else `fallback` (offline, empty, failed, or no answer within timeoutMs: the
+  // listing has no abort seam, so a silent one must not hold its caller).
+  async function liveDefaultModel(listModels, fallback, timeoutMs) {
+    let timer = null;
+    const silent = new Promise(resolve => { timer = setTimeout(() => resolve(null), Math.max(1, Number(timeoutMs) || 10000)); });
+    try { return liveModelIds(await Promise.race([Promise.resolve().then(() => listModels()), silent]))[0] || fallback; }
+    catch (e) { return fallback; }   // value default: the pinned slug is what ran before the live list existed
+    finally { clearTimeout(timer); }
+  }
+
   // Responses usage uses input_tokens/output_tokens; remap to the prompt_tokens/completion_tokens shape
   // the cost engine + context gauge read. A subscription is flat-rate, so cost is recorded as 0.
   function normalizeUsage(u) {
@@ -517,5 +538,5 @@
     };
   }
 
-  return { makeCodexProvider, STATIC_MODELS, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, _internals: { messagesToInput, extractInstructions, toResponsesTools, normalizeUsage, normalizeCodexReasoningEffort } };
+  return { makeCodexProvider, STATIC_MODELS, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, liveModelIds, liveDefaultModel, _internals: { messagesToInput, extractInstructions, toResponsesTools, normalizeUsage, normalizeCodexReasoningEffort } };
 });
