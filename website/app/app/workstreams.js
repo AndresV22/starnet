@@ -371,6 +371,19 @@
     return n;
   }
 
+  // ---------- goal steps (org P29-sys wiring) ----------
+  // A goal-loop continuation rides history as a user-role turn, but the Commander never typed it. GoalLoop.stepOfTurn is
+  // the ONE predicate every reader shares (a browser global; the sibling pure module under node). Every reader here that
+  // means "the Commander's words" (titles, export) asks it, so the internal prompt never names or speaks for a session.
+  function goalLoopApi() {
+    if (typeof GoalLoop !== 'undefined' && GoalLoop && GoalLoop.stepOfTurn) return GoalLoop;
+    if (typeof module !== 'undefined' && module.exports && typeof require === 'function') return require('./goalloop.js');
+    return null;
+  }
+  function goalStepOf(m) { const g = goalLoopApi(); return g ? g.stepOfTurn(m) : null; }
+  // the words a user turn stands for: a goal step stands for its goal, anything else for its own text
+  function userWordsOf(m) { const g = goalStepOf(m); return g != null ? g : m.content; }
+
   // ---------- titles ----------
   function deriveTitle(text) {
     let t = String(text == null ? '' : text).trim().replace(/\s+/g, ' ');
@@ -400,8 +413,10 @@
   // stays (an honest "hey" beats a minted "Casual Greeting Exchange" that locks in forever).
   function titleBasis(id, fallbackText) {
     const w = find(id);
-    const msgs = w ? (w.history || []).filter(m => m && m.role === 'user' && typeof m.content === 'string').map(m => m.content) : [];
+    // a goal step counts as its GOAL (never the station's continuation prompt): a /goal session is titled from what it is for
+    const msgs = w ? (w.history || []).filter(m => m && m.role === 'user' && typeof m.content === 'string').map(userWordsOf) : [];
     let subs = msgs.filter(t => !isLowSignal(t));
+    if (fallbackText != null) fallbackText = userWordsOf({ role: 'user', content: String(fallbackText) });
     if (!subs.length && fallbackText != null && !isLowSignal(fallbackText)) subs = [String(fallbackText)];
     if (!subs.length) return null;
     const pick = [];
@@ -429,7 +444,7 @@
     if (w.titleStrong) return false;   // already model-titled from real content — the ladder's terminal rung
     const first = (w.history || []).find(m => m && m.role === 'user' && typeof m.content === 'string');
     if (!first) return false;
-    if (w.title === deriveTitle(first.content)) return true;
+    if (w.title === deriveTitle(userWordsOf(first))) return true;   // a goal step's placeholder was derived from its goal
     // HEAL a weak model title: a session OPENED with small talk wears whatever the model made of "hey"
     // (pre-upgrade builds minted "Casual Greeting Exchange"-style titles from it). Once the session
     // holds a substantive user message, it earns one upgrade pass — which lands strong and stops here.
@@ -561,14 +576,24 @@
     const w = find(id); if (!w) return null;
     opts = opts || {};
     const title = safeTitle(w);
-    const messages = visibleMessages(w).map(m => ({ role: m.role, content: scrubSecrets(m.content) }));
+    // a goal step keeps its record (role + the prompt the model received) and is NAMED as one: the readable export writes it
+    // as the station's line, never under "## Commander" (org P29-sys wiring)
+    const messages = visibleMessages(w).map(m => {
+      const out = { role: m.role, content: scrubSecrets(m.content) };
+      const step = goalStepOf(m);
+      if (step != null) out.goalStep = scrubSecrets(step);
+      return out;
+    });
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'general';
     if (format === 'json') {
       const doc = { schema: 'starnet.conversation', version: 1, exportedAt: opts.exportedAt != null ? opts.exportedAt : now(), title, messages, secretsIncluded: false };
       return { format: 'json', mime: 'application/json', filename: 'starnet-' + slug + '.json', text: JSON.stringify(doc, null, 2), doc };
     }
     const lines = ['# ' + title, '', '_Exported from StarNet. Hidden/system data and obvious credentials are excluded._', ''];
-    for (const m of messages) lines.push('## ' + (m.role === 'user' ? 'Commander' : 'Agent'), '', m.content, '');
+    for (const m of messages) {
+      if (m.goalStep != null) { lines.push('## Station', '', 'Goal step: ' + m.goalStep, ''); continue; }
+      lines.push('## ' + (m.role === 'user' ? 'Commander' : 'Agent'), '', m.content, '');
+    }
     return { format: 'markdown', mime: 'text/markdown', filename: 'starnet-' + slug + '.md', text: lines.join('\n') };
   }
   function parseConversationExport(text) {

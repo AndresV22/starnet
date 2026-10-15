@@ -159,7 +159,11 @@ const DeskScreen = (() => {
           if (Channels.runIdOf(w.id) !== rec.runId) continue;
           rec.wsId = w.id;
           const h = Array.isArray(w.history) ? w.history : [];
-          for (let i = h.length - 1; i >= 0; i--) if (h[i] && h[i].role === 'user' && h[i].content) { rec.task = String(h[i].content); break; }
+          for (let i = h.length - 1; i >= 0; i--) if (h[i] && h[i].role === 'user' && h[i].content) {
+            // a goal-loop step is the station's prompt, not the Commander's words: the task is the GOAL it works toward
+            const step = (typeof GoalLoop !== 'undefined' && GoalLoop.stepOfTurn) ? GoalLoop.stepOfTurn(h[i]) : null;
+            rec.task = step != null ? step : String(h[i].content); break;
+          }
           if (rec.task) return { text: rec.task, known: true };
         }
       }

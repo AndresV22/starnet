@@ -133,6 +133,9 @@
      toolset swap (prompt caching + the moat's real-prop reach stay intact). Carries the goal, any subgoals, and
      the judge's reason so the agent knows why it's still going. */
   const CONT_HEAD = '[Continuing toward your session goal]\nGoal: ';
+  // the head every goal step stored BEFORE the org pass carries (0.13.2 / 0.13.3 / the 0.13.5 candidate wrote "standing goal"):
+  // a saved session replays those steps too, so the READER accepts both heads; only CONT_HEAD is ever written
+  const CONT_HEAD_RE = /^\[Continuing toward your (?:session|standing) goal\]\nGoal: /;
   const CONT_SUBS = '\n\nAdditional criteria the Commander added:\n';
   const CONT_TAIL = '\n\nContinue working toward this goal. ';
   function continuationPrompt(s) {
@@ -157,12 +160,21 @@
      nothing new on the wire). */
   function continuationGoal(text) {
     const t = String(text == null ? '' : text);
-    if (t.indexOf(CONT_HEAD) !== 0) return null;
-    const rest = t.slice(CONT_HEAD.length);
+    const head = CONT_HEAD_RE.exec(t);
+    if (!head) return null;
+    const rest = t.slice(head[0].length);
     const cuts = [rest.indexOf(CONT_SUBS), rest.indexOf(CONT_TAIL)].filter(i => i >= 0);
     if (!cuts.length) return null;
     const goal = rest.slice(0, Math.min.apply(null, cuts)).trim();
     return goal || null;
+  }
+  /* THE ONE TURN-LEVEL PREDICATE every history reader shares (org P29-sys wiring, 2026-10-14): the goal a stored history
+     turn works toward when it is a goal step, else null. Only a user-role turn the Commander's own page sent can be one —
+     a delegated brief (m.from) keeps its own speaker. COMMS, the rail excerpt, export, the HUD + desk screen task and
+     station.read_session all ask THIS, so a goal step never reads as the Commander's words on any surface. */
+  function stepOfTurn(m) {
+    if (!m || m.role !== 'user' || m.from || typeof m.content !== 'string') return null;
+    return continuationGoal(m.content);
   }
 
   /* ============================ THE JUDGE PROMPT ============================
@@ -269,6 +281,6 @@
     DEFAULT_MAX_TURNS, MAX_PARSE_FAILS,
     parseVerdict, create, normalize, isActive, hasGoal,
     addSubgoal, pause, resume, clear,
-    continuationPrompt, continuationGoal, judgeSystem: () => JUDGE_SYSTEM, judgeUser, evaluate, statusLine
+    continuationPrompt, continuationGoal, stepOfTurn, judgeSystem: () => JUDGE_SYSTEM, judgeUser, evaluate, statusLine
   };
 });

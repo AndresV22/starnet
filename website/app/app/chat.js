@@ -2002,7 +2002,13 @@ const Chat = (() => {
         return ids.slice(0, 2).map(nm).join(', ') + (more > 0 ? ' +' + more : '');
       }
     }
-    return streamLabel(ws);
+    return shownName(ws);
+  }
+  // the name the RAIL prints for a session (App.sessionDisplayName: D12's "New session · NOVA" / "… 2" included), else
+  // streamLabel — so the COMMS title and the busy row never name a session the rail no longer shows by that name
+  function shownName(w) {
+    const n = (w && typeof App !== 'undefined' && App.sessionDisplayName) ? App.sessionDisplayName(w) : '';
+    return n || streamLabel(w);
   }
   function paintTitle() {
     const t = el('comms-title'); if (!t) return;
@@ -2305,7 +2311,7 @@ const Chat = (() => {
     const label = document.createElement('span'); label.className = 'dim';
     // ORG P25: say WHO is busy and WHERE — it explains why a first message here queues (kept visible in an empty session)
     const busyName = peer ? ((typeof App !== 'undefined' && App.agentName && App.agentName(peer.agentId || 'agent')) || name || 'This agent') : '';
-    label.textContent = peer ? (String(busyName).toUpperCase() + ' IS BUSY IN ' + streamLabel(peer).toUpperCase()) : String(detail || 'AGENT BUSY');
+    label.textContent = peer ? (String(busyName).toUpperCase() + ' IS BUSY IN ' + shownName(peer).toUpperCase()) : String(detail || 'AGENT BUSY');
     rowEl.appendChild(label);
     if (peer) {
       const view = document.createElement('button'); view.type = 'button'; view.className = 'choice'; view.textContent = 'VIEW ACTIVE RUN';
@@ -2726,8 +2732,8 @@ const Chat = (() => {
   /* A GOAL STEP IS THE STATION'S WORDS (org P29-sys, 2026-10-14). The goal loop sends each continuation as a user-role turn
      (GoalLoop.continuationPrompt — that wire text is unchanged), but the Commander never typed it: COMMS shows the step as ONE
      compact system line naming the goal — live (send) and on every replay (renderHistory) — never the station's internal prompt
-     as the Commander's speech. goalStepOf reads the stored turn's own text, so history written before this change replays the
-     same way. */
+     as the Commander's speech. goalStepOf reads the stored turn's own text — GoalLoop.continuationGoal accepts the current head
+     AND the pre-org-pass "standing goal" head — so history written before this change replays the same way. */
   function goalStepOf(text) {
     return (typeof GoalLoop !== 'undefined' && GoalLoop.continuationGoal) ? GoalLoop.continuationGoal(text) : null;
   }
@@ -8681,7 +8687,7 @@ const Chat = (() => {
     // concurrent same-agent runs (workspace lease guards the real collision). The peer surfaces as the soft
     // status row + a tooltip; send stays live.
     const peer = !isBusy() ? busyPeerFor(activeWs) : null;
-    if (input) { input.disabled = false; input.title = peer ? ('This agent is also running in ' + streamLabel(peer)) : ''; }
+    if (input) { input.disabled = false; input.title = peer ? ('This agent is also running in ' + shownName(peer)) : ''; }
     const sendBtn = el('chat-send'); if (sendBtn) sendBtn.disabled = false;
     const attachBtn = el('chat-attach'); if (attachBtn) attachBtn.disabled = false;
     renderQueued();
@@ -8737,7 +8743,7 @@ const Chat = (() => {
     Object.freeze({ name: 'away', aliases: ['build-away', 'buildaway'], desc: 'queue work for this agent to build on its own away shift', argsHint: '[<what to build> | list | on | off | now]', action: 'away' }),
     Object.freeze({ name: 'routine', aliases: ['routines'], desc: 'list, create, preview, pause or delete a scheduled routine', argsHint: '[list | add <schedule> | <task> | preview <schedule> | pause N | resume N | rm N]', action: 'routine' }),
     Object.freeze({ name: 'loop', desc: 'repeat a prompt on an interval in this workstream', argsHint: '<interval> <prompt> | status | off', action: 'loop' }),
-    Object.freeze({ name: 'goal', desc: 'set an autonomous standing goal (status/pause/resume/clear)', argsHint: '[text|status|pause|resume|clear]', action: 'goal' }),
+    Object.freeze({ name: 'goal', desc: 'set a goal this session works toward (status/pause/resume/clear)', argsHint: '[text|status|pause|resume|clear]', action: 'goal' }),
     Object.freeze({ name: 'subgoal', desc: 'add a criterion the session goal must also satisfy', argsHint: '[text|remove N|clear]', action: 'subgoal' }),
     Object.freeze({ name: 'model', desc: 'show or set the active model', argsHint: '[model-id]', action: 'model' }),
     Object.freeze({ name: 'personality', desc: 'show or set the active personality', argsHint: '[personality]', action: 'personality' }),
@@ -8894,6 +8900,12 @@ const Chat = (() => {
     const set = localLine('⊙ goal set for this session only: ' + s.goal + ' (budget ' + s.maxTurns + ' turns). It works while StarNet is open and stays with this session through a reload. Working toward it…');
     if (set && typeof StationUI !== 'undefined' && StationUI.openTerm) {
       systemDoor(set, '▸ AUTOMATE › GOAL LOOPS', () => StationUI.openTerm('automation', 'loops'), { cls: 'goal-loops-door', lead: 'Lasting goal loops:' });
+    }
+    // an untitled session is named from its goal NOW (no-op when it already has a name): the first step may wait on a busy
+    // stream or a pending card, and the rail row + COMMS title must never wear the continuation prompt meanwhile
+    if (typeof Workstreams !== 'undefined' && Workstreams.autoTitle && Workstreams.autoTitle(activeWs.id, s.goal)) {
+      if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail();
+      paintTitle();
     }
     kickGoal(activeWs);
   }
@@ -10261,8 +10273,9 @@ const Chat = (() => {
     // a goal-loop continuation shows as ONE station line (goalStepLine); its history turn — what the model receives — is unchanged
     if (!retry) { const uts = Date.now(); if (goalContinuation) goalStepLine(goalStepOf(text) || ((goalOf(ws) || {}).goal) || ''); else addUser(text, attsIn, uts); ws.history.push(attsIn.length ? { role: 'user', content: text, attachments: attsIn, ts: uts } : { role: 'user', content: text, ts: uts }); capHistory(ws); }   // on RETRY the user turn is already in the thread + on screen
     const retryDirectiveTurn = ws.history.slice().reverse().find(m => m.role === 'user');
-    // name an untitled stream from its first real message (no-op on General / already-titled)
-    if (typeof Workstreams !== 'undefined' && Workstreams.autoTitle(ws.id, text)) {
+    // name an untitled stream from its first real message (no-op on General / already-titled) — a goal step names it from
+    // its GOAL, never the station's continuation prompt (the rail row and the COMMS title both show this name)
+    if (typeof Workstreams !== 'undefined' && Workstreams.autoTitle(ws.id, goalContinuation ? (goalStepOf(text) || (goalOf(ws) || {}).goal || '') : text)) {
       if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail();
     }
 

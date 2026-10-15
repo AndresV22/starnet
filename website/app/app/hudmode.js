@@ -278,7 +278,12 @@
       if (!s || !(arr(s.runIds).includes(runId) || (streamId && s.id === streamId))) continue;
       const h = arr(s.history);
       for (let i = h.length - 1; i >= 0; i--) {
-        if (h[i] && h[i].role === 'user') { const t = oneLine(textOf(h[i].content), 200); if (t) return { task: t, streamId: s.id || '' }; }
+        if (h[i] && h[i].role === 'user') {
+          // a goal-loop step is not the Commander's words: the run's task is the GOAL it works toward (org P29-sys wiring)
+          const step = (typeof GoalLoop !== 'undefined' && GoalLoop.stepOfTurn) ? GoalLoop.stepOfTurn(h[i]) : null;
+          const t = oneLine(step != null ? step : textOf(h[i].content), 200);
+          if (t) return { task: t, streamId: s.id || '' };
+        }
       }
       return { task: oneLine(s.title || '', 200), streamId: s.id || '' };
     }
@@ -986,9 +991,11 @@
     bindBus();
     doc.body.classList.add('hud-mode');
     applyView();
-    // the COMMS header is the HUD's drag handle
+    // the COMMS header is the HUD's drag handle. The title is 'deep': since org P26 it holds the session name in a child
+    // <span class=comms-session>, and Tauri's bare attribute drags only when the press lands on the element ITSELF — so a
+    // press on the name moved nothing. The h3 stays bare: it holds keys, and a key must stay a click.
     S.els.h3.setAttribute('data-tauri-drag-region', '');
-    if (S.els.title) S.els.title.setAttribute('data-tauri-drag-region', '');
+    if (S.els.title) S.els.title.setAttribute('data-tauri-drag-region', 'deep');
     render();
     poll(); pollHistory();
     S.pollT = root.setInterval(poll, POLL_MS);

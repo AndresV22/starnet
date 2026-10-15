@@ -4255,6 +4255,12 @@ const App = (() => {
     return out;
   }
   function railExcerpt(latest) {
+    // a goal-loop step is the station's line, never "You:" + the internal continuation prompt (org P29-sys wiring)
+    const step = (typeof GoalLoop !== 'undefined' && GoalLoop.stepOfTurn) ? GoalLoop.stepOfTurn(latest) : null;
+    if (step != null) {
+      const g = step.replace(/\s+/g, ' ').trim();
+      return '↻ Goal step: ' + (g.length > 147 ? g.slice(0, 146).trimEnd() + '…' : g);
+    }
     const text = latest.content
       .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
       .replace(/(^|\n)\s{0,3}(?:#{1,6}\s+|[-*+]\s+|>\s*)/g, ' ')
@@ -4287,10 +4293,18 @@ const App = (() => {
       + (w.pinned ? ' pinned' : '') + (w.archived ? ' archived' : '')
       + (Workstreams.unread(w) ? ' unread' : '');   // real unseen activity (lastActiveAt > lastReadAt, never the open stream)
   }
+  /* the name the rail printed for a session on its last pass — the D12 disambiguation ("New session · NOVA", "… 2") included —
+     else Workstreams.titleOf. A printed name is used only while its base still matches titleOf, so a session titled since the
+     last pass never shows the stale one. Chat.sessionTitleText (the COMMS title) and the busy row read this. */
+  let railShownNames = new Map();
+  function sessionDisplayName(w) {
+    if (!w || typeof Workstreams === 'undefined') return '';
+    const base = Workstreams.titleOf(w), hit = railShownNames.get(w.id);
+    return hit && hit.base === base ? hit.shown : base;
+  }
   function renderRail() {
     const ul = el('workstreams');
     if (!ul || typeof Workstreams === 'undefined') return;
-    if (typeof Chat !== 'undefined' && Chat.paintTitle) Chat.paintTitle();   // ORG P26: a rename / auto-title / group change renames the COMMS title too
     const activeId = Workstreams.activeId();
     const oldFocus = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.ws-row[data-id]') : null;
     const restoreFocus = !!(oldFocus && ul.contains(oldFocus));
@@ -4330,6 +4344,10 @@ const App = (() => {
       const n = (seenTitle.get(t) || 0) + 1; seenTitle.set(t, n);
       return n === 1 ? t : t + ' ' + n;
     });
+    // ONE name per session on every surface (org D12 x P26 x P25): the COMMS title and the busy row read the name this pass
+    // printed (sessionDisplayName), so a disambiguated "New session · NOVA" is never a bare "New session" over the transcript
+    railShownNames = new Map(rows.map((w, i) => [w.id, { base: baseTitles[i], shown: titles[i] }]));
+    if (typeof Chat !== 'undefined' && Chat.paintTitle) Chat.paintTitle();   // ORG P26: a rename / auto-title / group change renames the COMMS title too
     ul.innerHTML = rows.map((w, i) => {
       const title = titles[i];   // only the General home reads "General"; an untitled other session is a "New session"
       const st = railRowState(w);
@@ -5960,7 +5978,7 @@ const App = (() => {
   // (never an id in the UI) and keys its standing candidates against the focused hero.
   // currentAgent/agents/applyConfig (slash-plan): the slash-command suite reads/writes the live roster
   // and per-agent config (/agents, /model, /personality, …).
-  return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, waitingSessionOf, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
+  return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, sessionDisplayName, openWorkstream, waitingSessionOf, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
     tierModelFor,   // org P22 fix: the bay's MODEL helper names a SETTINGS tier pin instead of promising a copy
     // a team.spawn clone ('sub-<id>', never on the roster) is a HELPER: its raw id was the name on its approval card and NEEDS
     // YOU once its ask could outlive the lead's turn (live walk 2026-10-14); the sidecar says "a helper" for it too
