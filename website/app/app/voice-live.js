@@ -1838,6 +1838,7 @@ const VoiceLive = (() => {
     try {
       const r = await fetch('/api/local-voice/status', { cache: 'no-store' });
       const j = await r.json();
+      if (Voice.rememberVoiceLabels) Voice.rememberVoiceLabels(j.voices);   // (org P21 wire) the dossier names a choice by this word
       return { available: j.voices || [], current: cur || j.voice || '', assigned, engine: 'built-in', appliesOn: 'the next spoken reply or new Live Voice session' };
     } catch (_) {
       return { available: [], current: cur, assigned, engine: 'built-in', appliesOn: 'the next spoken reply or new Live Voice session' };

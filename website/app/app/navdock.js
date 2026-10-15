@@ -120,10 +120,16 @@
   // at a COMMS the panel hides. The coach also holds while a Dialogue is open; Dialogue.close fires
   // 'starnet:dialogue-closed' and the coach asks again then.
   const dialogueOpen = () => typeof Dialogue !== 'undefined' && typeof Dialogue.isOpen === 'function' && Dialogue.isOpen();
+  // NOT INSIDE THE TOUR (org P31 wire): the optional tour closes the Dialogue mid-way (TRY A SMALL FILE EXAMPLE reveals
+  // COMMS), and that close is not the end of onboarding — two hints would compete for the first click. The coach holds
+  // while Tutorial.isCoaching() (the same check dockglow/build stand down on); Tutorial.finishUp fires
+  // 'starnet:tutorial-ended' once the tour is over and the coach asks again then.
+  const tourCoaching = () => typeof Tutorial !== 'undefined' && typeof Tutorial.isCoaching === 'function' && !!Tutorial.isCoaching();
   function showCoachOnce() {
     if (!coach || !coach.hidden || coachShown) return;
     if (awakeningHeld()) return;   // the arrival is still on screen — the release event asks again
     if (dialogueOpen()) return;    // COMMS is covered by the conversation panel — the close event asks again
+    if (tourCoaching()) return;    // the optional tour still owns the first click — 'starnet:tutorial-ended' asks again
     try { if (localStorage.getItem(COACH_KEY)) return; } catch (_) {}
     coachShown = true;
     coach.hidden = false;
@@ -139,6 +145,7 @@
         .observe(game, { attributes: true, attributeFilter: ['class'] });
       document.addEventListener('starnet:awakening-released', () => { if (game.classList.contains('active')) showCoachOnce(); });
       document.addEventListener('starnet:dialogue-closed', () => { if (game.classList.contains('active')) showCoachOnce(); });
+      document.addEventListener('starnet:tutorial-ended', () => { if (game.classList.contains('active')) showCoachOnce(); });
     }
   }
 

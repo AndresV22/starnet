@@ -762,15 +762,21 @@ const Tutorial = (() => {
     state.firstCommandDone = true;
     if (skipped && !replayMode) state.briefDismissed = true;     // replay never rewrites the saved first-steps preference
     save();
-    if (valueHandoff) { replayMode = false; return; }
+    if (valueHandoff) { replayMode = false; return tourEnded(); }
     if (replayMode) {
       replayMode = false;
       if (hasChat()) Chat.localLine(skipped ? 'quick tour closed — your progress is unchanged.' : 'quick tour complete — your progress is unchanged.');
-      return;
+      return tourEnded();
     }
     // Return to the same first task after the optional tour. Setup help stays in the manual.
     if (typeof PitchStore !== 'undefined' && PitchStore.offerHandoff) presentHandoff(false);
     else if (hasChat()) Chat.localLine('ready when you are. type your first task in COMMS.');
+    tourEnded();
+  }
+  // (org P31 wire) the tour is over (isCoaching() now reads false): the first-hour dock coach (navdock.js) was holding for
+  // this — a tour that ended with the Dialogue already closed (the file example) fires no 'starnet:dialogue-closed'.
+  function tourEnded() {
+    if (typeof document !== 'undefined' && document.dispatchEvent && typeof CustomEvent === 'function') document.dispatchEvent(new CustomEvent('starnet:tutorial-ended'));
   }
 
   function goalTexts() {

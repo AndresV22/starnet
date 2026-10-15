@@ -791,6 +791,19 @@ const Voice = (() => {
   function localVoiceId(agentId) {
     return voiceChoice(agentId) || voiceChoice('');
   }
+  /* (org P21 wire) a stored voice is an engine id ('af_heart'); the VOICE FOR picker names it by its catalogue label ('HEART').
+     Anything else that shows a choice (the dossier's VOICE row) names it with the picker's word: the labels the sidecar last
+     reported (VoiceLive.voices remembers them), else the id without its language/sex prefix, uppercased — which is every label
+     the shipped catalogue has. */
+  const voiceLabels = new Map();
+  function rememberVoiceLabels(list) {
+    (Array.isArray(list) ? list : []).forEach(v => { if (v && v.id && v.label) voiceLabels.set(String(v.id), String(v.label)); });
+  }
+  function voiceLabel(id) {
+    const v = String(id || '').trim();
+    if (!v) return '';
+    return voiceLabels.get(v) || v.replace(/^[a-z]{2}_/, '').toUpperCase();
+  }
   function setVoiceChoice(id, agentId) {
     const want = String(id || '').trim();
     const key = agentId ? AGENT_VOICE_KEY + encodeURIComponent(agentId) : LOCAL_VOICE_KEY;
@@ -2008,7 +2021,7 @@ const Voice = (() => {
     toggleVoiceMode, stopConvo, onTurnEnd,
     canListen, canSpeak, startCoordinator, stopCoordinator, pauseCoordinator, resumeCoordinator, attachCoordinator, detachCoordinator,
     canOAuthLive: () => !!SR || typeof fetch !== 'undefined', personaId: () => activePersonaId,
-    setLocalTts, voiceChoice, localVoiceId, setVoiceChoice, currentAgentId, microphoneHelp,
+    setLocalTts, voiceChoice, localVoiceId, setVoiceChoice, voiceLabel, rememberVoiceLabels, currentAgentId, microphoneHelp,
     voiceEffect, setVoiceEffect, playbackChain: () => lastChain,
     /* LIVE VOICE MUST ARRIVE AUDIBLE. Opening a hands-free session with the speaker muted is a room where you
        talk and nothing answers — the Commander then has to find a toggle to make the feature work at all.

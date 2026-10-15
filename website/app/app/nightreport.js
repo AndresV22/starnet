@@ -294,7 +294,8 @@
     if (s.buildMode === 'build') {
       const n = Number(s.leashPerDay);
       const jobs = Number.isFinite(n) && n > 0 ? 'up to ' + plural(n, 'small job') + ' a day' : 'small jobs';
-      return 'While you’re away I’ll do ' + jobs + '; each arrives as a new ⚒ session.';
+      // (org P09/P31 wire) no ⚒: postureOutlook speaks this in the Dialogue panel, where a symbol glyph falls back to another font
+      return 'While you’re away I’ll do ' + jobs + '; each arrives as a new session in your rail.';
     }
     const why = s.draftReason === 'no-workshop-grant' ? ' (the away-workshop grant is off)' : '';
     return 'While you’re away I’ll draft small jobs, not build them' + why + ' — see LAST REPORT in SETTINGS › AUTONOMY.';
@@ -309,7 +310,7 @@
   // an unreachable/absent status, OR a fully-hot build-capable station whose only truthful line ('beats BUILD…') the
   // caller may still choose to show. NEVER invents — every clause maps to a status field. Pure + node-testable.
   // PRESENT TENSE (org pass 10-14, call #57): it says what WILL happen — "I’ll do up to 3 small jobs a day; each
-  // arrives as a new ⚒ session" — never an unlock ladder ("set REACH to…", "reaching either lets it act"). The
+  // arrives as a new session in your rail" — never an unlock ladder ("set REACH to…", "reaching either lets it act"). The
   // exact N-of-M readiness counts are not dropped: they stay on readinessText, shown in SETTINGS › AUTONOMY and LAST
   // REPORT. Still composed only from status fields; '' when the status carries nothing to say.
   // NOTHING RUNS UNATTENDED (org pass fix): binding 'posture' is the driver's FIRST gate — the dial is below SMALL
