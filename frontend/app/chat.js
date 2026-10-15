@@ -10707,7 +10707,7 @@ const Chat = (() => {
     aborters.set(ws.id, ac);
     const callNames = {};   // callId -> tool name (the frozen agent.tool_result has no name field)
     const seenDeliv = {};   // title -> true (one openable row per produced file)
-    let runToolsOk = 0, runDeliv = 0, thisRunId = null;   // per-run work tally → the "rate the work" beat's size + delivery gate
+    let runToolsOk = 0, runDeliv = 0, thisRunId = null, streamLost = false;   // streamLost: the reply stream threw without a STOP — this page never saw its run end   // per-run work tally → the "rate the work" beat's size + delivery gate
     // this run's own station.control estop.engage came back OK (its result names the action): the halt it scheduled is what
     // cancels it a moment later, so its stop line says so and offers no TRY AGAIN (a retry would press the E-STOP again)
     let runPressedEstop = false;
@@ -11121,6 +11121,7 @@ const Chat = (() => {
         // app" copy onto every abort, including a dead PROVIDER stream on a healthy install. Say only what we
         // witnessed and let Harness.pingEngine measure the rest — full rationale in harness.js + friendlyerror.js.
         persistPartial(ws, acc);
+        streamLost = true;   // its run's end never arrived (see finally)
         let engineAlive = null;
         if (typeof Harness !== 'undefined' && Harness.pingEngine) {
           try { engineAlive = await Harness.pingEngine(); } catch (_) { engineAlive = null; }
@@ -11151,7 +11152,7 @@ const Chat = (() => {
       interrupted.delete(ws.id);   // consume the stop flag (whether or not it fired)
       stopSource.delete(ws.id);
       Channels.end(ws.id);
-      if (thisRunId) { if (interruptedStreams.has(ws.id)) releaseSentNow(ws.id, thisRunId, acc); else settleSentNow(ws.id, thisRunId, acc); }   // SEND NOW lines this run took are settled with it; one it never read goes next (a STOP already gave back the unread ones). A stream that DIED cannot know what its run read: it lets go of them and the station decides
+      if (thisRunId) { if (streamLost || interruptedStreams.has(ws.id)) releaseSentNow(ws.id, thisRunId, acc); else settleSentNow(ws.id, thisRunId, acc); }   // SEND NOW lines this run took are settled with it; one it never read goes next (a STOP already gave back the unread ones). A stream that DIED cannot know what its run read: it lets go of them and the station decides
       reconcileSentNow(ws);   // any line on disk this page no longer holds (released just now, or by a teardown) is asked about now
       // P1: drain this directive from the QUEUE gauge on ANY teardown (shipped, in-band error, or abort) —
       // the backlog is "runs in flight", independent of whether the work shipped.

@@ -170,7 +170,13 @@ function stopRig(opts) {
     // the wiring the sandbox injects: the live run's tokens mark echoes, and every teardown settles the run's lines
     A.ok(/onToken: d => \{ acc \+= d; Channels\.appendToken\(ws\.id, d\); if \(thisRunId && d && d\.indexOf\('\[steering\] '\) >= 0\) markSentNowLanded\(ws\.id, thisRunId, d\);/.test(src),
       'the run\'s own token stream marks a sent-now line read when its [steering] echo arrives');
-    A.ok(/\} finally \{[\s\S]{0,600}Channels\.end\(ws\.id\);\s*if \(thisRunId\) \{ if \(interruptedStreams\.has\(ws\.id\)\) releaseSentNow\(ws\.id, thisRunId, acc\); else settleSentNow\(ws\.id, thisRunId, acc\); \}/.test(src), 'send()\'s teardown settles the run\'s sent-now lines on every end, against the run\'s own text — unless its stream died (the station decides those)');
+    A.ok(/\} finally \{[\s\S]{0,600}Channels\.end\(ws\.id\);\s*if \(thisRunId\) \{ if \(streamLost \|\| interruptedStreams\.has\(ws\.id\)\) releaseSentNow\(ws\.id, thisRunId, acc\); else settleSentNow\(ws\.id, thisRunId, acc\); \}/.test(src), 'send()\'s teardown settles the run\'s sent-now lines on every end, against the run\'s own text — unless its stream died (the station decides those)');
+    // LIVE (this lane): the station was killed mid-run with a send-now line pending; the page's thrown teardown is not always
+    // classified 'network', so the line was re-queued and auto-sent into the dead station. A throw that is not a deliberate
+    // STOP never saw its run end: it marks the stream lost, whatever the error's wording.
+    const thrown = src.slice(src.indexOf('      const stopped = interrupted.has(ws.id);   // the Commander pressed Stop'), src.indexOf('let engineAlive = null;', src.indexOf('      const stopped = interrupted.has(ws.id);   // the Commander pressed Stop')));
+    A.ok(thrown.length > 200 && thrown.length < 4000 && /\} else \{[\s\S]*persistPartial\(ws, acc\);\s*streamLost = true;/.test(thrown), 'a non-STOP throw marks the stream lost (right after it saves what streamed)');
+    A.ok(/let runToolsOk = 0, runDeliv = 0, thisRunId = null, streamLost = false;/.test(src), 'each send starts with its stream not lost');
     A.ok(/if \(activeWs\) \{ returnHeld\(activeWs\.id\); flushQueued\(activeWs\.id\); \}/.test(src), 'returning to a session gives back what its confirmed STOP held, before its queue drains');
     A.ok(/queued\.clear\(\); sentNow\.clear\(\);/.test(src), 'a session switch starts with no sent-now lines, like the queue');
   }
