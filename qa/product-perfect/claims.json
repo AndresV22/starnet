@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "ec7867e437efc2ea0850bd8fb792259756b0c7e3",
+    "sourceCommit": "fee3f616152b9566c93613c4263819493b1536cd",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -173,8 +173,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 448111,
-        "sha256": "4124751c0a37da6a037f35714056b7f3bc4477dca58ed3fa5965f2cfc75c4e73"
+        "bytes": 448686,
+        "sha256": "276d1bb94c1e49fc2626cd0a2d9395f472ab9f2de15e7c1044dbf7a7258390b1"
       },
       {
         "path": "frontend/app/approved-sheet-effects.js",
@@ -708,8 +708,8 @@
       },
       {
         "path": "frontend/app/needsyou.js",
-        "bytes": 34085,
-        "sha256": "3c587094755d20fe7c1a590bb6c303e2e4f7eee590d6f5da898160347d27190e"
+        "bytes": 35392,
+        "sha256": "b7c1a9d0685d6217c5dabecf793fd50934dc70e6b6d3bddd3055c50ec2542c7c"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -1523,8 +1523,8 @@
       },
       {
         "path": "frontend/css/app.css",
-        "bytes": 429787,
-        "sha256": "4b207af9941e869e7b83dc18db02a51ce3c817471c700a73fe32c41dc2226b9a"
+        "bytes": 430546,
+        "sha256": "54db3ab7e9a4b8437111b08b8853052f1c9c1500c1b7f2726567b66d027eff26"
       },
       {
         "path": "frontend/css/asciifx.css",
@@ -1643,8 +1643,8 @@
       },
       {
         "path": "frontend/css/pipglass.css",
-        "bytes": 69937,
-        "sha256": "28f202bc92d16a65424aa5d52b36fd21e16d2eaa6488734674c9f352d8befa55"
+        "bytes": 73487,
+        "sha256": "3f90150e5061ebca8d7ac5892f8a1caa7aaa53f55a771e331f115a62b283ac42"
       },
       {
         "path": "frontend/css/plugins.css",
