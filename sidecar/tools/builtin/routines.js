@@ -213,9 +213,14 @@
        leaves true — so every readout here said "armed" about a scheduler the Commander had durably stood down, and
        run_now told the model the routine "fires on its next tick (within ~1 minute)" when no tick was coming. */
     const schedulerHalted = typeof deps.schedulerHalted === 'function' ? deps.schedulerHalted : function () { return false; };
+    /* (org wire AUTO-P16-1) the Commander TURNED SCHEDULING OFF: a create keeps it off (the one arm rule), so the note names their
+       choice and their switch — never "DISARMED" as if a create could fix it */
+    const schedulerOffByChoice = typeof deps.schedulerOffByChoice === 'function' ? deps.schedulerOffByChoice : function () { return false; };
     const armedNote = function () {
       if (schedulerHalted()) return "the scheduler is STOPPED by the Commander's E-STOP — nothing fires until they resume it";
-      return schedulerState() ? null : 'the scheduler is DISARMED — nothing fires until it is armed';
+      if (schedulerState()) return null;
+      if (schedulerOffByChoice()) return 'scheduling is OFF because the Commander turned it off — saving a routine keeps it off, so nothing fires until they turn scheduling on (AUTOMATE › SCHEDULES › ▶ TURN SCHEDULING ON)';
+      return 'the scheduler is DISARMED — nothing fires until it is armed';
     };
     const roster = typeof deps.roster === 'function' ? deps.roster : function () { return new Map(); };
     const pack = function (job) { return packJob(job, deps.describeSchedule); };
@@ -276,7 +281,7 @@
           provider: { type: 'string', enum: providerEnum },
           model: { type: 'string' },
           enabled: { type: 'boolean' },
-          arm: { type: 'boolean', description: 'Default true. When true, also enables the scheduler so routines will fire.' },
+          arm: { type: 'boolean', description: 'Default true. When true, also turns scheduling on if it was never set. If the Commander turned scheduling off, it stays off (only they turn it back on) — the result says so in schedulerNote.' },
           repeatTimes: { type: ['integer', 'null'], description: 'Omit/null for recurring forever; one-shot schedules still run once.' }
           ,deliver: { type: 'string', enum: ['local', 'origin'], description: 'Where to send each result. origin returns it to this chat/session.' }
           ,attachToSession: { type: 'boolean', description: 'Keep delivered results in the origin conversation so replies can continue from them.' }
@@ -340,10 +345,12 @@
         }
 
         let armError = null;
+        const wasArmed = !!schedulerState();
         if (!args || args.arm !== false) {
           try { if (typeof armScheduler === 'function') armScheduler(true); }
           catch (e) { armError = (e && e.message) || String(e); }
         }
+        const offByChoice = !schedulerState() && !!schedulerOffByChoice();
 
         const body = {
           ok: true,
@@ -351,6 +358,9 @@
           schedulerHalted: !!schedulerHalted(),
           // so the model cannot report "this will run daily" over a stopped scheduler
           schedulerNote: armedNote() || undefined,
+          // the one arm rule, said as it happened: THIS create turned scheduling on, or kept the Commander's OFF
+          schedulerArmedNow: !wasArmed && !!schedulerState() && !schedulerHalted(),
+          schedulerOffByChoice: offByChoice,
           armError: armError,
           routedTo: route.agentId,
           routingReason: route.reason,
@@ -360,7 +370,7 @@
         };
         return {
           content: JSON.stringify(body),
-          summary: 'scheduled routine for ' + route.agentId + (armError ? ' (arm failed)' : '')
+          summary: 'scheduled routine for ' + route.agentId + (armError ? ' (arm failed)' : offByChoice ? ' — scheduling is off (the Commander turned it off), so it will not run yet' : '')
         };
       }
     };

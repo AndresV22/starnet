@@ -99,7 +99,13 @@ A.ok(/maxPendingDeliveries: cronStore.MAX_PENDING_DELIVERIES/.test(idx), 'GET /a
   A.ok(/function startLines\(\)[\s\S]*Wl\.entryDocksOf/.test(wfw) && /showJob, startLines,/.test(wfw), 'WORKFLOWS exports each line\'s schedule entry (its first routed step) for RUN BY');
   // the server: one rule for the form, the INBOX form and station.start_line
   A.ok(/function armOnSaveIfUnset\(\) \{\n  if \(cronArmed \|\| cronArmSet\) return false;/.test(idx), 'arm on save only when the switch was never set');
-  A.ok((idx.match(/armOnSaveIfUnset\(\)/g) || []).length === 3, 'handleCronCreate and startLineFor both use the one rule (definition + 2 callers)');
+  // (org wire AUTO-P16-1) every SAVE path: handleCronCreate, startLineFor, routine.create's armScheduler and /routine add's host create
+  A.ok((idx.match(/armOnSaveIfUnset\(\)/g) || []).length === 5, 'handleCronCreate, startLineFor, routine.create and /routine add all use the one rule (definition + 4 callers)');
+  A.ok(/if \(enabled === true\) \{ armOnSaveIfUnset\(\); return cronArmed; \}/.test(idx), 'routine.create\'s default arm never overrides an explicit OFF');
+  const mkt = fs.readFileSync(path.join(__dirname, '../frontend/app/marketplace.js'), 'utf8');
+  const mr = mkt.slice(mkt.indexOf('function makeRoutine(r, values, schedule) {'), mkt.indexOf('function makeRoutine(r, values, schedule) {') + 4200);
+  A.ok(/\n\s*arm: true\n\s*\};/.test(mr) && /const sch = \(d && d\.scheduler\) \|\| null/.test(mr), 'RECIPES › SCHEDULE IT saves with arm:true and reads the server\'s scheduler verdict');
+  A.ok(/else if \(sch && !sch\.armed\) note\('routine saved: '/.test(mr) && /sch\.offByChoice \? ' \(you turned it off\)' : ''/.test(mr) && /sch && sch\.armedNow \? ' · scheduling is now on' : ''/.test(mr), '…and never says "routine scheduled" about one that cannot fire');
   A.ok(/armSet: !!cronArmSet/.test(idx) && /armedNow: armedNow, offByChoice: !cronArmed && !!cronArmSet/.test(idx), 'GET /api/cron and the create reply carry armSet / armedNow / offByChoice');
 }
 A.report('autojobs-ui.test');

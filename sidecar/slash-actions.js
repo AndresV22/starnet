@@ -70,7 +70,10 @@ function makeSlashActions(deps) {
   function armedNote() {
     if (typeof cron.halted === 'function' && cron.halted()) return " Routines are STOPPED by the Commander's E-STOP, so nothing will fire — /cron on to resume them.";
     if (typeof cron.armed !== 'function') return '';
-    return cron.armed() ? '' : ' Routines are NOT armed right now, so nothing will fire — /cron on to arm them.';
+    if (cron.armed()) return '';
+    // the Commander turned scheduling OFF (org wire AUTO-P16-1): a save keeps it off — said as their choice, never as a fault
+    if (typeof cron.offByChoice === 'function' && cron.offByChoice()) return ' Scheduling is off (you turned it off), so nothing will fire — /cron on to turn it on.';
+    return ' Routines are NOT armed right now, so nothing will fire — /cron on to arm them.';
   }
 
   async function routineAction(args, ctx) {
@@ -150,8 +153,10 @@ function makeSlashActions(deps) {
         try { const p = cron.preview(schedule); if (p && p.ok !== false && p.localNext && p.localNext.length) local = p.localNext[0]; } catch (_) {}
         first = ', first fire ' + (local || j.nextRunAt);
       }
+      // ONE ARM RULE (org wire AUTO-P16-1): the host's save turned a never-set switch on — said as it happened
+      const nowOn = !!(r.scheduler && r.scheduler.armedNow);
       return say('Routine created: "' + (j.name || task.slice(0, 60)) + '" — ' + (j.scheduleDisplay || schedule)
-        + first + '.' + armedNote());
+        + first + '.' + (nowOn ? ' Scheduling is now on.' : '') + armedNote());
     }
 
     // NOTE: no `run` verb. Firing a routine on demand streams NDJSON through handleCronRun, which is welded to

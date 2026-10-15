@@ -103,6 +103,21 @@ const mk = (over) => { const d = deps(over); return { S: makeSlashActions(d), ca
   }
 
   {
+    // (org wire AUTO-P16-1) ONE ARM RULE: the host's save turns a never-set switch on (scheduler.armedNow) and keeps an explicit OFF
+    let armedS = false;
+    const { S } = mk({ cron: { armed: () => armedS, create: async (spec) => { armedS = true; return { ok: true, job: job({ name: spec.name }), scheduler: { armed: true, armedNow: true, offByChoice: false } }; } } });
+    const r = await S.run('routine', 'add every 30m | check the build');
+    A.ok(/Scheduling is now on\./.test(r.text) && !/NOT armed/.test(r.text), '/routine add says the save turned scheduling on: ' + r.text);
+    const off = await mk({ cron: { armed: () => false, offByChoice: () => true, create: async (spec) => ({ ok: true, job: job({ name: spec.name }), scheduler: { armed: false, armedNow: false, offByChoice: true } }) } })
+      .S.run('routine', 'add every 30m | check the build');
+    A.ok(/Scheduling is off \(you turned it off\), so nothing will fire — \/cron on to turn it on\./.test(off.text) && !/now on/.test(off.text), 'an explicit OFF is kept and said as the Commander\'s choice: ' + off.text);
+    const fs = require('fs'), path = require('path');
+    const idx = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+    const host = idx.slice(idx.indexOf('const slashActions = slashActionsMod.makeSlashActions({'), idx.indexOf('const slashActions = slashActionsMod.makeSlashActions({') + 2400);
+    A.ok(/armedNow = armOnSaveIfUnset\(\) && !cronHalted;/.test(host) && /offByChoice: \(\) => !cronArmed && !!cronArmSet,/.test(host), 'the host\'s /routine add create goes through the one arm rule and exposes the explicit OFF');
+  }
+
+  {
     const { S } = mk({ cron: { create: async () => ({ ok: true, duplicate: true, job: job({ name: 'check build' }) }) } });
     const r = await S.run('routine', 'add every 30m | check build');
     A.ok(/already exists/.test(r.text), 'a mint-gate duplicate is reported as existing, not created');

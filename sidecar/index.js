@@ -6349,7 +6349,9 @@ function saveCronArmed(armed) {   // durable like the jobs file; throws on a rea
    SKYNET_CRON_ENABLED) is turned ON by the first saved schedule; a switch the Commander turned OFF (armed:false on disk)
    stays off — a save never overrides an explicit OFF, it says so and offers the switch. An E-STOP is never lifted here:
    the intent is recorded and the timer stays down, exactly as before. Used by POST /api/cron (arm:true — the SCHEDULES
-   form and the INBOX form) and station.start_line's schedule. Returns true when THIS save turned the switch on. */
+   form and the INBOX form) and station.start_line's schedule — and (org wire AUTO-P16-1) by the agent's routine.create
+   (armScheduler(true)) and chat's /routine add, so no save path re-arms a scheduler the Commander turned off. Returns true
+   when THIS save turned the switch on. */
 let cronArmSet = (() => { try { return CRON_ENABLED || fs.existsSync(CRON_ARMED_FILE); } catch (_) { return false; } })();
 function armOnSaveIfUnset() {
   if (cronArmed || cronArmSet) return false;
@@ -18419,8 +18421,16 @@ const slashActions = slashActionsMod.makeSlashActions({
       const r = await createCronJobFromSpec(spec);
       const b = r.body || {};
       if (r.status !== 200) return { ok: false, error: b.error || 'the station refused that routine' };
-      return b;                                    // { ok, job } | { ok, duplicate, job } | { ok:false, declined }
+      /* ONE ARM RULE (org wire AUTO-P16-1): /routine add is a save like the SCHEDULES form's — a switch nobody ever set is
+         turned on, an explicit OFF is kept (armOnSaveIfUnset); the reply says which (scheduler.armedNow / offByChoice) */
+      let armedNow = false;
+      if (b.ok && b.job && !b.duplicate && b.job.enabled !== false) {
+        try { armedNow = armOnSaveIfUnset() && !cronHalted; } catch (e) { console.warn('[cron] /routine add arm failed:', (e && e.message) || e); }
+      }
+      if (b.ok) b.scheduler = { armed: !!cronArmed && !cronHalted, halted: !!cronHalted, armedNow: armedNow, offByChoice: !cronArmed && !!cronArmSet };
+      return b;                                    // { ok, job, scheduler } | { ok, duplicate, job, scheduler } | { ok:false, declined }
     },
+    offByChoice: () => !cronArmed && !!cronArmSet,
     // setEnabled, NOT a general `update(id, patch)`: this only pauses/resumes. Named for exactly what it does so
     // a future caller cannot hand it {prompt:'x'} and have the prompt silently discarded (and the job resumed as
     // a side effect) while being told ok:true. Field edits belong on handleCronUpdate's cronStore.updateJob path.
@@ -20677,9 +20687,6 @@ async function runOnceCore(o) {
       return !!(saved && String(saved.notepad || '') === bounded);
     },
     armScheduler: (enabled) => {
-      const want = enabled === true;
-      saveCronArmed(want);
-      cronArmed = want;
       /* RESPECT A DURABLE E-STOP. This is a MODEL-FACING DEFAULT, not a deliberate human resume: routine.create's
          `arm` schema says "Default true", so the agent never has to think about it — and a Commander who pressed
          E-STOP and later asked for "a daily brief" had their emergency stop silently lifted by approving that one
@@ -20688,12 +20695,19 @@ async function runOnceCore(o) {
          and there is a documented single seam for that (liftCronHalt) whose callers are exactly those paths. So
          record the arm INTENT and never restart the timer the Commander paused — the same rule the workshop
          auto-arm already states and implements. */
-      if (want) { if (!cronHalted) armCron(); } else disarmCron();
+      /* ONE ARM RULE (org wire AUTO-P16-1): routine.create's arm is a SAVE-side arm (its schema default is true, the model
+         never thinks about it) — it turns on a switch nobody ever set and never overrides the Commander's explicit OFF
+         (armOnSaveIfUnset; the E-STOP stays down there too). Only the Commander's own switch (POST /api/cron/arm) turns an
+         OFF back on. The tool reports offByChoice (schedulerOffByChoice below) so the model never says "this will run daily". */
+      if (enabled === true) { armOnSaveIfUnset(); return cronArmed; }   // (armOnSaveIfUnset: `if (!cronHalted) armCron()` — never lifts the halt)
+      saveCronArmed(false); cronArmed = false; disarmCron();
       return cronArmed;
     },
     // ...and tell the tool, so its response can say the scheduler is still stood down rather than implying the
     // routine will fire. A caller that cannot see the halt cannot disclose it.
-    schedulerHalted: () => !!cronHalted
+    schedulerHalted: () => !!cronHalted,
+    // the Commander turned scheduling OFF (an explicit armed:false on disk): a save keeps it off, and the tool says so
+    schedulerOffByChoice: () => !cronArmed && !!cronArmSet
   }).register(registry);
   // loop.list/create/manage share loops.json and the same pure reducers as the LOOPS panel. The host closures
   // enforce path approval, derive checks without model-authored shell, and return only after verified read-back.
