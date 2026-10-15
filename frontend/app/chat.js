@@ -45,8 +45,9 @@ const Chat = (() => {
   const recoveryNotices = new Set();      // review-required run ids already explained on this page
   let reconnectTimer = 0;          // the single reconnect health-probe poll (armed only while interruptedStreams is non-empty)
   const queued = new Map();        // TYPE-AHEAD: wsId -> [text,…] follow-ups typed while the stream was busy; auto-sent in order as it frees
-  const sentNow = new Map();       // SEND NOW: wsId -> [{ text, wire, runId, accepted, landed }] queued lines handed to the live run (sendQueuedNow) — kept until that run ends, so a STOP can give back any its transcript never showed landing
-  const heldBack = new Map();      // wsId -> [{ texts, line }] words a confirmed STOP gave back while ANOTHER session was on screen: they go into the message box when you return (returnHeld)
+  const sentNow = new Map();       // SEND NOW: wsId -> [{ id, text, wire, runId, accepted, landed }] queued lines handed to the live run (sendQueuedNow) — kept until that run ends, so a STOP can give back any its transcript never showed landing (and on disk until settled: keepSentNow)
+  const heldBack = new Map();      // wsId -> [{ texts, line, ids }] words a confirmed STOP gave back while ANOTHER session was on screen: they go into the message box when you return (returnHeld)
+  const sentNowChecks = new Map(); // wsId -> the in-flight ask about its leftover sent-now lines (reconcileSentNow): one per conversation at a time
   let activeLiveRow = null;     // streaming text controller for the DISPLAYED stream's in-flight run; rebound by replayChannel on switch
                                 // CLASSIC HARNESS FLOW: prose and the agent's actions (tool ▶/◀ lines, deliverables, approval
                                 // prompts) render CHRONOLOGICALLY — newest at the bottom — instead of pinning one reply block to
@@ -2077,7 +2078,9 @@ const Chat = (() => {
     syncStatus();      // also paints the Stop control + this stream's queued pills (updateControls)
     maybeEmptyState();   // brand-new / empty + idle stream → a one-line hint instead of a blank void
     maybeDeskPrompt();   // …and if this stream's agent still has nowhere to sit, the required next step + its door
-    loadServerHistory(activeWs, historyPin);
+    // once its history is merged, the conversation's leftover SEND NOW lines (a reload, close, crash or reconnect lost the page
+    // that held them) are asked about: shown as read, or back in this message box (reconcileSentNow)
+    { const w = activeWs; Promise.resolve(loadServerHistory(activeWs, historyPin)).catch(() => false).then(() => { if (w) reconcileSentNow(w); }); }
     if (activeWs) { returnHeld(activeWs.id); flushQueued(activeWs.id); }   // returned: what its confirmed STOP held goes back in the box; an idle stream's queued follow-up sends now
     // GOAL LOOP: returned to an idle stream with an ACTIVE standing goal (its moment was blocked / it was
     // backgrounded mid-loop) → continue it. kickGoal no-ops when busy/blocked/paused, so this is always safe.
@@ -8034,6 +8037,9 @@ const Chat = (() => {
       }
       // a SYSTEM STATUS marker (sys — e.g. an autosessions run-outcome framing line) renders as a system-styled
       // line, NOT as agent speech; it never seeds the model (historyWindow drops it) and it stays visible in-thread.
+      // a SEND NOW line the station says its run read, filed after a reload lost the reply that showed it (showSentNowRead):
+      // the same dim steer-echo row the live stream drew
+      if (m && m.sys && m.steerEcho) { const s = row('agent', { stamp: stamp }); s.d.classList.add('tool', 'steer-echo'); s.body.textContent = String(m.content || ''); continue; }
       if (m && m.sys) { if ((m.content || '').trim()) toolLine(m.content, !!m.error); continue; }
       if (m.role !== 'assistant') continue;   // only dialogue turns render (a stray system marker never shows as an agent reply)
       if (!(m.content || '').trim()) { if (m.stopped) { lastReal = m; if (m.stopNote) toolLine('⏹ ' + m.stopNote); } continue; }   // zero-token stop: durable recovery truth, never a blank speech row (its reason line survives the reload)
@@ -8463,9 +8469,10 @@ const Chat = (() => {
       return say('The run just finished — it goes as your next message.');
     }
     if (!rid || typeof fetch === 'undefined') return back('The run has not started yet, so there is nothing to steer');
-    note = { text: text, wire: wire, runId: rid, accepted: false, landed: false };
+    note = { id: 'sn' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10), text: text, wire: wire, runId: rid, accepted: false, landed: false };
     sentNow.set(id, (sentNow.get(id) || []).concat([note]));
-    fetch('/api/run/steer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: rid, text: wire }) })
+    keepSentNow(id, note);   // on disk from the moment it is posted: a reload mid-POST still finds it (the station knows it by noteId)
+    fetch('/api/run/steer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: rid, text: wire, noteId: note.id }) })
       .then(r => r.json().catch(() => null).then(j => ({ status: r.status, j: j })))
       .then(({ status, j }) => {
         if (j && j.ok) {
@@ -8484,12 +8491,54 @@ const Chat = (() => {
       })
       .catch(() => back('The station did not answer'));
   }
-  // take one sent-now line off its stream's list; false = it was no longer there (a STOP gave it back already)
+  // take one sent-now line off its stream's list; false = it was no longer there (a STOP gave it back already, or the page let
+  // go of it — then its disk copy is the station's to decide). true = this page decides it now (a queued pill again, or read).
   function forgetSentNow(id, note) {
     const list = sentNow.get(id) || [], k = list.indexOf(note);
     if (k < 0) return false;
     list.splice(k, 1); list.length ? sentNow.set(id, list) : sentNow.delete(id);
+    dropSentNow(id, [note.id]);
     return true;
+  }
+  /* A SEND-NOW LINE OUTLIVES THE PAGE (live walk on the 0.13.5 candidate, 2026-10-14). sentNow is page memory: a line the
+     station accepted while the lead was inside a ~35 s hand-off was gone after a page reload (which also cancels the run) —
+     not in the message box, not in the history. So every line handed to a run is ALSO kept in this browser (localStorage,
+     per conversation) from the moment it is posted until the page settles it: read, given back into the message box, or
+     a queued pill again. Whatever is still there after the page lost its memory — a reload, a closed window, a crash,
+     DISCONNECT and re-entry, a stream that died — is decided by the STATION on that conversation's next load
+     (reconcileSentNow → GET /api/run/steer, which knows which noteIds the run read), never guessed. Storage that throws
+     (a private window, blocked or cleared site data) leaves SEND NOW exactly as it was: memory only. */
+  function sentNowDisk(edit) {
+    let all = {};
+    try { const raw = typeof localStorage !== 'undefined' && localStorage ? localStorage.getItem('starnet.sentNow.v1') : null; all = raw ? JSON.parse(raw) : {}; } catch (_) { all = {}; }
+    if (!all || typeof all !== 'object' || Array.isArray(all)) all = {};
+    if (!edit) return all;
+    edit(all);
+    for (const k of Object.keys(all)) if (!Array.isArray(all[k]) || !all[k].length) delete all[k];
+    try { if (typeof localStorage !== 'undefined' && localStorage) localStorage.setItem('starnet.sentNow.v1', JSON.stringify(all)); } catch (_) { /* memory still holds it: SEND NOW works as it did before */ }
+    return all;
+  }
+  function keepSentNow(id, note) {
+    sentNowDisk(all => {
+      const list = (Array.isArray(all[id]) ? all[id] : []).filter(e => e && e.id !== note.id);
+      list.push({ id: note.id, runId: note.runId, text: note.text, wire: note.wire, at: Date.now() });
+      all[id] = list.slice(-16);
+    });
+  }
+  function dropSentNow(id, ids) {
+    const gone = new Set((ids || []).filter(Boolean));
+    if (!gone.size) return;
+    sentNowDisk(all => { if (Array.isArray(all[id])) all[id] = all[id].filter(e => e && !gone.has(e.id)); });
+  }
+  /* the page lets go of lines WITHOUT settling them: the run's stream died (network) or the page is tearing down (DISCONNECT
+     → re-entry wipes the queue). It cannot know what the run read — and a re-queue would auto-send behind the reconnect, or
+     be wiped by it — so the station decides each one (reconcileSentNow). A line whose echo this page saw IS read: off the
+     disk now. runId omitted = every run's lines on that stream. */
+  function releaseSentNow(id, runId, acc) {
+    const list = sentNow.get(id) || [], ran = String(acc || '');
+    const mine = list.filter(n => runId == null || n.runId === runId), rest = list.filter(n => mine.indexOf(n) < 0);
+    rest.length ? sentNow.set(id, rest) : sentNow.delete(id);
+    dropSentNow(id, mine.filter(n => n.landed || ran.indexOf('[steering] ' + n.wire + '\n') >= 0).map(n => n.id));
   }
   // the note as the run gets it: one line (the loop echoes it as '\n[steering] <note>\n' and the page reads one line back)
   function steerWire(text) { return String(text == null ? '' : text).replace(/\s*\r?\n\s*/g, ' ').trim(); }
@@ -8508,27 +8557,31 @@ const Chat = (() => {
   function restoreSentNow(id, runId) {
     const list = sentNow.get(id) || [];
     const acc = (typeof Channels !== 'undefined' && Channels.peek && Channels.peek(id)) ? String(Channels.peek(id).acc || '') : '';
-    const lost = list.filter(n => n.runId === runId && !n.landed && acc.indexOf('[steering] ' + n.wire + '\n') < 0);
+    const mine = list.filter(n => n.runId === runId);
+    const lost = mine.filter(n => !n.landed && acc.indexOf('[steering] ' + n.wire + '\n') < 0);
     const rest = list.filter(n => n.runId !== runId);
     rest.length ? sentNow.set(id, rest) : sentNow.delete(id);
+    dropSentNow(id, mine.filter(n => lost.indexOf(n) < 0).map(n => n.id));   // read: settled with the stopped turn
     if (!lost.length) return;
     giveBack(id, lost.map(n => n.text), lost.length === 1 ? 'The run stopped before the agent read your send-now message — it is back in the message box.'
-      : 'The run stopped before the agent read ' + lost.length + ' of your send-now messages — they are back in the message box.');
+      : 'The run stopped before the agent read ' + lost.length + ' of your send-now messages — they are back in the message box.', lost.map(n => n.id));
   }
   // words a stop gives back go into THEIR session's message box: now if it is on screen, else when you return (returnHeld).
-  // Never into the queue — a return would auto-send them behind the stop.
-  function giveBack(id, texts, line) {
-    if (!(activeWs && activeWs.id === id)) { heldBack.set(id, (heldBack.get(id) || []).concat([{ texts: texts, line: line }])); return; }
+  // Never into the queue — a return would auto-send them behind the stop. ids = their sent-now lines: on disk until they
+  // land in the box (an unsent draft from there on), so a reload before you return still gives them back — once.
+  function giveBack(id, texts, line, ids) {
+    if (!(activeWs && activeWs.id === id)) { heldBack.set(id, (heldBack.get(id) || []).concat([{ texts: texts, line: line, ids: ids || [] }])); return; }
     if (!input) return;
     const typed = String(input.value || '').trim();
     input.value = texts.concat(typed ? [typed] : []).join('\n');
     autoGrowInput();
     localLine(line);
+    dropSentNow(id, ids);
   }
   function returnHeld(id) {
     const held = heldBack.get(id); if (!held || !held.length) return;
     heldBack.delete(id);
-    for (const h of held.slice().reverse()) giveBack(id, h.texts, h.line);   // oldest ends up first in the box
+    for (const h of held.slice().reverse()) giveBack(id, h.texts, h.line, h.ids);   // oldest ends up first in the box
   }
   /* the run is over: a sent-now line it showed landing is settled; one the station took that the run never read (a run
      error, a budget or loop-guard stop, a phone STOP, the gap after the loop's last drain — its own line says "NOT applied,
@@ -8539,11 +8592,103 @@ const Chat = (() => {
     const unread = list.filter(n => n.runId === runId && n.accepted && !n.landed && ran.indexOf('[steering] ' + n.wire + '\n') < 0);
     const rest = list.filter(n => n.runId !== runId || !n.accepted);
     rest.length ? sentNow.set(id, rest) : sentNow.delete(id);
+    dropSentNow(id, list.filter(n => rest.indexOf(n) < 0).map(n => n.id));   // settled here: read, or a queued pill again
     if (!unread.length) return;
     queued.set(id, unread.map(n => n.text).concat(queued.get(id) || []));
     renderQueued();
     if (activeWs && activeWs.id === id) localLine(unread.length === 1 ? 'The run ended before the agent read your send-now message — it goes as your next message.'
       : 'The run ended before the agent read ' + unread.length + ' of your send-now messages — they go as your next messages.');
+  }
+  /* THE STATION DECIDES WHAT THE PAGE COULD NOT (live walk 2026-10-14). On a conversation's load (once its history merged)
+     and when a run whose stream died ends, every line still on disk that this page is not holding itself is asked about:
+       · read (the run folded it in)            → shown as read: one steer-echo row after that run's dialogue (showSentNowRead),
+                                                   unless the saved history already shows its echo
+       · never read (the run ended first, or the station never took it) → back in THIS conversation's message box, ahead of
+                                                   what is typed, unsent, with one line
+       · no record (a restart lost the run and no run record was written) → read only if this run's saved reply shows its
+                                                   echo; else back in the box with a line that says the station cannot tell
+       · the run is still going / no answer      → asked again later (bounded); never dropped, never guessed.
+     Never auto-sent. Each line is decided once: the disk is re-read after the answer (this page's own flow or another page
+     may have settled one meanwhile) and a line leaves the disk as it lands. */
+  function reconcileSentNow(ws, attempt) {
+    const id = ws && ws.id;
+    if (!id || typeof fetch === 'undefined') return Promise.resolve();
+    if (sentNowChecks.has(id)) return sentNowChecks.get(id);
+    const p = askSentNow(ws, attempt || 0).catch(() => {}).then(() => { sentNowChecks.delete(id); });
+    sentNowChecks.set(id, p);
+    return p;
+  }
+  async function askSentNow(ws, attempt) {
+    const id = ws.id;
+    const pick = () => {
+      const own = new Set();
+      for (const n of sentNow.get(id) || []) own.add(n.id);
+      for (const h of heldBack.get(id) || []) for (const k of h.ids || []) own.add(k);
+      const liveRun = (typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(id) && Channels.runIdOf) ? Channels.runIdOf(id) : null;
+      return (sentNowDisk()[id] || []).filter(e => e && e.id && e.runId && !own.has(e.id) && e.runId !== liveRun);
+    };
+    const lines = pick();
+    if (!lines.length) return;
+    const answers = new Map();
+    for (const rid of new Set(lines.map(e => e.runId))) {
+      let st = null;
+      try {
+        const r = await fetch('/api/run/steer?runId=' + encodeURIComponent(rid), { cache: 'no-store' });
+        st = r && r.ok ? await r.json() : null;
+      } catch (_) { st = null; }   // no answer is not an answer: the line waits
+      answers.set(rid, st);
+    }
+    const cur = (typeof Workstreams !== 'undefined' && Workstreams.get && Workstreams.get(id)) || ws;
+    const still = new Set(pick().map(e => e.id));
+    const by = { read: [], back: [], unsure: [], wait: [] };
+    for (const e of lines) if (still.has(e.id)) by[sentNowVerdict(e, answers.get(e.runId), cur.history)].push(e);
+    if (by.read.length) { dropSentNow(id, by.read.map(e => e.id)); showSentNowRead(cur, by.read); }
+    const n = by.back.length, u = by.unsure.length;
+    if (n) giveBack(id, by.back.map(e => e.text), n === 1 ? 'The run ended before the agent read your send-now message — it is back in the message box.'
+      : 'The run ended before the agent read ' + n + ' of your send-now messages — they are back in the message box.', by.back.map(e => e.id));
+    if (u) giveBack(id, by.unsure.map(e => e.text), u === 1 ? 'The station has no record that the agent read your send-now message before its run ended — it is back in the message box.'
+      : 'The station has no record that the agent read ' + u + ' of your send-now messages before their run ended — they are back in the message box.', by.unsure.map(e => e.id));
+    if (by.wait.length && attempt < 40) setTimeout(() => reconcileSentNow((typeof Workstreams !== 'undefined' && Workstreams.get && Workstreams.get(id)) || ws, attempt + 1), Math.min(15000, Math.round(1500 * Math.pow(1.4, attempt))));
+  }
+  // one line's fate from the station's answer (GET /api/run/steer → { live, ended, source, notes: { noteId: state } })
+  function sentNowVerdict(e, st, history) {
+    if (!st || typeof st !== 'object' || !st.notes || typeof st.notes !== 'object') return 'wait';
+    const s = st.notes[e.id];
+    if (s === 'applied') return 'read';
+    if (s === 'unapplied') return 'back';
+    if (st.source === 'none') return st.live ? 'wait' : (shownSteer(history, e, true) ? 'read' : 'unsure');
+    // still pending, or a line the station never took (refused, or its POST never arrived): decided once the run can no
+    // longer read it — an aborted loop never drains again, so a run that is not in flight reads nothing more
+    return (st.ended || !st.live) ? 'back' : 'wait';
+  }
+  // does the saved history show this line's echo? strict = only a row of ITS run proves it (an older run may have read the
+  // same words); loose (dedupe before filing a row) also counts a reply saved without its run id (a stopped partial)
+  function shownSteer(history, e, strict) {
+    const echo = '[steering] ' + e.wire;
+    return (Array.isArray(history) ? history : []).some(m => m && (
+      (m.steerEcho && String(m.content || '') === echo && (!strict || m.sourceRunId === e.runId))
+      || (m.role === 'assistant' && !m.sys && (strict ? m.sourceRunId === e.runId : (!m.sourceRunId || m.sourceRunId === e.runId))
+        && ('\n' + String(m.content || '') + '\n').indexOf('\n' + echo + '\n') >= 0)));
+  }
+  // a line the run read, filed as ONE station row after that run's dialogue (before the station's own lines about it);
+  // renderHistory draws it as the live stream's steer-echo row. sys: it never seeds the model (historyWindow drops sys rows).
+  function showSentNowRead(ws, read) {
+    if (!ws) return;
+    const h = Array.isArray(ws.history) ? ws.history : (ws.history = []);
+    let added = 0;
+    for (const e of read) {
+      if (shownSteer(h, e, false)) continue;   // the saved reply already shows it: never twice
+      let at = -1;
+      for (let i = h.length - 1; i >= 0 && at < 0; i--) if (h[i] && !h[i].sys && String(h[i].sourceRunId || '') === e.runId) at = i + 1;
+      if (at < 0) { at = h.findIndex(m => m && m.sys && String(m.sourceRunId || '') === e.runId); if (at < 0) at = h.length; }
+      h.splice(at, 0, { role: 'assistant', sys: true, steerEcho: true, content: '[steering] ' + e.wire, sourceRunId: e.runId, ts: Number(e.at) || Date.now() });
+      added++;
+    }
+    if (!added) return;
+    try { if (typeof App !== 'undefined' && App.persist) App.persist(); } catch (_) { /* the row is in memory; the next save writes it */ }
+    if (log && activeWs && activeWs.id === ws.id && !(typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(ws.id))) {
+      log.innerHTML = ''; renderHistory(); replayChannel(); syncStatus();
+    }
   }
   // a stream just freed (or was switched back to while idle) — send its next queued follow-up. Guarded to the
   // DISPLAYED stream so send()'s DOM writes always target the visible log; a backgrounded queue waits for return.
@@ -10998,7 +11143,8 @@ const Chat = (() => {
       interrupted.delete(ws.id);   // consume the stop flag (whether or not it fired)
       stopSource.delete(ws.id);
       Channels.end(ws.id);
-      if (thisRunId) settleSentNow(ws.id, thisRunId, acc);   // SEND NOW lines this run took are settled with it; one it never read goes next (a STOP already gave back the unread ones)
+      if (thisRunId) { if (interruptedStreams.has(ws.id)) releaseSentNow(ws.id, thisRunId, acc); else settleSentNow(ws.id, thisRunId, acc); }   // SEND NOW lines this run took are settled with it; one it never read goes next (a STOP already gave back the unread ones). A stream that DIED cannot know what its run read: it lets go of them and the station decides
+      reconcileSentNow(ws);   // any line on disk this page no longer holds (released just now, or by a teardown) is asked about now
       // P1: drain this directive from the QUEUE gauge on ANY teardown (shipped, in-band error, or abort) —
       // the backlog is "runs in flight", independent of whether the work shipped.
       if (wiPlaced) { const depth = wiBump(wiAid, -1); wiEmit('queue.status', { queueId: wiAid, depth: depth, maxCapacity: 64, nextAdvanceAt: 0 }); }
@@ -11155,6 +11301,9 @@ const Chat = (() => {
     // network fault and a spurious "can't reach the sidecar" row is pushed into ws.history + persisted. (A reader
     // that aborts WITHOUT going through here = a genuine dropped connection → still a network error + retry.)
     for (const id of aborters.keys()) interrupted.add(id);
+    // the re-entry wipes the queue, so a SEND NOW line must not be re-queued by the aborted run's teardown: let go of every
+    // one — on disk, the station decides each on the conversation's next load (reconcileSentNow)
+    for (const id of Array.from(sentNow.keys())) releaseSentNow(id);
     // cancel EVERY in-flight run (not just one global): abort each fetch + tell the sidecar to kill the run by id
     for (const ac of aborters.values()) { try { ac.abort(); } catch (_) {} }
     if (typeof Channels !== 'undefined') for (const id of Channels.busyIds()) { const rid = Channels.runIdOf(id); if (rid) Harness.cancel(rid); }
