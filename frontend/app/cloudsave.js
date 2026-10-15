@@ -3,7 +3,8 @@
    localStorage is a fast CACHE that a browser wipe can erase. The sidecar's <workspaces>/<id>.save.json is the
    DURABLE copy (app-data dir, survives a cache wipe / different browser). This module keeps them in sync:
 
-     • push(doc)      — debounced best-effort POST /api/save on every persist; coalesces bursts of turns.
+     • push(doc)      — debounced best-effort POST /api/save on every persist; coalesces bursts of turns. Called even
+                        when the cache write failed (#121, { cacheFailed }): the station file is the store of record.
      • pull()         — GET /api/save?agent=agent → the stored envelope (or null).
      • reconcile(local) — on boot, adopt whichever of {local, remote} is NEWER (by updatedAt), write the winner
                           back into the localStorage cache, and nudge the server if local was ahead. This is
@@ -31,6 +32,13 @@ const CloudSave = (() => {
   let retryTimer = null;               // backoff timer scheduling the next attempt after a failure
   let pending = null;                  // newest doc awaiting a flush (older queued docs are superseded)
   const activeFlushes = new Set();      // confirmable writes currently waiting on the sidecar
+  // #121 BROWSER CACHE FULL. The whole save lives under one browser-storage key; past the browser's per-site cap its
+  // write throws. persist() still queues that envelope here (write-through), flagged cacheFailed. While the newest
+  // save is NOT in the cache, this module holds it in memory (memoryDoc) so re-entry never resumes the stale cache.
+  let pendingCacheFailed = false;      // the doc in `pending` could not be written to the browser cache
+  let cacheFailed = false;             // this page's newest save is not in the browser cache
+  let cacheFailedConfirmed = false;    // ...and the station file has confirmed exactly that save (nothing newer queued)
+  let memoryDoc = null;                // that newest save, while cacheFailed
   let health = Core ? Core.freshHealth() : { lastPushOkAt: 0, lastPushFailAt: 0, consecutiveFailures: 0, nextRetryAt: 0 };
   let warnedStale = false;             // ONE console warn per failing↔healthy transition, never per attempt
   // EL-11 FIX 1: the sidecar REFUSES writes when the workspace was stamped by a NEWER StarNet — as an HTTP 200
@@ -129,7 +137,7 @@ const CloudSave = (() => {
     // honor the backoff window — if a failure streak is live and the next attempt isn't due yet, hold the
     // doc in `pending` and re-arm rather than hammering the sidecar every debounce. `force` skips this hold.
     if (!force && Core && isSave(pending) && !Core.retryDue(health, now())) { scheduleRetry(); return Promise.resolve(false); }
-    const doc = pending; pending = null;
+    const doc = pending, docCacheFailed = pendingCacheFailed; pending = null; pendingCacheFailed = false;
     if (!isSave(doc)) return Promise.resolve(false);
     const attempt = postNow(doc)
       .then(({ response: r, body }) => {
@@ -156,8 +164,16 @@ const CloudSave = (() => {
                 cached._saveRevision = revision; cached._saveDirty = false;
                 if (Number.isFinite(body.updatedAt)) cached.updatedAt = body.updatedAt;
                 localStorage.setItem('starnet.save', JSON.stringify(cached));
+              } else if (!pending && docCacheFailed && cached && num(cached.updatedAt) <= num(doc.updatedAt)) {
+                // #121: the station file now holds a save NEWER than anything the cache could take. The cached copy is
+                // a superseded ancestor; left in place, the next boot (or a re-entry) would resume it and revert the
+                // station. removeItem cannot hit the storage cap. (A cache entry newer than this doc came from another
+                // window and is not ours to drop.)
+                localStorage.removeItem('starnet.save');
               }
             } catch (_) {}
+            // the station file confirmed this page's newest save while the cache could not hold it
+            if (!pending && docCacheFailed && doc === memoryDoc) cacheFailedConfirmed = true;
           }
           if (body.ok === false) throw new Error('save refused: ' + (body.error || (body.unreadable ? 'existing record unreadable' : body.stale ? 'stale write' : 'unknown')));
         }
@@ -169,7 +185,7 @@ const CloudSave = (() => {
         markFail();
         // re-queue the newest doc (newest-wins: a fresher push during the attempt already replaced it) and
         // arm the backoff retry. Fail soft — the cache is still authoritative locally, nothing throws out.
-        if (!isSave(pending)) pending = doc;
+        if (!isSave(pending)) { pending = doc; pendingCacheFailed = docCacheFailed; }
         scheduleRetry();
         return false;
       });
@@ -203,13 +219,18 @@ const CloudSave = (() => {
   }
 
   // queue a write-through; coalesces a burst of persists into one POST after the debounce settles.
-  function push(doc) {
+  //   opts.cacheFailed (#121): the browser cache could not hold this doc. It is queued all the same (the station file is
+  //   the store of record) and held in memory until a later doc lands in the cache again.
+  function push(doc, opts) {
     if (!isSave(doc)) return;
     doc = JSON.parse(JSON.stringify(doc));
     doc._saveRevision = revision;
     doc._saveClient = clientId;
     latestLocal = doc;
     pending = doc;                     // keep only the newest
+    pendingCacheFailed = !!(opts && opts.cacheFailed);
+    cacheFailed = pendingCacheFailed; cacheFailedConfirmed = false;
+    memoryDoc = cacheFailed ? doc : null;
     if (timer) return;
     timer = setTimeout(() => { timer = null; flush(); }, DEBOUNCE_MS);
   }
@@ -318,6 +339,21 @@ const CloudSave = (() => {
         const migrated = adopted && (typeof Save !== 'undefined' && Save.load) ? Save.load() : null;
         if (isSave(migrated) && num(migrated.version) <= currentVersion()) return migrated;
       } catch (_) {}
+      // #121: the cache could not take the station file's save (the browser's per-site storage cap). Resume it IN
+      // MEMORY instead — validated, a newer format refused, migrated on a copy — with its own revision (set above), so
+      // the next autosave builds on it. Never the stale local copy, never the save-unreachable screen. The local copy
+      // here is clean (a dirty one returned above) and the station file holds newer: drop it, so neither a re-entry
+      // nor the next boot can resume it.
+      if (!adopted && typeof Save !== 'undefined' && Save.fromDoc) {
+        let mem = null;
+        try { mem = Save.fromDoc(remote); } catch (_) { mem = null; }
+        if (mem && mem.status === 'ok' && isSave(mem.doc) && num(mem.doc.version) <= currentVersion()) {
+          if (priorLocalRaw != null) { try { localStorage.removeItem('starnet.save'); } catch (_) {} }
+          cacheFailed = true; cacheFailedConfirmed = true; memoryDoc = mem.doc;   // it came FROM the station file
+          try { console.warn('[cloudsave] browser storage cannot hold this station; resumed it from the station file.'); } catch (_) {}
+          return JSON.parse(JSON.stringify(mem.doc));
+        }
+      }
       // adoption produced no readable current-schema doc (Save unavailable, or the re-read failed the guard).
       // NEVER return the raw, unmigrated remote — resumeInto() would misread it. Roll the cache back to the
       // prior local and prefer it. Without one, a failed adoption cannot justify first-run onboarding.
@@ -386,6 +422,13 @@ const CloudSave = (() => {
     return s;
   }
 
+  // #121: the newest save this page holds ONLY in memory (the browser cache could not take it), as a fresh copy; null
+  // when the cache holds the newest save. Re-entry resumes from this instead of the stale or removed cache.
+  function memorySave() {
+    if (!cacheFailed || !isSave(memoryDoc)) return null;
+    try { return JSON.parse(JSON.stringify(memoryDoc)); } catch (_) { return null; }
+  }
+
   // EL-11 FIX 1: other write paths (app.js pushRoster) hit the SAME degraded refusal — let them latch the
   // shared verdict so the save-dot tells one coherent story regardless of which write was refused first.
   function markDegraded() { degraded = true; }
@@ -409,6 +452,6 @@ const CloudSave = (() => {
     localStorage.removeItem('starnet.save');
     location.reload();
   }
-  return { localSnapshot: () => latestLocal, reloadCurrent, revision: () => revision, push, pull, reconcile, flush, flushForUpdate, installUnloadFlush, health: healthNow, isFutureSentinel, isUnknownSentinel, markDegraded, recoveryNotice, lineage, ackRecovery, pullOutcome: () => lastPullOutcome, _isSave: isSave, _isFutureSave: isFutureSave };
+  return { localSnapshot: () => latestLocal, memorySave, reloadCurrent, revision: () => revision, push, pull, reconcile, flush, flushForUpdate, installUnloadFlush, health: healthNow, isFutureSentinel, isUnknownSentinel, markDegraded, recoveryNotice, lineage, ackRecovery, pullOutcome: () => lastPullOutcome, _isSave: isSave, _isFutureSave: isFutureSave };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = CloudSave;
