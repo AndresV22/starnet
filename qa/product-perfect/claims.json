@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "274a3428e58cac74c9d841976b064bb67d0372c9",
+    "sourceCommit": "968d9a5c7a7c1f9d0b7fef98706423411c0b2cfa",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -173,8 +173,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 448686,
-        "sha256": "276d1bb94c1e49fc2626cd0a2d9395f472ab9f2de15e7c1044dbf7a7258390b1"
+        "bytes": 449260,
+        "sha256": "b9e2d98d609aee450319f6f2d658d182238b646cddcf903cbab51b92bb4ee3ad"
       },
       {
         "path": "frontend/app/approved-sheet-effects.js",
@@ -708,8 +708,8 @@
       },
       {
         "path": "frontend/app/needsyou.js",
-        "bytes": 35392,
-        "sha256": "b7c1a9d0685d6217c5dabecf793fd50934dc70e6b6d3bddd3055c50ec2542c7c"
+        "bytes": 35972,
+        "sha256": "fef62f98d3756bff9395e368ea776c161457b8f6b157a9188a3e9a4b6476a4fe"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -1318,8 +1318,8 @@
       },
       {
         "path": "frontend/app/voice.js",
-        "bytes": 132898,
-        "sha256": "099b5092894e57b76cbcc8de0b72ada4947576e71e1432bba4954aaf88db24b6"
+        "bytes": 133233,
+        "sha256": "68086efa617306da8fc8b7b12f46307aca5c3bba49feeaa0776cd7ba177586ab"
       },
       {
         "path": "frontend/app/waitanchor.js",
