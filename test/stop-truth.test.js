@@ -7,6 +7,8 @@
        said 1, until a reload: the page drops the stream once the station confirms the kill, so the station's own
        permission.response for the run's open prompts never reached the page — and the thrown-abort teardown never settled them;
      · the floor's AWAITING APPROVAL tag and CREW's gold "needs your OK" card waited on that same lost response.
+   And once trunk's SEND NOW key joined the queued pill (0.13.5 merge): a line handed to the run but not yet read when STOP
+   landed died with the run, and a refusal arriving after the STOP re-queued it and auto-sent it as a new turn.
 
    This runs the REAL stopActive (+ its helpers) and the REAL bell settlement listener from chat.js in a sandbox. */
 'use strict';
@@ -32,7 +34,8 @@ function stopRig(opts) {
     isBusy: () => true,
     loopStop: () => false,
     localLine: t => lines.push(t),
-    interrupted: new Set(), stopSource: new Map(), queued: new Map(),
+    interrupted: new Set(), stopSource: new Map(), queued: new Map(), sentNow: new Map(),
+    flushQueued: () => {},
     status: () => {}, updateControls: () => {},
     retireOpenConsents: (wsId, runId) => retired.push([wsId, runId]),
     aborters: new Map([['ws1', { abort: () => aborted.push('ws1') }]]),
@@ -51,11 +54,15 @@ function stopRig(opts) {
   const promptStart = src.indexOf('  const promptNeeds = new Map();');
   const promptEnd = src.indexOf('  function backgroundPermissionNotify(', promptStart);
   A.ok(settleStart > 0 && settleEnd > settleStart && promptStart > 0 && promptEnd > promptStart, 'the bell settlement helpers are present');
-  const helpers = ['function restoreQueued', 'function settleStoppedAsks'].map(h => A.fnBody(src, h)).filter(Boolean).join('\n');
+  const helperNames = ['function restoreQueued', 'function settleStoppedAsks', 'function sendQueuedNow', 'function forgetSentNow',
+    'function steerFirstLine', 'function markSentNowLanded', 'function restoreSentNow', 'function settleSentNow'];
+  const helperSrc = helperNames.map(h => A.fnBody(src, h));
+  A.ok(helperSrc.every(Boolean), 'the STOP / SEND NOW helpers are present: ' + helperNames.filter((h, i) => !helperSrc[i]).join(', '));
+  const helpers = helperSrc.join('\n');
   const stop = A.fnBody(src, 'function stopActive');
   A.ok(stop.length > 500 && stop.length < 12000, 'stopActive body located');
   vm.runInContext(src.slice(settleStart, settleEnd) + src.slice(promptStart, promptEnd) + '\n' + helpers + '\n' + stop
-    + '\n;this.__stop = stopActive; this.__announced = announcedPrompt;', ctx);
+    + '\n;this.__stop = stopActive; this.__announced = announcedPrompt; this.__sendNow = sendQueuedNow; this.__landed = markSentNowLanded; this.__settleSentNow = settleSentNow;', ctx);
   return { ctx, bus, emitted, settled, notified, lines, retired, aborted, confirm: v => cancelResolve(v) };
 }
 
@@ -86,6 +93,74 @@ function stopRig(opts) {
     r.ctx.__stop('click');
     A.eq(r.ctx.input.value, 'draft', 'with nothing queued the composer is left alone');
     A.ok(!r.lines.some(l => /queued/i.test(l)), 'and no queue line is printed');
+  }
+
+  // ── 1b. SEND NOW and STOP (0.13.5 merge): a line handed to the run that the run never read comes back on a CONFIRMED stop,
+  //        and an answer arriving after that changes nothing — never a re-queue that would auto-send it behind the stop ──
+  const tick = () => new Promise(res => setTimeout(res, 0));
+  {
+    const r = stopRig({ typed: 'draft' });
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    let answer = null; const flushed = [];
+    r.ctx.fetch = () => new Promise(res => { answer = res; });
+    r.ctx.flushQueued = id => flushed.push(id);
+    r.ctx.queued.set('ws1', ['use the blue folder', 'and skip the tests']);
+    r.ctx.__sendNow('ws1', 0, 'use the blue folder');   // the POST is still in flight
+    A.eq(r.ctx.queued.get('ws1'), ['and skip the tests'], 'SEND NOW takes the line off the queue while it flies');
+    r.ctx.__stop('click');
+    A.eq(r.ctx.input.value, 'and skip the tests\ndraft', 'STOP gives the still-queued line back at once');
+    r.confirm({ ok: true });
+    await tick();
+    A.eq(r.ctx.input.value, 'use the blue folder\nand skip the tests\ndraft', 'once the stop is confirmed the unread send-now line is back too, ahead of the rest');
+    A.ok(r.lines.some(l => /stopped before the agent read your send-now message/i.test(l) && /message box/i.test(l)), 'one honest line says the agent never read it: ' + JSON.stringify(r.lines));
+    answer({ status: 409, json: () => Promise.resolve({ ok: false }) });
+    await tick(); await tick();
+    A.eq(r.ctx.queued.has('ws1'), false, 'the late refusal never re-queues it behind the stop');
+    A.eq(flushed, [], 'and never auto-sends it as a new turn');
+    A.ok(!r.lines.some(l => /stays queued|Sent into the live run/i.test(l)), 'and prints no second claim about it');
+  }
+  {
+    // lines the run DID read stay read: by the [steering] echo seen on the run's tokens, or found in the run's text
+    const r = stopRig();
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    r.ctx.fetch = () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: true }) });
+    r.ctx.queued.set('ws1', ['use the blue folder', 'say hi in French', 'make it short']);
+    r.ctx.__sendNow('ws1', 0, 'use the blue folder'); r.ctx.__sendNow('ws1', 0, 'say hi in French'); r.ctx.__sendNow('ws1', 0, 'make it short');
+    await tick(); await tick();
+    A.eq(r.lines.filter(l => /Sent into the live run/.test(l)).length, 3, 'each accepted line says only that the run holds it');
+    r.ctx.__landed('ws1', 'run-1', 'Working.\n[steering] use the blue folder\n');
+    Channels.appendToken('ws1', 'Working.\n[steering] say hi in French\n');
+    r.ctx.__stop('click');
+    A.eq(r.ctx.input.value, '', 'nothing comes back before the stop is confirmed');
+    r.confirm({ ok: true });
+    await tick();
+    A.eq(r.ctx.input.value, 'make it short', 'only the line the run never read comes back');
+    A.eq(r.ctx.sentNow.has('ws1'), false, 'and the stopped run keeps no send-now lines');
+  }
+  {
+    // a refused stop gives nothing back: the run may still read it
+    const r = stopRig();
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    r.ctx.fetch = () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: true }) });
+    r.ctx.queued.set('ws1', ['use the blue folder']);
+    r.ctx.__sendNow('ws1', 0, 'use the blue folder');
+    await tick(); await tick();
+    r.ctx.__stop('click');
+    r.confirm({ ok: false, error: 'refused' });
+    await tick();
+    A.eq(r.ctx.input.value, '', 'an unconfirmed stop takes back nothing the run holds');
+    A.eq((r.ctx.sentNow.get('ws1') || []).length, 1, 'the line is still the run\'s');
+    // the run then ends on its own: what it took is settled with it, one still in flight waits for its answer
+    r.ctx.sentNow.get('ws1').push({ text: 'in flight', runId: 'run-1', accepted: false, landed: false });
+    r.ctx.__settleSentNow('ws1', 'run-1');
+    A.eq(r.ctx.sentNow.get('ws1').map(n => n.text), ['in flight'], 'a normal end settles the accepted line and keeps the one still in flight for its refusal path');
+  }
+  {
+    // the wiring the sandbox injects: the live run's tokens mark echoes, and every teardown settles the run's lines
+    A.ok(/onToken: d => \{ acc \+= d; Channels\.appendToken\(ws\.id, d\); if \(thisRunId && d && d\.indexOf\('\[steering\] '\) >= 0\) markSentNowLanded\(ws\.id, thisRunId, d\);/.test(src),
+      'the run\'s own token stream marks a sent-now line read when its [steering] echo arrives');
+    A.ok(/\} finally \{[\s\S]{0,600}Channels\.end\(ws\.id\);\s*if \(thisRunId\) settleSentNow\(ws\.id, thisRunId\);/.test(src), 'send()\'s teardown settles the run\'s sent-now lines on every end');
+    A.ok(/queued\.clear\(\); sentNow\.clear\(\);/.test(src), 'a session switch starts with no sent-now lines, like the queue');
   }
 
   // ── 2. the stopped run's open asks settle everywhere once the station CONFIRMS the stop ──

@@ -45,6 +45,7 @@ const Chat = (() => {
   const recoveryNotices = new Set();      // review-required run ids already explained on this page
   let reconnectTimer = 0;          // the single reconnect health-probe poll (armed only while interruptedStreams is non-empty)
   const queued = new Map();        // TYPE-AHEAD: wsId -> [text,…] follow-ups typed while the stream was busy; auto-sent in order as it frees
+  const sentNow = new Map();       // SEND NOW: wsId -> [{ text, runId, landed }] queued lines handed to the live run (sendQueuedNow) — kept until that run ends, so a STOP can give back any its transcript never showed landing
   let activeLiveRow = null;     // streaming text controller for the DISPLAYED stream's in-flight run; rebound by replayChannel on switch
                                 // CLASSIC HARNESS FLOW: prose and the agent's actions (tool ▶/◀ lines, deliverables, approval
                                 // prompts) render CHRONOLOGICALLY — newest at the bottom — instead of pinning one reply block to
@@ -1104,7 +1105,7 @@ const Chat = (() => {
     system = opts.system || ''; name = opts.name || 'AGENT';
     sentHistory.length = 0; histIdx = -1; histDraft = '';   // recall never crosses a session/agent switch
     onTurn = opts.onTurn || null; interview = null;
-    receiptShown.clear(); receiptFetching.clear(); clearChoices(); turninQueue.length = 0; activeTurnin = null; wiQDepth.clear(); queued.clear(); interrupted.clear();   // C2: per-session run-tracking + the queue gauge + turn-control state start clean for each agent (listeners stay once-registered)
+    receiptShown.clear(); receiptFetching.clear(); clearChoices(); turninQueue.length = 0; activeTurnin = null; wiQDepth.clear(); queued.clear(); sentNow.clear(); interrupted.clear();   // C2: per-session run-tracking + the queue gauge + turn-control state start clean for each agent (listeners stay once-registered)
     // GROWTH Tier 1: the study side starts clean per session too — a prior hero's deferred study/taste beats must
     // never flush into a new session (same law as turninQueue above). A fresh beat-slot arbiter matches the DOM.
     arcRunsSeen.clear();   // GROWTH Tier 2: the arc side starts clean per session (a prior hero's arc offers never carry over)
@@ -8180,7 +8181,7 @@ const Chat = (() => {
     if (typeof SFX !== 'undefined') (SFX.close || SFX.press)();   // STOP winds a run down: the docks' close() cue
     // runs only once the stop is CONFIRMED (or there was no run id to kill): the run's open approval cards go dead with it,
     // and every other surface holding one of its asks (the bell, CREW, the floor) is told it is over
-    const localAbort = () => { retireOpenConsents(id, (typeof Channels !== 'undefined' && Channels.runIdOf(id)) || ''); settleStoppedAsks(ownAsks); const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
+    const localAbort = () => { retireOpenConsents(id, (typeof Channels !== 'undefined' && Channels.runIdOf(id)) || ''); settleStoppedAsks(ownAsks); if (rid) restoreSentNow(id, rid); const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
     const rid = (typeof Channels !== 'undefined') ? Channels.runIdOf(id) : null;
     // STOP MEANS STOP (2026-09-04): the local fetch is torn down only AFTER the sidecar confirmed the kill. A
     // swallowed /api/cancel failure used to render a clean "RUN STOPPED" while the run kept burning server-side;
@@ -8281,13 +8282,14 @@ const Chat = (() => {
     const arr = (activeWs && queued.get(activeWs.id)) || [];
     strip.innerHTML = '';
     arr.forEach((t, i) => {
-      const pill = document.createElement('span'); pill.className = 'queued-pill'; pill.title = t;
+      // the tip names what this pill will do: send after the run (STOP gives it back instead), or send now into it
+      const pill = document.createElement('span'); pill.className = 'queued-pill'; pill.title = 'Queued: sends when this run finishes (STOP puts it back in the message box); send now hands it to the working run instead. — ' + t;
       const label = document.createElement('span'); label.className = 'queued-text'; label.textContent = t;
       const x = document.createElement('button'); x.className = 'queued-x'; x.type = 'button'; x.textContent = '✕';
       x.setAttribute('aria-label', 'Cancel queued message');
       x.onclick = () => { const a = queued.get(activeWs.id) || []; a.splice(i, 1); a.length ? queued.set(activeWs.id, a) : queued.delete(activeWs.id); renderQueued(); };
       const now = document.createElement('button'); now.className = 'queued-now'; now.type = 'button'; now.textContent = 'send now';
-      now.title = 'Fold this into the run that is working now instead of waiting for it to finish';
+      now.title = 'Hand this to the run that is working now: the agent reads it before its next step, instead of after the run finishes';
       now.onclick = () => sendQueuedNow(activeWs.id, i, t);
       pill.appendChild(document.createTextNode('⤷ ')); pill.appendChild(label); pill.appendChild(now); pill.appendChild(x);
       strip.appendChild(pill);
@@ -8299,9 +8301,14 @@ const Chat = (() => {
      pill leaves the queue while the POST is in flight (so flushQueued can't also send it as a new turn); it goes
      back to the FRONT of the queue on any refusal — run not confirmed yet (no runId), the loop already closed its
      buffer (409), buffer full (429), network — and the line says why. A 200 only means the sidecar holds it: the
-     transcript's own '[steering] …' row is the proof it landed, so the success line promises the next step, nothing more. */
+     transcript's own '[steering] …' row is the proof it landed, so the success line promises the next step, nothing more.
+     STOP OUTRANKS IT (0.13.5 merge): the line stays in sentNow until its run ends; a STOP the station confirms gives back
+     every one the transcript never showed landing (restoreSentNow), and an answer arriving after that changes nothing —
+     no "sent" line, and never a re-queue that would auto-send it behind the stop. */
   function sendQueuedNow(id, i, text) {
+    let note = null;   // this line's sentNow entry, once it is handed to the run
     const back = (why) => {
+      if (note && !forgetSentNow(id, note)) return;   // STOP already gave it back to the message box
       const a = queued.get(id) || []; a.unshift(text); queued.set(id, a); renderQueued();
       localLine(why + ' — it stays queued as your next message.');
       flushQueued(id);   // the run may have ended while we asked → the queue drains now
@@ -8312,13 +8319,61 @@ const Chat = (() => {
     a.splice(at, 1); a.length ? queued.set(id, a) : queued.delete(id); renderQueued();
     const rid = (typeof Channels !== 'undefined' && Channels.runIdOf) ? Channels.runIdOf(id) : null;
     if (!rid || typeof fetch === 'undefined') return back('The run has not started yet, so there is nothing to steer');
+    note = { text: text, runId: rid, accepted: false, landed: false };
+    sentNow.set(id, (sentNow.get(id) || []).concat([note]));
     fetch('/api/run/steer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: rid, text: text }) })
       .then(r => r.json().catch(() => null).then(j => ({ status: r.status, j: j })))
       .then(({ status, j }) => {
-        if (j && j.ok) return localLine('Sent into the live run — the agent reads it before its next step.');
+        if (j && j.ok) {
+          if (!(sentNow.get(id) || []).includes(note)) return;   // a STOP already gave it back to the message box
+          note.accepted = true;
+          if (Channels.runIdOf(id) === rid) return localLine('Sent into the live run — the agent reads it before its next step.');
+          forgetSentNow(id, note);   // its run ended while we asked: the run's own last line says whether it was applied
+          return;
+        }
         back(status === 409 || status === 404 ? 'The run had already finished its work' : status === 429 ? 'The run is holding too many notes already' : 'The station did not take it');
       })
       .catch(() => back('The station did not answer'));
+  }
+  // take one sent-now line off its stream's list; false = it was no longer there (a STOP gave it back already)
+  function forgetSentNow(id, note) {
+    const list = sentNow.get(id) || [], k = list.indexOf(note);
+    if (k < 0) return false;
+    list.splice(k, 1); list.length ? sentNow.set(id, list) : sentNow.delete(id);
+    return true;
+  }
+  // the loop echoes a folded note as '\n[steering] <its first line>\n' (trimmed, clamped to the sidecar's 2000 chars):
+  // that echo on this stream's own run is the proof the agent has it — a STOP no longer gives it back
+  function steerFirstLine(text) { return String(text == null ? '' : text).trim().slice(0, 2000).split('\n')[0]; }
+  function markSentNowLanded(id, runId, delta) {
+    const list = sentNow.get(id); if (!list || !list.length) return;
+    const re = /(?:^|\n)\[steering\] ([^\n]*)/g; let m;
+    while ((m = re.exec(String(delta || '')))) {
+      const n = list.find(x => !x.landed && x.runId === runId && steerFirstLine(x.text) === m[1]);
+      if (n) n.landed = true;
+    }
+  }
+  /* A SENT-NOW LINE IS NEVER LOST ON STOP EITHER. The station took it (200) but the run was stopped before its next step
+     folded it in: the note died with the run. Once the stop is CONFIRMED, every sent-now line of that run whose
+     '[steering]' echo never showed goes back into the message box — ahead of what is there, unsent — with one line. */
+  function restoreSentNow(id, runId) {
+    const list = sentNow.get(id) || [];
+    const acc = (typeof Channels !== 'undefined' && Channels.peek && Channels.peek(id)) ? String(Channels.peek(id).acc || '') : '';
+    const lost = list.filter(n => n.runId === runId && !n.landed && acc.indexOf('[steering] ' + steerFirstLine(n.text) + '\n') < 0);
+    const rest = list.filter(n => n.runId !== runId);
+    rest.length ? sentNow.set(id, rest) : sentNow.delete(id);
+    if (!lost.length || !input) return;
+    const typed = String(input.value || '').trim();
+    input.value = lost.map(n => n.text).concat(typed ? [typed] : []).join('\n');
+    autoGrowInput();
+    localLine(lost.length === 1 ? 'The run stopped before the agent read your send-now message — it is back in the message box.'
+      : 'The run stopped before the agent read ' + lost.length + ' of your send-now messages — they are back in the message box.');
+  }
+  // the run is over: the sent-now lines the station took are settled (landed, or named by the loop's own "NOT applied"
+  // line); one still in flight stays until its answer — a refusal then queues it as the next message, as before
+  function settleSentNow(id, runId) {
+    const rest = (sentNow.get(id) || []).filter(n => n.runId !== runId || !n.accepted);
+    rest.length ? sentNow.set(id, rest) : sentNow.delete(id);
   }
   // a stream just freed (or was switched back to while idle) — send its next queued follow-up. Guarded to the
   // DISPLAYED stream so send()'s DOM writes always target the visible log; a backgrounded queue waits for return.
@@ -10353,7 +10408,7 @@ const Chat = (() => {
         placed: (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(ws.agentId || 'agent') : [],   // THE MOAT: this run's TOOL reach = the agent's REAL placed props (dish→web · cabinet→files · workbench→terminal · …); compute is the freebie
         stationPlaced: (typeof World !== 'undefined' && World.stationCaps) ? World.stationCaps() : [],   // Class Loadouts (shared-gear): station-wide gear for SKILL availability — a desk-only specialist still gets its class skills when the STATION has the gear (tools stay room-scoped via `placed`)
         onRunId: id => { retirePriorRatings(ws.id); thisRunId = id; if (retryDirectiveTurn && !retryDirectiveTurn.sourceRunId) retryDirectiveTurn.sourceRunId = id; if (starterId) StarterStore.started(starterId, id); runStartedAt = Date.now(); try { RUN_META.set(id, { streamId: ws.id, focusVersion: runFocusVersion, isTask: !!isTask, title: (ws && ws.title) || '', directive: String(text || ''), correctionOf: correctionOf, intentOfferText: intentOfferText, fromRecipe: fromRecipe, recipeId: recipeId, agentId: ws.agentId || 'agent', rec: recClaimRun(id, ws.agentId || 'agent') }); if (RUN_META.size > 60) RUN_META.delete(RUN_META.keys().next().value); } catch (_) {} Channels.setRunId(ws.id, id, Date.now()); if (walkedToDesk && Channels.setStatus) Channels.setStatus(ws.id, 'working…'); if (isActiveWs(ws)) { syncStatus(); renderPresence(); } if (typeof Workstreams !== 'undefined') { Workstreams.appendRun(ws.id, id); if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } },
-        onToken: d => { acc += d; Channels.appendToken(ws.id, d); if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.append(d); if (!isTask) World.say(acc); } if (willSpeak) pushSpeech(false); App.refreshUsage(); },
+        onToken: d => { acc += d; Channels.appendToken(ws.id, d); if (thisRunId && d && d.indexOf('[steering] ') >= 0) markSentNowLanded(ws.id, thisRunId, d); if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.append(d); if (!isTask) World.say(acc); } if (willSpeak) pushSpeech(false); App.refreshUsage(); },
         onTerminalReset: () => { clearTimeout(speechTimer); speechTimer = null; speechPendingSince = 0; acc = ''; spokenIdx = 0; Channels.setAcc(ws.id, ''); },
         onUsage: (u) => { if (u && u.model) ranModel = u.model; App.refreshUsage(); },
         // COMMS-PREMIUM: the Channels store still records the pre-formatted STRING (replay/switch-survival is
@@ -10682,6 +10737,7 @@ const Chat = (() => {
       interrupted.delete(ws.id);   // consume the stop flag (whether or not it fired)
       stopSource.delete(ws.id);
       Channels.end(ws.id);
+      if (thisRunId) settleSentNow(ws.id, thisRunId);   // SEND NOW lines this run took are settled with it (a STOP already gave back the unread ones)
       // P1: drain this directive from the QUEUE gauge on ANY teardown (shipped, in-band error, or abort) —
       // the backlog is "runs in flight", independent of whether the work shipped.
       if (wiPlaced) { const depth = wiBump(wiAid, -1); wiEmit('queue.status', { queueId: wiAid, depth: depth, maxCapacity: 64, nextAdvanceAt: 0 }); }
