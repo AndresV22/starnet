@@ -1950,32 +1950,71 @@ const Chat = (() => {
     if (continuityEvents.length > 64) continuityEvents.shift();
   }
   function continuityDiagnostics() { return continuityEvents.map(e => ({ ...e })); }
-  function loadServerHistory(ws, loadToken) {
+  function loadServerHistory(ws, loadToken, timeoutMs) {
     if (!ws || !ws.id) return Promise.resolve(false);
-    const read = { history: ws.history, promise: null };
+    const read = { history: ws.history, promise: null, timeoutMs: timeoutMs > 0 ? timeoutMs : 0, retryable: false };   // 0 = the open-time 8 s window
     historyLoads.set(ws, read);
     noteContinuity(ws, 'history-loading');
     read.promise = reconcileServerHistory(ws, loadToken, read);
     return read.promise;
   }
 
+  /* THE FIRST MESSAGE AFTER A RESTART (soak S2, 2026-10-15). Opening a conversation reads its history once, in an 8 s
+     window. Right after a station restart the sidecar can take longer than that to answer (the soak's own API calls
+     took 5-11 s in the first seconds after boot, 0.5 s once warm), so that read can time out — and the FIRST send then
+     awaited the already-settled failure and refused ("history could not be restored") without asking the station
+     again; no run started. A send now asks again while the station has not answered: a fresh read, a longer window
+     per read (a busy boot answers late, not never), short backoff between unanswered reads, all inside one bounded
+     wait. The message is admitted only once a read REALLY answered (never on a guess), exactly once (admission
+     happens before the run is requested, so a retry can never double-send). STOP or a removed conversation ends the
+     wait at once; a station that never answers still ends in the same honest refusal, message kept; a refusal the
+     station answered on purpose (4xx) is final. The COMMS status stays 'connecting…' throughout — no run exists yet. */
+  const HISTORY_SEND_READ_MS = 20000;    // one send-time read's window (an open-time read keeps 8 s: reconcileServerHistory)
+  const HISTORY_SEND_WAIT_MS = 45000;    // the whole wait a send gives an unanswered history before it refuses
+  function changedBeforeSending() { return new Error('Conversation changed before sending.'); }
+  // Wait for a promise, but let the send's own abort (STOP) end the wait at once. The read itself is shared with the
+  // open-time load and keeps its own owner rules; only this send stops waiting on it.
+  function untilAborted(promise, signal) {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) { reject(changedBeforeSending()); return; }
+      const changed = () => reject(changedBeforeSending());
+      signal.addEventListener('abort', changed, { once: true });
+      promise.then(v => { signal.removeEventListener('abort', changed); resolve(v); },
+        e => { signal.removeEventListener('abort', changed); reject(e); });
+    });
+  }
+
   async function ensureHistoryReady(ws, signal) {
-    let read = historyLoads.get(ws);
-    if (!read || !read.promise) { loadServerHistory(ws, historyPinSeq); read = historyLoads.get(ws); }
-    let ready = await read.promise;
-    // A second open can supersede the request while this turn waits. Follow the
-    // latest owner, never admit inference on a previous visit's settled promise.
-    while (historyLoads.get(ws) !== read) {
-      if (signal.aborted) throw new Error('Conversation changed before sending.');
+    const deadline = Date.now() + HISTORY_SEND_WAIT_MS;
+    let asked = 0, read = null;
+    for (;;) {
       read = historyLoads.get(ws);
-      ready = await read.promise;
-    }
-    if (!ready) {
+      if (!read || !read.promise) {
+        loadServerHistory(ws, historyPinSeq, Math.max(1000, Math.min(HISTORY_SEND_READ_MS, deadline - Date.now())));
+        read = historyLoads.get(ws); asked++;
+      }
+      let ready = await untilAborted(read.promise, signal);
+      // A second open can supersede the request while this turn waits. Follow the
+      // latest owner, never admit inference on a previous visit's settled promise.
+      while (historyLoads.get(ws) !== read) {
+        if (signal.aborted) throw changedBeforeSending();
+        read = historyLoads.get(ws);
+        ready = await untilAborted(read.promise, signal);
+      }
+      if (ready) break;
       if (historyLoads.get(ws) === read) read.promise = null;
-      noteContinuity(ws, 'send-held-history-unavailable');
-      throw Object.assign(new Error('Conversation history could not be restored. Your message is kept; try again when the connection returns.'), { code: 'HISTORY_UNAVAILABLE' });
+      if (signal.aborted || (typeof Workstreams !== 'undefined' && Workstreams.get(ws.id) !== ws)) throw changedBeforeSending();
+      // a settled failure from before this send (the open-time read) is asked again at once; this send's own
+      // unanswered reads back off 1 s, 2 s, then 4 s
+      const pause = asked ? Math.min(4000, 500 * Math.pow(2, asked)) : 0;
+      if (!read.retryable || Date.now() + pause >= deadline) {
+        noteContinuity(ws, 'send-held-history-unavailable');
+        throw Object.assign(new Error('Conversation history could not be restored. Your message is kept; try again when the connection returns.'), { code: 'HISTORY_UNAVAILABLE' });
+      }
+      noteContinuity(ws, 'send-history-retry');
+      if (pause) await untilAborted(new Promise(resolve => setTimeout(resolve, pause)), signal);
     }
-    if (signal.aborted || (typeof Workstreams !== 'undefined' && Workstreams.get(ws.id) !== ws)) throw new Error('Conversation changed before sending.');
+    if (signal.aborted || (typeof Workstreams !== 'undefined' && Workstreams.get(ws.id) !== ws)) throw changedBeforeSending();
     noteContinuity(ws, 'send-history-ready');
     return read;
   }
@@ -1986,12 +2025,13 @@ const Chat = (() => {
     let busy = false;
     try { busy = typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(ws.id); } catch (_) {}
     const waits = cronSession && !busy ? [120, 400] : [];
-    let turns = [], reachable = false;
+    let turns = [], reachable = false, refused = false;
     for (let attempt = 0; attempt <= waits.length; attempt++) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const timeout = setTimeout(() => controller.abort(), read.timeoutMs > 0 ? read.timeoutMs : 8000);   // a send's read may wait longer (ensureHistoryReady)
       try {
         const r = await fetch('/api/transcript?agent=' + encodeURIComponent(ws.agentId || 'agent') + '&stream=' + encodeURIComponent(ws.id) + '&limit=200', { cache: 'no-store', signal: controller.signal });
+        refused = !r.ok && r.status >= 400 && r.status < 500;   // the station answered "no": asking again cannot change it
         if (r.ok) {
           const j = (await r.json()) || {};
           if (!Array.isArray(j.turns)) break; // malformed is unknown, never an empty transcript
@@ -1999,10 +2039,11 @@ const Chat = (() => {
           reachable = true;
           if (!cronSession || turns.some(t => t && t.role === 'assistant' && String(t.content == null ? '' : t.content).trim())) break;
         }
-      } catch (_) { /* retry the bounded cron persistence window below */ }
+      } catch (_) { refused = false; /* no answer (timeout / connection): retry the bounded cron persistence window below */ }
       finally { clearTimeout(timeout); }
       if (attempt < waits.length) await new Promise(resolve => setTimeout(resolve, waits[attempt]));
     }
+    read.retryable = !reachable && !refused;   // unanswered (or unreadable) — a send may ask again (ensureHistoryReady)
     // A superseded read, removed session or deliberate clear cannot write back.
     if (historyLoads.get(ws) !== read || (typeof Workstreams !== 'undefined' && Workstreams.get(ws.id) !== ws)
       || (read.history.length && !ws.history.length)) { noteContinuity(ws, 'history-stale-discarded'); return false; }
