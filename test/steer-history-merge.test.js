@@ -124,7 +124,7 @@ A.ok(/classList\.add\('tool', 'steer-echo'\)/.test(rh), 'a replayed steering not
   for (const [who, fn] of [['desk', merge], ['phone', phoneMerge]]) {
     let saved = [
       { role: 'user', content: 'run the slow job' },
-      { role: 'assistant', sys: true, steerEcho: true, content: '[steering] use the blue folder', sourceRunId: 'r9', ts: 4 }
+      { role: 'system', sys: true, steerEcho: true, content: '[steering] use the blue folder', sourceRunId: 'r9', ts: 4 }
     ];
     for (let load = 1; load <= 3; load++) {
       saved = JSON.parse(JSON.stringify(fn(saved, durable)));
@@ -139,7 +139,7 @@ A.ok(/classList\.add\('tool', 'steer-echo'\)/.test(rh), 'a replayed steering not
   for (const [who, fn] of [['desk', merge], ['phone', phoneMerge]]) {
     const saved = [
       { role: 'user', content: 'do the slow job', sourceRunId: 'rA', rowId: 1 },
-      { role: 'assistant', sys: true, steerEcho: true, content: '[steering] use the blue folder', sourceRunId: 'rA', ts: 4 }
+      { role: 'system', sys: true, steerEcho: true, content: '[steering] use the blue folder', sourceRunId: 'rA', ts: 4 }
     ];
     const turns = [
       { role: 'user', content: 'do the slow job', sourceRunId: 'rA', rowId: 1 },
@@ -167,9 +167,10 @@ A.ok(/classList\.add\('tool', 'steer-echo'\)/.test(rh), 'a replayed steering not
     turnFileRefs: () => [], renderProse: (b, t) => { b.text = t; }, replayableDeliverables: () => [], replayDeliverableRow: () => {},
     offerTryAgain: () => {}, offerRetry: () => {}, isBusy: () => false
   });
-  require('vm').runInContext(rh + ';\nrenderHistory([{ role: "user", content: "go" }, { role: "assistant", sys: true, steerEcho: true, content: "[steering] use the blue folder", sourceRunId: "r9", ts: 4 }, { role: "assistant", sys: true, content: "■ a station line" }]);', ctx);
+  require('vm').runInContext(rh + ';\nrenderHistory([{ role: "user", content: "go" }, { role: "system", sys: true, steerEcho: true, content: "[steering] use the blue folder", sourceRunId: "r9", ts: 4 }, { role: "assistant", sys: true, content: "■ a station line" }, { role: "assistant", sys: true, steerEcho: true, content: "[steering] an earlier draft row", sourceRunId: "r8", ts: 5 }]);', ctx);
   const echoRows = made.filter(r => r.d.cls.includes('steer-echo'));
-  A.eq(echoRows.map(r => [r.cls, r.body.textContent, r.o.stamp]), [['agent', '[steering] use the blue folder', 4]], 'a filed read note replays as the dim steer-echo row, stamped when it was sent');
+  A.eq(echoRows.map(r => [r.cls, r.body.textContent, r.o.stamp]), [['agent', '[steering] use the blue folder', 4], ['agent', '[steering] an earlier draft row', 5]],
+    'a filed read note (the station-row shape, role system + sys) replays as the dim steer-echo row, stamped when it was sent — a row filed in the first draft shape (role assistant) too');
   A.eq(toolLines, ['■ a station line'], 'and never as a plain station line (other station rows are unchanged)');
 }
 

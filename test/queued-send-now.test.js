@@ -93,7 +93,7 @@ function sendRig(opts) {
   };
   vm.createContext(ctx);
   const names = ['function sendQueuedNow', 'function forgetSentNow', 'function steerWire', 'function markSentNowLanded', 'function restoreSentNow',
-    'function settleSentNow', 'function giveBack', 'function returnHeld', 'function sentNowDisk', 'function keepSentNow', 'function dropSentNow'];
+    'function settleSentNow', 'function giveBack', 'function returnHeld', 'function sentNowDisk', 'function keepSentNow', 'function sentNowOverdue', 'function dropSentNow'];
   const bodies = names.map(h => A.fnBody(src, h));
   A.ok(bodies.every(b => b.length > 20 && b.length < 6000), 'the SEND NOW helpers are present: ' + names.filter((h, i) => !(bodies[i].length > 20 && bodies[i].length < 6000)).join(', '));
   vm.runInContext(bodies.join('\n') + '\n;this.__sendNow = sendQueuedNow; this.__landed = markSentNowLanded; this.__restore = restoreSentNow; this.__settle = settleSentNow; this.__return = returnHeld;', ctx);

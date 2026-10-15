@@ -35,7 +35,7 @@ function stopRig(opts) {
   let cancelResolve;
   const ctx = {
     console, Date, Promise, setTimeout: (opts && opts.setTimeout) || setTimeout, clearTimeout, JSON,
-    localStorage: opts && opts.storage, sentNowChecks: new Map(), log: null,
+    localStorage: opts && opts.storage, sentNowChecks: new Map(), sentNowRetry: new Map(), log: null,
     U: { bus },
     Channels,
     activeWs: { id: 'ws1', agentId: 'agent', conversationMode: 'chat' },
@@ -64,7 +64,7 @@ function stopRig(opts) {
   A.ok(settleStart > 0 && settleEnd > settleStart && promptStart > 0 && promptEnd > promptStart, 'the bell settlement helpers are present');
   const helperNames = ['function restoreQueued', 'function settleStoppedAsks', 'function sendQueuedNow', 'function forgetSentNow',
     'function steerWire', 'function markSentNowLanded', 'function restoreSentNow', 'function settleSentNow', 'function giveBack', 'function returnHeld', 'function stopReportHolding',
-    'function sentNowDisk', 'function keepSentNow', 'function dropSentNow', 'function releaseSentNow', 'function reconcileSentNow', 'async function askSentNow',
+    'function sentNowDisk', 'function keepSentNow', 'function sentNowOverdue', 'function dropSentNow', 'function releaseSentNow', 'function reconcileSentNow', 'async function askSentNow',
     'function sentNowVerdict', 'function shownSteer', 'function showSentNowRead'];
   const helperSrc = helperNames.map(h => A.fnBody(src, h));
   A.ok(helperSrc.every(Boolean), 'the STOP / SEND NOW helpers are present: ' + helperNames.filter((h, i) => !helperSrc[i]).join(', '));
@@ -409,6 +409,133 @@ function stopRig(opts) {
       one.r.ctx.fetch = url => { asked.push(url); return Promise.reject(new Error('no')); };
       await one.r.ctx.__reconcile(one.r.ctx.activeWs);
       A.eq([asked, one.r.ctx.input.value], [[], ''], 'a line in this page\'s own hands is not the station\'s to decide');
+    }
+    // ── 1d POLISH (SEND NOW review, 2026-10-15) ──
+    const sendSeveral = async (storage, typed) => {
+      const r = stopRig({ storage });
+      Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+      r.ctx.fetch = (url, o) => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: true, pending: 1, noteId: JSON.parse(o.body).noteId }) });
+      for (const t of typed) { r.ctx.queued.set('ws1', [t]); r.ctx.__sendNow('ws1', 0, t); }
+      await tick(); await tick();
+      return onDisk(storage, 'ws1').map(e => e.id);
+    };
+    {
+      // (j) several lines the same run read are filed in the order they were sent — never reversed — as station rows
+      const storage = memStorage();
+      const ids = await sendSeveral(storage, ['first note', 'second note', 'third note']);
+      A.eq(ids.length, 3, 'fixture: three lines on disk');
+      const allRead = () => Object.fromEntries(ids.map(k => [k, 'applied']));
+      const two = pageTwo(storage, say(storage, allRead), [
+        { role: 'user', content: 'go', sourceRunId: 'run-1' }, { role: 'assistant', content: 'Halfway.', sourceRunId: 'run-1' },
+        { role: 'user', content: 'next', sourceRunId: 'run-2' }]);
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(two.ws.history.map(m => m.content), ['go', 'Halfway.', '[steering] first note', '[steering] second note', '[steering] third note', 'next'],
+        'three read lines of one run follow its dialogue in the order they were sent');
+      const echoes = two.ws.history.filter(m => m && m.steerEcho);
+      A.eq(echoes.map(m => [m.role, m.sys]), [['system', true], ['system', true], ['system', true]], 'each is the station-row shape every other station row uses (role system + sys), never an agent turn');
+      // a run with no dialogue row of its own: ahead of the station's own line about it, still in send order
+      const storage2 = memStorage();
+      const ids2 = await sendSeveral(storage2, ['first note', 'second note', 'third note']);
+      const three = pageTwo(storage2, say(storage2, () => Object.fromEntries(ids2.map(k => [k, 'applied']))), [
+        { role: 'user', content: 'go' },
+        { role: 'assistant', sys: true, error: true, transcriptPending: true, sourceRunId: 'run-1', content: '■ the run ended when this page closed' }]);
+      await three.r.ctx.__reconcile(three.ws);
+      A.eq(three.ws.history.map(m => m.content), ['go', '[steering] first note', '[steering] second note', '[steering] third note', '■ the run ended when this page closed'],
+        'with no dialogue row of the run, they go ahead of its station line, in send order');
+    }
+    {
+      // (k) ONE retry chain per line: another load or a run's end while a retry is armed never arms a second one
+      const storage = memStorage();
+      pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      const id = onDisk(storage, 'ws1')[0].id;
+      const timers = [];
+      const two = pageTwo(storage, say(storage, () => ({ [id]: 'pending' }), () => ({ live: true, ended: false })), null, { setTimeout: (fn, ms) => { timers.push(fn); return timers.length; } });
+      await two.r.ctx.__reconcile(two.ws);
+      await two.r.ctx.__reconcile(two.ws);
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(timers.length, 1, 'three asks that find the same line still waiting arm ONE retry, not three chains');
+      await timers[0]();
+      A.eq(timers.length, 2, 'the retry, when it fires, asks again and arms the next one (still one chain)');
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(timers.length, 2, 'and a load meanwhile adds none');
+      A.eq([two.r.ctx.input.value, onDisk(storage, 'ws1').length], ['', 1], 'while it waits nothing is decided or lost');
+    }
+    {
+      // (l) 'pending' on a run that is no longer in flight (its loop is gone without draining the line): back in the box
+      const storage = memStorage();
+      pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      const id = onDisk(storage, 'ws1')[0].id;
+      const two = pageTwo(storage, say(storage, () => ({ [id]: 'pending' }), () => ({ live: false, ended: false, source: 'memory' })), null, { setTimeout: () => { throw new Error('no retry for a decided line'); } });
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq([two.r.ctx.input.value, onDisk(storage, 'ws1').length], ['use the blue folder', 0], 'a pending line on a run no longer in flight is given back (an aborted loop never drains again)');
+      const v = st => two.r.ctx.__verdict({ id: 'snX', runId: 'run-1', wire: 'w' }, st, []);
+      A.eq([v({ live: false, ended: false, source: 'memory', notes: { snX: 'pending' } }), v({ live: false, ended: true, source: 'memory', notes: { snX: 'pending' } }),
+        v({ live: true, ended: false, source: 'memory', notes: { snX: 'pending' } }), v({ live: true, ended: false, source: 'memory', notes: {} })], ['back', 'back', 'wait', 'wait'],
+        'pending: back once the run is not in flight or ended; a live run still holding it (or not yet having it) waits');
+    }
+    {
+      // (m) the per-conversation disk list is BOUNDED — but a line is never dropped unseen: past the cap, the oldest line this
+      //     page is not holding goes back in the message box with an honest line
+      const storage = memStorage();
+      const old = [];
+      for (let i = 0; i < 16; i++) old.push({ id: 'snold' + i, runId: 'run-0', text: 'old note ' + i, wire: 'old note ' + i, at: Date.now() - 60000 + i });
+      storage.setItem('starnet.sentNow.v1', JSON.stringify({ ws1: old }));
+      const one = pageOne(storage, 'use the blue folder');
+      const disk = onDisk(storage, 'ws1');
+      A.eq(disk.length, 16, 'the list stays at its cap');
+      A.ok(disk.some(e => e.id === one.posts[0].noteId) && !disk.some(e => e.id === 'snold0'), 'the new line is kept; the oldest unsettled one left the disk…');
+      A.eq(one.r.ctx.input.value, 'old note 0', '…into the message box, never deleted unseen');
+      A.ok(one.r.lines.some(l => /never said whether the agent read your send-now message/.test(l) && /back in the message box/.test(l)), 'with an honest line: ' + JSON.stringify(one.r.lines));
+      // lines this page still holds for its live run are never pushed out by the cap
+      const storage2 = memStorage();
+      const many = [];
+      for (let i = 0; i < 18; i++) many.push('note ' + i);
+      const ids = await sendSeveral(storage2, many);
+      A.eq(ids.length, 18, 'every line the page holds for its live run stays on disk, past the cap');
+    }
+    {
+      // (n) a VERY OLD line the station still cannot decide is given back with the honest line, never kept waiting forever
+      const storage = memStorage();
+      const dayAgo = Date.now() - 25 * 3600 * 1000;
+      storage.setItem('starnet.sentNow.v1', JSON.stringify({ ws1: [{ id: 'snstale', runId: 'run-0', text: 'an old note', wire: 'an old note', at: dayAgo }, { id: 'snfresh', runId: 'run-0', text: 'a new note', wire: 'a new note', at: Date.now() }] }));
+      const timers = [];
+      const two = pageTwo(storage, () => Promise.reject(new Error('offline')), null, { setTimeout: fn => { timers.push(fn); } });
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(two.r.ctx.input.value, 'an old note', 'the day-old undecided line is back in the message box');
+      A.ok(two.r.lines.some(l => /never said whether the agent read your send-now message/.test(l)), 'with the honest line: ' + JSON.stringify(two.r.lines));
+      A.eq([onDisk(storage, 'ws1').map(e => e.id), timers.length], [['snfresh'], 1], 'the fresh one keeps waiting (asked again later)');
+      // an old line the station CAN decide is decided by the station
+      const storage2 = memStorage();
+      storage2.setItem('starnet.sentNow.v1', JSON.stringify({ ws1: [{ id: 'snstale', runId: 'run-1', text: 'an old note', wire: 'an old note', at: dayAgo }] }));
+      const three = pageTwo(storage2, say(storage2, () => ({ snstale: 'applied' })));
+      await three.r.ctx.__reconcile(three.ws);
+      A.eq([three.r.ctx.input.value, three.ws.history.filter(m => m && m.steerEcho).length], ['', 1], 'a day-old line the station says was read is shown as read');
+    }
+    {
+      // (o) an echo of the SAME words from a DIFFERENT run never stands in for this line's proof
+      const storage = memStorage();
+      pageOne(storage, 'use the blue folder');
+      await tick(); await tick();
+      const id = onDisk(storage, 'ws1')[0].id;
+      const hist = [
+        { role: 'user', content: 'go', sourceRunId: 'run-0' }, { role: 'assistant', content: 'Done.', sourceRunId: 'run-0' },
+        { role: 'system', sys: true, steerEcho: true, content: '[steering] use the blue folder', sourceRunId: 'run-0', ts: 1 },
+        { role: 'user', content: 'again', sourceRunId: 'run-1' }];
+      const two = pageTwo(storage, say(storage, () => ({ [id]: 'applied' })), hist);
+      await two.r.ctx.__reconcile(two.ws);
+      A.eq(two.ws.history.filter(m => m && m.steerEcho).map(m => m.sourceRunId), ['run-0', 'run-1'], 'this run gets its own row: run-0\'s echo of the same words is not this line\'s');
+      // an assistant reply of another run that shows the same words proves nothing for this line either
+      const storage2 = memStorage();
+      pageOne(storage2, 'use the blue folder');
+      await tick(); await tick();
+      const id2 = onDisk(storage2, 'ws1')[0].id;
+      const three = pageTwo(storage2, say(storage2, () => ({ [id2]: 'applied' })), [
+        { role: 'user', content: 'go', sourceRunId: 'run-0' }, { role: 'assistant', content: 'Ok.\n[steering] use the blue folder\nDone.', sourceRunId: 'run-0' },
+        { role: 'user', content: 'again', sourceRunId: 'run-1' }]);
+      await three.r.ctx.__reconcile(three.ws);
+      A.eq(three.ws.history.filter(m => m && m.steerEcho).map(m => m.sourceRunId), ['run-1'], 'another run\'s saved reply with those words is not this line\'s echo');
     }
     {
       // the wiring: the teardown lets go, a load asks once its history settled, and the run's end asks about what it let go

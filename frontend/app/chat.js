@@ -48,6 +48,7 @@ const Chat = (() => {
   const sentNow = new Map();       // SEND NOW: wsId -> [{ id, text, wire, runId, accepted, landed }] queued lines handed to the live run (sendQueuedNow) — kept until that run ends, so a STOP can give back any its transcript never showed landing (and on disk until settled: keepSentNow)
   const heldBack = new Map();      // wsId -> [{ texts, line, ids }] words a confirmed STOP gave back while ANOTHER session was on screen: they go into the message box when you return (returnHeld)
   const sentNowChecks = new Map(); // wsId -> the in-flight ask about its leftover sent-now lines (reconcileSentNow): one per conversation at a time
+  const sentNowRetry = new Map();  // noteId -> the retry armed for it (askSentNow): one chain per line, however many asks find it still waiting
   let activeLiveRow = null;     // streaming text controller for the DISPLAYED stream's in-flight run; rebound by replayChannel on switch
                                 // CLASSIC HARNESS FLOW: prose and the agent's actions (tool ▶/◀ lines, deliverables, approval
                                 // prompts) render CHRONOLOGICALLY — newest at the bottom — instead of pinning one reply block to
@@ -8530,8 +8531,29 @@ const Chat = (() => {
     sentNowDisk(all => {
       const list = (Array.isArray(all[id]) ? all[id] : []).filter(e => e && e.id !== note.id);
       list.push({ id: note.id, runId: note.runId, text: note.text, wire: note.wire, at: Date.now() });
-      all[id] = list.slice(-16);
+      all[id] = list;   // never trimmed here: a line past the cap goes back in the message box (sentNowOverdue)
     });
+    sentNowOverdue(id);
+  }
+  /* A BOUNDED DISK, NOTHING DROPPED UNSEEN (SEND NOW review, 2026-10-15). A conversation keeps at most 16 undecided lines on
+     disk. Past that, the oldest ones this page is not holding itself (a live run's own lines are never pushed out) go back
+     in the message box — and so does a line the station still cannot decide a day after it was sent (`stale`, from
+     askSentNow) — with a line that says only what is known: no answer came. A line is never deleted unseen. */
+  function sentNowOverdue(id, stale) {
+    const held = new Set();
+    for (const n of sentNow.get(id) || []) held.add(n.id);
+    for (const h of heldBack.get(id) || []) for (const k of h.ids || []) held.add(k);
+    const disk = (sentNowDisk()[id] || []).filter(e => e && e.id);
+    const loose = disk.filter(e => !held.has(e.id));   // oldest first: the disk keeps send order
+    const out = new Set((stale || []).map(e => e && e.id).filter(k => loose.some(e => e.id === k)));
+    let over = disk.length - out.size - 16;            // still past the cap once the stale ones leave
+    for (const e of loose) { if (over <= 0) break; if (!out.has(e.id)) { out.add(e.id); over--; } }
+    const back = loose.filter(e => out.has(e.id));
+    if (!back.length) return;
+    const texts = back.map(e => (typeof e.text === 'string' ? e.text : '')).filter(t => t.trim()), n = texts.length;
+    if (!n) return dropSentNow(id, back.map(e => e.id));   // no words to give back (a damaged entry): nothing a person typed is lost
+    giveBack(id, texts, n === 1 ? 'The station never said whether the agent read your send-now message — it is back in the message box.'
+      : 'The station never said whether the agent read ' + n + ' of your send-now messages — they are back in the message box.', back.map(e => e.id));
   }
   function dropSentNow(id, ids) {
     const gone = new Set((ids || []).filter(Boolean));
@@ -8656,7 +8678,20 @@ const Chat = (() => {
       : 'The run ended before the agent read ' + n + ' of your send-now messages — they are back in the message box.', by.back.map(e => e.id));
     if (u) giveBack(id, by.unsure.map(e => e.text), u === 1 ? 'The station has no record that the agent read your send-now message before its run ended — it is back in the message box.'
       : 'The station has no record that the agent read ' + u + ' of your send-now messages before their run ended — they are back in the message box.', by.unsure.map(e => e.id));
-    if (by.wait.length && attempt < 40) setTimeout(() => reconcileSentNow((typeof Workstreams !== 'undefined' && Workstreams.get && Workstreams.get(id)) || ws, attempt + 1), Math.min(15000, Math.round(1500 * Math.pow(1.4, attempt))));
+    // a line the station still cannot decide a day after it was sent stops waiting: back in the box, saying no answer came
+    const stale = by.wait.filter(e => Date.now() - Number(e.at) > 24 * 3600 * 1000);
+    if (stale.length) sentNowOverdue(id, stale);
+    // ONE retry chain per line (SEND NOW review, 2026-10-15): a load or a run's end that finds a line still waiting while its
+    // retry is already armed arms no second one — only the in-flight ask was de-duped before, so every ask added a chain
+    const unarmed = by.wait.filter(e => stale.indexOf(e) < 0 && !sentNowRetry.has(e.id));
+    if (unarmed.length && attempt < 40) {
+      const armed = {};
+      for (const e of unarmed) sentNowRetry.set(e.id, armed);
+      setTimeout(() => {
+        for (const e of unarmed) if (sentNowRetry.get(e.id) === armed) sentNowRetry.delete(e.id);
+        return reconcileSentNow((typeof Workstreams !== 'undefined' && Workstreams.get && Workstreams.get(id)) || ws, attempt + 1);
+      }, Math.min(15000, Math.round(1500 * Math.pow(1.4, attempt))));
+    }
   }
   // one line's fate from the station's answer (GET /api/run/steer → { live, ended, source, notes: { noteId: state } })
   function sentNowVerdict(e, st, history) {
@@ -8670,16 +8705,19 @@ const Chat = (() => {
     return (st.ended || !st.live) ? 'back' : 'wait';
   }
   // does the saved history show this line's echo? strict = only a row of ITS run proves it (an older run may have read the
-  // same words); loose (dedupe before filing a row) also counts a reply saved without its run id (a stopped partial)
+  // same words); loose (dedupe before filing a row) also counts a row saved without its run id (a stopped partial) — but
+  // never a row of ANOTHER run, a filed echo row included: the same words read by an earlier run are not this line's proof
   function shownSteer(history, e, strict) {
     const echo = '[steering] ' + e.wire;
-    return (Array.isArray(history) ? history : []).some(m => m && (
-      (m.steerEcho && String(m.content || '') === echo && (!strict || m.sourceRunId === e.runId))
-      || (m.role === 'assistant' && !m.sys && (strict ? m.sourceRunId === e.runId : (!m.sourceRunId || m.sourceRunId === e.runId))
-        && ('\n' + String(m.content || '') + '\n').indexOf('\n' + echo + '\n') >= 0)));
+    const ofRun = m => (strict ? m.sourceRunId === e.runId : (!m.sourceRunId || m.sourceRunId === e.runId));
+    return (Array.isArray(history) ? history : []).some(m => m && ofRun(m) && (
+      (m.steerEcho && String(m.content || '') === echo)
+      || (m.role === 'assistant' && !m.sys && ('\n' + String(m.content || '') + '\n').indexOf('\n' + echo + '\n') >= 0)));
   }
   // a line the run read, filed as ONE station row after that run's dialogue (before the station's own lines about it);
-  // renderHistory draws it as the live stream's steer-echo row. sys: it never seeds the model (historyWindow drops sys rows).
+  // renderHistory draws it as the live stream's steer-echo row. The station-row shape every other station row uses (role
+  // 'system' + sys): it never seeds the model (historyWindow drops sys rows), and nothing that reads the agent's last turn
+  // (copy last reply, the next send's prior-turn hint, /history, the starter suggestions) takes the Commander's note for the agent's words.
   function showSentNowRead(ws, read) {
     if (!ws) return;
     const h = Array.isArray(ws.history) ? ws.history : (ws.history = []);
@@ -8689,7 +8727,9 @@ const Chat = (() => {
       let at = -1;
       for (let i = h.length - 1; i >= 0 && at < 0; i--) if (h[i] && !h[i].sys && String(h[i].sourceRunId || '') === e.runId) at = i + 1;
       if (at < 0) { at = h.findIndex(m => m && m.sys && String(m.sourceRunId || '') === e.runId); if (at < 0) at = h.length; }
-      h.splice(at, 0, { role: 'assistant', sys: true, steerEcho: true, content: '[steering] ' + e.wire, sourceRunId: e.runId, ts: Number(e.at) || Date.now() });
+      // after the lines of the same run filed before it: several read lines keep the order they were sent in
+      while (at < h.length && h[at] && h[at].steerEcho && String(h[at].sourceRunId || '') === e.runId) at++;
+      h.splice(at, 0, { role: 'system', sys: true, steerEcho: true, content: '[steering] ' + e.wire, sourceRunId: e.runId, ts: Number(e.at) || Date.now() });
       added++;
     }
     if (!added) return;
