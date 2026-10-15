@@ -343,7 +343,10 @@ const tick = () => new Promise(r => setTimeout(r, 15));
       && /const started = !!t && t\.split\(' · '\)\.slice\(1\)\.some\(p => !\/could not be read\$\/\.test\(p\)\);/.test(src) && /B\(\)\.editLine\(l\.intakeId\)\)\) return;\s*\n\s*if \(typeof WorkflowPanel !== 'undefined' && WorkflowPanel\.revealStarts\)/.test(src), '⊕ MAKE IT AUTOMATIC opens the editor on the INBOX and reveals its starts');
     const panelSrc = rd('frontend/app/workflowpanel.js');
     A.ok(/<section class="wf-sec" id="wf-starts"><h3>Or start it automatically<\/h3>/.test(panelSrc) && /selectFromFloor, revealStarts, showTest,/.test(panelSrc), 'the panel names that section and exports revealStarts');
-    A.ok(src.includes('scheduled and channel runs are filed in DELIVERABLES'), 'an empty LAST JOBS says where scheduled and channel runs are filed');
+    A.ok(src.includes('scheduled, channel, folder and webhook runs are filed in DELIVERABLES'), 'an empty LAST JOBS says where scheduled, channel, folder and webhook runs are filed');
+    // (org wire AUTO-P15-3) every start that writes no job record is named there: a folder or webhook trigger never records a line job
+    const trSrc = rd('sidecar/routing/trigger-runner.js');
+    A.ok(!/jobs\.start\(|LineJobs/.test(trSrc), 'fixture: trigger-runner records no line job (if it ever does, its runs show in LAST JOBS and this note changes)');
   }
 
   /* ---------- org P14 (2026-10-14; final round): a delivered job waiting for its rating is rated right here, and the view a floor OUTBOX

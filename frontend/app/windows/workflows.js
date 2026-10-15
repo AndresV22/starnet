@@ -641,8 +641,9 @@ const WorkflowsWindow = (() => {
   function jobRows(l) {
     const rows = jobsOf(l.key).slice(0, 8);
     if (S.jobsErr && !rows.length) return '<p class="wfw-note">The job history could not be read — is the station running?</p>';
-    // (org P15) a scheduled or channel run is not a job record yet: say where it is filed, never an empty "nothing ran"
-    if (!rows.length) return '<p class="wfw-note">No jobs yet. Jobs you send show here; scheduled and channel runs are filed in DELIVERABLES.</p>';
+    /* (org P15) a scheduled, channel, folder or webhook run is not a job record yet (only a job you send and a SEND TO hand-off write one:
+       the sample route and the handoff runner — trigger-runner.js never does): say where it is filed, never an empty "nothing ran" (org wire AUTO-P15-3) */
+    if (!rows.length) return '<p class="wfw-note">No jobs yet. Jobs you send show here; scheduled, channel, folder and webhook runs are filed in DELIVERABLES.</p>';
     const mark = s => ({ delivered: '<span class="wfw-st ok">✓ DELIVERED</span>', running: '<span class="wfw-st run">RUNNING</span>', stopped: '<span class="wfw-st">STOPPED</span>',
       problem: '<span class="wfw-st warn">⚠ PROBLEM</span>', failed: '<span class="wfw-st warn">DIDN’T RUN</span>', interrupted: '<span class="wfw-st warn">INTERRUPTED</span>' })[s] || '';
     // a handed-on job reads as FROM LINE A · the job (its text is the job as it first arrived); a standing refusal says ×N
