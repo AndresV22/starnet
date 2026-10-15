@@ -198,7 +198,18 @@ const body = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll
       A.ok(/2 · Fact checker · NOVA/.test(html) && !/REVIEWER · NOVA/.test(html), 'a named step is listed by its NAME in HOW EACH STEP DID IT');
       A.ok(/1 · WRITER · ADA/.test(html), '…an unnamed one by its role, as before');
       A.ok(/The Fact checker step \(NOVA\) ran out of turns/.test(html), 'the problem line names the step the way the strip does');
-      const live = A.fnBody(panel, 'function liveNow(f)');
+      /* (org wire AUTO-GATE-1) the SHIPPED note belongs to the ✓ DELIVERED header only: a PROBLEM job never computes it (this stub has
+         no notShippedNote — the call above would have thrown), and a delivered job still reads it */
+      A.ok(!/wf-job-where|not counted in SHIPPED/.test(html), 'a job that FINISHED WITH A PROBLEM carries no SHIPPED note');
+      let nsCalls = 0;
+      const okFns = load(panel, ['function jobResultHTML(mine, f)', 'function loopNotes(text)'], {
+        prop: id => st[id] || null, nameOf: a => a.toUpperCase(), stepText: () => 'reply', stepOut: {}, H: { sampleHTML: () => '', plan: () => ({}) }, WL: () => require('../frontend/app/workflowline.js'),
+        S: {}, exampleKept: () => false, notRightHTML: () => '', Pipeline: undefined, runEnd: r => 'ran out of turns', ReturnStore: undefined,
+        notShippedNote: () => { nsCalls++; return ' · <span class="wf-noship">not counted in SHIPPED</span>'; }
+      }, "const LOOP_NOTE = /^\\[LOOP — (exhausted|escalated): (\\d+) pass(?:es)? round the gate[^\\n]*\\]\\s*/gm;");
+      const okHtml = okFns.jobResultHTML({ view: { ok: true, usd: 0.02 }, runs: [{ runId: 'r1', dockId: 'b0', agentId: 'ada', reason: 'done', usd: 0.02 }], output: 'x', stamp: 2, shipped: false }, null);
+      A.ok(nsCalls === 1 && /✓ DELIVERED[^]*wf-job-where[^]*not counted in SHIPPED/.test(okHtml), 'a DELIVERED job still says it was not counted in SHIPPED (' + nsCalls + ' call)');
+      const live =A.fnBody(panel, 'function liveNow(f)');
       A.ok(/w\.p\.label \|\| w\.p\.role \|\| 'STEP'/.test(live) && /q\.p\.label \|\| q\.p\.role \|\| 'STEP'/.test(live), 'the riding job\'s "Now: step n" names it the same way');
       A.ok(/p\.label \|\| p\.role \|\| 'STEP'/.test(A.fnBody(panel, 'function fixCardHTML(x, i, f)')), 'a suggested fix names its step the same way');
     }
