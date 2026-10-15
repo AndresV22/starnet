@@ -14491,7 +14491,15 @@ function ipcTokenOk(req) {
 async function handleSetKey(req, res) {
   if (!ipcTokenOk(req)) { res.writeHead(403); return res.end('forbidden'); }
   let raw = '';
-  try { raw = String(await readBody(req, 1 << 16) || ''); } catch (_) {}
+  // a body that cannot be read is NOT an empty key: read as '' it cleared the runtime OpenRouter key and still answered
+  // 200 (delta review 10-15). Refuse it before any patch is built, so a failed push changes nothing and says so.
+  try { raw = String(await readBody(req, 1 << 16) || ''); } catch (e) {
+    const tooLarge = !!(e && e.tooLarge);
+    res.writeHead(tooLarge ? 413 : 400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ error: tooLarge
+      ? 'these provider settings are too large to save (over 64 KB), so nothing was changed'
+      : 'these provider settings could not be read, so nothing was changed' }));
+  }
   let provider = 'openrouter';
   let patch = { key: raw };
   const trimmed = raw.trim();
