@@ -287,6 +287,9 @@
         if (generation !== refreshGeneration || !body.isConnected) return;
         if (!j || !Array.isArray(j.loops)) throw new Error('invalid loops response');
         const loops = (j && j.loops) || [];
+        // the same read says what waits on review: an APPROVE / REJECT / DELETE here (each ends in this refresh) clears the
+        // NEEDS YOU row, the bell and the AUTOMATE badge at once, never up to 25 s later on the watcher's next sweep
+        applyReview(loops);
         // HONEST ARM STATE. `armed` is whether a timer is genuinely running — not whether loops exist. A halted
         // station must say so loudly, with the one-click lift, rather than showing loops that will never advance.
         if (j && j.halted) {
@@ -752,6 +755,27 @@
 
   let reviewWaiting = [];
   if (typeof window !== 'undefined') window.LoopsReview = { waiting: () => reviewWaiting.map(l => Object.assign({}, l)) };
+  /* what waits on review, from ANY /api/loops read: this 25 s watcher's, and the GOAL LOOPS window's own (every 4 s while it
+     is open, and right after an APPROVE / REJECT / DELETE). One place sets the AUTOMATE badge, settles the bell and feeds
+     NEEDS YOU, so a verdict clears all three together. */
+  function applyReview(loops) {
+    let waiting = 0;
+    for (const l of loops) waiting += (l && l.pendingCount) || 0;
+    paintBadge(waiting);
+    // every result reviewed: the bell's "waiting on your review" leaves NEEDS YOU (it stayed lit for good)
+    if (!waiting && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('loops-review');
+    // org P01: NEEDS YOU lists each loop with results waiting on review, from this same read (never the bell's entry)
+    const before = JSON.stringify(reviewWaiting);
+    reviewWaiting = loops.filter(l => l && l.id && (l.pendingCount || 0) > 0).map(l => ({ id: l.id, name: l.name || '', agentId: l.agentId || '', count: l.pendingCount,
+      since: Math.min(...(l.pending || []).map(p => Number(p.endedAt) || Infinity)) }))
+      .map(l => Object.assign(l, { since: isFinite(l.since) ? l.since : 0 }));
+    // the list moved: the rail (SESSIONS only — NeedsYou.render keeps itself hidden elsewhere) and the bell follow now, not on
+    // the rail's next heartbeat
+    if (JSON.stringify(reviewWaiting) !== before) {
+      if (typeof NeedsYou !== 'undefined' && NeedsYou.render) NeedsYou.render();
+      if (typeof StationUI !== 'undefined' && StationUI.badges) StationUI.badges();
+    }
+  }
   async function watch() {
     let j;
     try {
@@ -761,23 +785,15 @@
     }
     catch (_) { return; }                       // station offline — say nothing rather than guess
     const loops = (j && j.loops) || [];
-    let waiting = 0;
     const seen = loadSeen();
     const fresh = [];
     for (const l of loops) {
-      waiting += (l.pendingCount || 0);
       for (const p of (l.pending || [])) {
         const key = l.id + ':' + p.n;
         if (!seen.has(key)) { seen.add(key); fresh.push({ l, p }); }
       }
     }
-    paintBadge(waiting);
-    // every result reviewed: the bell's "waiting on your review" leaves NEEDS YOU (it stayed lit for good)
-    if (!waiting && typeof StationUI !== 'undefined' && StationUI.settleNotifs) StationUI.settleNotifs('loops-review');
-    // org P01: NEEDS YOU lists each loop with results waiting on review, from this same read (never the bell's entry)
-    reviewWaiting = loops.filter(l => l && l.id && (l.pendingCount || 0) > 0).map(l => ({ id: l.id, name: l.name || '', agentId: l.agentId || '', count: l.pendingCount,
-      since: Math.min(...(l.pending || []).map(p => Number(p.endedAt) || Infinity)) }))
-      .map(l => Object.assign(l, { since: isFinite(l.since) ? l.since : 0 }));
+    applyReview(loops);
     saveSeen(seen);
     // announce at most one line per sweep — N new candidates at once is one event to a human, not N.
     if (fresh.length && typeof StationUI !== 'undefined' && StationUI.h && StationUI.h.notify) {

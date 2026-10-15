@@ -9700,7 +9700,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const row = (n, i) => {
       const sev = severityOf(n.cls);
       const door = !!(n.go && (n.go.ws || n.go.term));
-      const tag = n.kind === 'needs' ? (n.done ? 'Handled' : 'NEEDS YOU') : (n.kind === 'result' ? 'Finished' : 'Alert');
+      /* a stored wait under the NEEDS YOU heading (no live list on this page) is tagged NEEDS YOU; with the live list, a stored
+         wait no live row covers (a finished reply that asked a question) sits in the history BELOW that section, where a
+         NEEDS YOU tag contradicted the section above it: it says what it was — the agent asked you — and stays on the bell */
+      const tag = n.kind === 'needs' ? (n.done ? 'Handled' : (NY ? 'Asked you' : 'NEEDS YOU')) : (n.kind === 'result' ? 'Finished' : 'Alert');
       return '<div class="nf ' + esc(n.cls || '') + ' sev-' + sev + ' nf-k-' + esc(n.kind || 'alert') + (n.read ? ' read' : '') + (door ? ' nf-door' : '') + '" style="--ci:' + i + '" data-nid="' + esc(n.id) + '"' +
         (door ? ' role="button" tabindex="0" title="Open where this happened"' : '') + '>' +
         '<span class="nf-sev" aria-hidden="true">' + esc(SEV_GLYPH[sev]) + '</span>' +

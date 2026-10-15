@@ -222,10 +222,15 @@ const NeedsYou = (() => {
   // what the list shows apart from its ages: the rail's 1s heartbeat rebuilds the list only when this moves
   const shapeOf = list => list.map(i => [i.key, i.who, i.what, i.tip || '', i.where, keysFor(i)].join('\u0001')).join('\u0002') + '#' + expanded;
 
+  const inSessionsView = () => typeof App === 'undefined' || !App || typeof App.railView !== 'function' || App.railView() === 'sessions';
   function render() {
     const host = typeof document !== 'undefined' && document.getElementById('ws-needs');
     if (!host) return;
     wire(host);
+    // NEEDS YOU belongs to the SESSIONS view: a render reached from any other view (a build landing, a STEP-IN opening, an
+    // extension change, a dismiss from NOTIFICATIONS) keeps the block hidden there, and the next SESSIONS render rebuilds it.
+    // The bell and NOTIFICATIONS read items() themselves, so they still follow.
+    if (!inSessionsView()) { host.hidden = true; lastShape = ''; return; }
     const now = Date.now(), list = items(now), shape = shapeOf(list);
     host.hidden = !list.length;
     host.setAttribute('aria-label', list.length ? 'Needs you: ' + list.length + ' waiting' : 'Needs you');

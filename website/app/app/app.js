@@ -5975,6 +5975,9 @@ const App = (() => {
     // PER-AGENT THREADS: the CREW roster narrows the SESSIONS rail to one agent (same id again / null = all)
     filterRailByAgent: setRailAgentFilter,
     showNeedsYou: showNeedsYou,   // station.show 'needs-you' (app/places.js)
+    // NEEDS YOU lives in the SESSIONS view only: needsyou.js reads this before it shows its block (a build landing, a STEP-IN,
+    // a dismiss from NOTIFICATIONS re-render it from any view, and must never un-hide it above PROJECTS)
+    railView: () => railView,
     railAgentFilter: () => railAgentFilter,
     // THE POST-SUMMON DESK STEP, owned by the session (chat.js maybeDeskPrompt): the read that decides whether a
     // stream still owes its agent a workstation, and the door its chip opens (BUILD MODE, armed on WORKSTATIONS).
