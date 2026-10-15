@@ -60,8 +60,9 @@ import { spawnSync } from 'node:child_process';
 import { sleep, launchChrome, connectCDP, evalJS, capture, collectDiagnostics } from '../lib/cdp.mjs';
 import { materializeSeedWorkspace, bootSeededSidecar, isUp, waitUp, waitDevReady, DEFAULT_MODEL } from '../lib/seed.mjs';
 import { closeOnly, openSel, openTermFallback } from '../lib/states.mjs';
-import { messageContentText } from '../lib/message-content.mjs';
 import { makeLedger, fingerprintOf } from './ledger.mjs';
+// the run's opening prompt on every route (a Claude route carries the host notes as their own user turns before it)
+const { firstUserWords } = createRequire(import.meta.url)('../../test/helpers/host-notes.js');
 
 /* ── Dismissed/known journey gate (mirror of golden.mjs's per-frame review-clean) ──────────────
  * A journey assertion can be TRIAGED-and-DISMISSED in the QA ledger (e.g. J2b/panel-close's busy-
@@ -200,9 +201,11 @@ function startControllableMock(model) {
           // '[WORKSHOP_SHIFT]' marker — for those we emit the file-writing tool calls that BUILD the deliverable
           // (mirrors test/workshop.e2e.test.js's mock), so /workshop-run has real bytes to serve. All OTHER runs
           // (the interactive chat directives J1-J3 fire) use the hold/quick behavior.
+          // The marker is matched on the run's OWN opening words (test/helpers/host-notes.js firstUserWords): the
+          // <run_context> note and recall ride the user side of the wire — on this Claude model as their own user
+          // turns BEFORE the shift prompt — so "the first user message" is a host note, never the shift (J4 red, 10-15).
           let msgs = []; try { msgs = (JSON.parse(body).messages) || []; } catch (_) {}
-          const userMsg = msgs.find(m => m && m.role === 'user');
-          const prompt = messageContentText(userMsg && userMsg.content);
+          const prompt = firstUserWords(msgs);
           const isWorkshop = prompt.indexOf('[WORKSHOP_SHIFT]') === 0;
           const tool = (id, name, args) => {
             res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] }) + '\n\n');

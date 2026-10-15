@@ -66,6 +66,19 @@ function lastUserWords(messages) {
   return '';
 }
 
+// the run's OPENING prompt: the first user message's own words, skipping a user turn that is host notes alone. On a Claude
+// route (provider.js chatRoleProjection -> preserveClaudeContinuations) the <run_context> note and recall are their own
+// user turns BEFORE the Commander's message instead of leading it, so "the first user message" can be a host note.
+// A mock that routes on how a run opens (qa:journeys J4's [WORKSHOP_SHIFT]) reads this on every route.
+function firstUserWords(messages) {
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (!m || m.role !== 'user') continue;
+    const words = userWords(m);
+    if (words.trim()) return words;
+  }
+  return '';
+}
+
 // every host-authored prompt text of a request: the system messages, then the host notes that ride user-side. Tests that
 // read "the prompt the host sent" (the [RUNTIME] block, the run's skill index, recall) read this, not one placement.
 function hostText(messages) {
@@ -76,4 +89,4 @@ function hostText(messages) {
   return sys.concat(userSide).join('\n\n');
 }
 
-module.exports = { TAGS, text, hostNotes, runContextOf, recallOf, userWords, withoutHostNotes, lastUserWords, hostText };
+module.exports = { TAGS, text, hostNotes, runContextOf, recallOf, userWords, withoutHostNotes, lastUserWords, firstUserWords, hostText };
