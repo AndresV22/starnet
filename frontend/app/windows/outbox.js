@@ -323,11 +323,11 @@
       });
       const rateHost = row.querySelector('.ob-rate');
       const mounted = (typeof Chat !== 'undefined' && Chat.awayRate)
-        ? Chat.awayRate(rateHost, rw, () => { if (RS && RS.resolve) RS.resolve(rw.runId); collected(row); })
+        ? Chat.awayRate(rateHost, rw, () => { if (RS && RS.resolve) RS.resolve(rw.runId, 'outbox'); collected(row); })
         : false;
       if (!mounted) {   // already judged this session — offer the plain collect so the crate never wedges
         const b = document.createElement('button'); b.type = 'button'; b.className = 'consent-btn'; b.textContent = '✓ mark reviewed';
-        b.addEventListener('click', ev => { ev.stopPropagation(); if (RS && RS.resolve) RS.resolve(rw.runId); collected(row); });
+        b.addEventListener('click', ev => { ev.stopPropagation(); if (RS && RS.resolve) RS.resolve(rw.runId, 'outbox'); collected(row); });
         rateHost.appendChild(b);
       }
     }
