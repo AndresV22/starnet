@@ -206,7 +206,12 @@ has its tree taken. The persistent path always ended its turns at `result`.
   `SIGTERM` elsewhere) and ends the turn as cancelled. A persistent child parked between turns dies with the
   signal too.
 - The shared provider **idle watchdog** (`SKYNET_PROVIDER_IDLE_MS`, default 300 s) kills a child that stays
-  silent and reports a `timeout`.
+  silent and reports a `timeout`. A turn whose result line or complete call block was already read is never a
+  timeout, on either path: a persistent child that has answered is silent by design, and when the watchdog fired
+  while the loop was still on an earlier event, the finished reply used to be thrown away and the turn re-run.
+  It is delivered, and the next turn starts a fresh child.
+- A Stop during the loop's retry backoff ends the wait at once (the sleep used to run out first, holding the
+  conversation's turn so the next message sat on "connecting").
 - Per-run budgets and caps apply unchanged: each turn reports its cost (below) to the loop.
 - A subscription turn books $0, so no $ cap ever sees it. Its tokens count toward a per-run ceiling instead
   (`maxSubscriptionTokens`, default 2,000,000; a cache re-read counts 1/10). SETTINGS > APP & BACKUP > Runtime limits,

@@ -1254,7 +1254,18 @@
     }
     // OPTIONAL injected sleep for bounded mid-stream retry backoff (o.sleep(ms) -> Promise). Absent = retry with
     // NO wait (keeps the loop deterministic + test-fast); when present it honors the classifier's retryAfterMs.
-    const sleep = (typeof o.sleep === 'function') ? o.sleep : null;
+    const sleepFn = (typeof o.sleep === 'function') ? o.sleep : null;
+    /* A BACKOFF NEVER OUTLASTS A STOP (stall report 2026-10-13). A rung's sleep (up to 60 s, or a server-stated
+       Retry-After) ignored the run signal: STOP was confirmed and the page let go, but the run kept its conversation's
+       turn (runOnce's per-stream queue) until the sleep ran out, so the Commander's next message sat on "connecting".
+       The wait now ends the moment the signal aborts; the `signal.aborted` checks after each backoff end the run. */
+    const sleep = sleepFn && (ms => new Promise(resolve => {
+      if (signal.aborted) return resolve();
+      const canHear = typeof signal.addEventListener === 'function';
+      const done = () => { if (canHear) signal.removeEventListener('abort', done); resolve(); };
+      if (canHear) signal.addEventListener('abort', done, { once: true });
+      Promise.resolve().then(() => sleepFn(ms)).then(done, done);
+    }));
     /* LIVE WAIT HEARTBEAT (agent.waiting, 2026-09-23). A model call that has produced no token or tool event yet —
        a slow first byte, a reasoning stream with nothing visible, a backoff between ladder rungs — used to be
        indistinguishable from a dead run, and a worker's liveness sweep read it as "no progress". While such a

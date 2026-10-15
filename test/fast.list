@@ -712,6 +712,8 @@ test/comms-link-honesty.test.js
 test/link-down-recovery.test.js
 test/app-boot-provider-truth.test.js
 test/steer-idle-honesty.test.js
+test/queued-send-now.test.js
+test/steer-history-merge.test.js
 test/model-ack-honesty.test.js
 test/toolprops.test.js
 test/worldmodel.test.js

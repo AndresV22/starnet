@@ -24260,7 +24260,9 @@ async function handleCancel(req, res) {
   // a routine/line/hub/step-test run is not in `runs`: stop it through its runOnce stop handle (QA 2026-10-02)
   const kc = runId && runStopHandles.get(String(runId));
   if (kc) kc.abort();
-  res.writeHead(200); res.end('ok');
+  // ADDITIVE (stall report review 2026-10-14): still 200 for an id this station no longer holds (nothing to stop is not an
+  // error), but `stopped` says whether a live run was actually there to abort, so a page only claims a stop it can prove.
+  respondJson(res, 200, { ok: true, stopped: !!(ac || kc) });
 }
 
 // POST /api/run/steer { runId, text } — LIVE MID-RUN STEERING. Append a Commander note to an IN-FLIGHT run's steer
