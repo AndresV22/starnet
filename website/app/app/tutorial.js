@@ -1261,7 +1261,7 @@ const Tutorial = (() => {
         + fmAction('quests', 'OPEN QUEST LOG');
     }
     return '<p class="fm-lead">When the station stalls, follow the evidence. Start with the message beside the job.</p>'
-      + fmEntry('NO REPLY', 'Check the connection', 'Open <b>SYSTEM › SETTINGS</b> and check the selected provider’s sign-in or key. Check the agent’s model in COMMS. Read the error before retrying; a missing connection needs fixing first.')
+      + fmEntry('NO REPLY', 'Check the connection', 'Open <b>SYSTEM › SETTINGS › AI &amp; MODELS</b> and check the selected provider’s sign-in or key. Check the agent’s model in COMMS. Read the error before retrying; a missing connection needs fixing first.')
       + fmEntry('WAITING', 'Look for a decision', 'Return to the job’s COMMS session: <b>NEEDS YOU</b> at the top of SESSIONS lists every job waiting on you (also <b>NOTIFICATIONS › NEEDS YOU</b>). Answer a context question or approve or deny the pending action. An unanswered question is not a running tool.')
       + fmEntry('MISSING TOOL', 'Check ability &amp; reach', 'Inspect the agent in <b>CREW › AGENTS</b>. In <b>BUILD › CONNECT › ABILITIES</b>, check toolsets and connector status. Equipment, permissions, service sign-in, and operating-system access each affect what can run.')
       + fmEntry('COLD LINE', 'Inspect feed, bay, and route', 'In BUILD MODE, check the inbox feed, bay assignment, assigned agent workstation, and belt connections. A sample crate moving does not establish that a real job ran.')

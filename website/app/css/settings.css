@@ -37,6 +37,9 @@
 .settings-console :is(.bb,.set-theme,.ov-vchip) { border-radius: 7px; box-shadow: none; text-shadow: none; }
 .settings-console .bb { padding: 9px 12px; font-size: 13px; line-height: 1.3; }
 .settings-console :is(.mc-acts,.set-save) { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 18px 0 0; }
+/* live walk 10-14: the STORE (or its status line) under API KEYS' door key sat flush against the key — the .ms-h/.set-about inside
+   it carry no top margin, so the store keeps the same 18px the key row keeps above itself */
+.settings-console .mc-acts + #credits-store:not(:empty) { margin-top: 18px; }
 .settings-console .set-themes { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 18px; padding: 0; }
 .settings-console .set-theme { padding: 10px 13px; border: 1px solid rgba(var(--ph-rgb), .2); background: rgba(var(--ph-rgb), .035); color: var(--ph-dim); font-size: 14px; line-height: 1.35; }
 .settings-console .set-theme.sel, .settings-console .set-theme[aria-pressed="true"] { background: var(--menu-glass); border-color: rgba(var(--ph-rgb), .55); color: var(--ph-bright); box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .12); }
