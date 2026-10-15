@@ -73,6 +73,28 @@ A.ok(/maxPendingDeliveries: cronStore.MAX_PENDING_DELIVERIES/.test(idx), 'GET /a
   // RUN BY: agents, then workflows; a workflow posts its first step's agent + BAY + runsLine:true
   A.ok(src.includes("'<label class=\"sn-menu-field\">Run by<select id=\"rt-agent-select\"") && /optgroup label="AGENTS"[\s\S]*optgroup label="WORKFLOWS"/.test(src), 'RUN BY lists agents, then workflows');
   A.ok(src.includes("dockId: line ? line.dockId : undefined, runsLine: line ? true : undefined,"), 'a workflow choice posts dockId + runsLine:true (the line-schedule path)');
+  /* (org wire AUTO-P16-3) a draft opened into the form never inherits a WORKFLOW picked earlier: the REAL applyDraftAgent over a fake form */
+  {
+    const autoSrc = fs.readFileSync(path.join(__dirname, '../frontend/app/windows/automation.js'), 'utf8');
+    const m = autoSrc.match(/\n  function applyDraftAgent\(body, agentId\) \{[\s\S]*?\n  \}\n/);
+    A.ok(!!m && /applyDraftAgent\(body, draft\.agentId\);/.test(autoSrc), 'openDraft applies the draft\'s agent through applyDraftAgent');
+    const applyDraftAgent = new Function('Event', m[0] + '; return applyDraftAgent;')(class { constructor(t) { this.type = t; } });
+    const form = (selValue) => {
+      const clicked = [], changes = [];
+      const btns = ['nova', 'ada'].map(id => ({ dataset: { agent: id }, click: () => clicked.push(id) }));
+      const sel = { value: selValue, options: [{ value: 'nova' }, { value: 'ada' }, { value: 'line:L1' }], dispatchEvent: e => changes.push([e.type, sel.value]) };
+      return { clicked, changes, sel, body: { querySelectorAll: q => (q === '.rt-agent-btn' ? btns : []), querySelector: q => (q === '#rt-agent-select' ? sel : null) } };
+    };
+    let f = form('line:L1'); applyDraftAgent(f.body, 'ada');
+    A.ok(f.clicked.join() === 'ada' && !f.changes.length, 'a draft naming an agent aboard picks that agent (its button clears the workflow pick)');
+    f = form('line:L1'); applyDraftAgent(f.body, undefined);
+    A.ok(f.sel.value === 'nova' && f.changes.length === 1 && f.changes[0][0] === 'change', 'a draft naming no agent puts RUN BY back on an agent when a workflow was picked: ' + JSON.stringify(f.changes));
+    f = form('line:L1'); applyDraftAgent(f.body, 'ghost');
+    A.ok(f.sel.value === 'nova' && f.changes.length === 1, '…and so does a draft whose agent is not aboard');
+    f = form('ada'); applyDraftAgent(f.body, 'ghost');
+    A.ok(f.sel.value === 'ada' && !f.changes.length && !f.clicked.length, 'an agent already picked is kept as before');
+    A.ok(/if \(v\.indexOf\('line:'\) === 0\) \{ routineLineKey = v\.slice\(5\);[^\n]*\n\s*routineLineKey = null;/.test(src), 'the select\'s change handler clears the workflow pick for an agent value (what the reset relies on)');
+  }
   const wfw = fs.readFileSync(path.join(__dirname, '../frontend/app/windows/workflows.js'), 'utf8');
   A.ok(/function startLines\(\)[\s\S]*Wl\.entryDocksOf/.test(wfw) && /showJob, startLines,/.test(wfw), 'WORKFLOWS exports each line\'s schedule entry (its first routed step) for RUN BY');
   // the server: one rule for the form, the INBOX form and station.start_line
