@@ -45,7 +45,8 @@ const Chat = (() => {
   const recoveryNotices = new Set();      // review-required run ids already explained on this page
   let reconnectTimer = 0;          // the single reconnect health-probe poll (armed only while interruptedStreams is non-empty)
   const queued = new Map();        // TYPE-AHEAD: wsId -> [text,…] follow-ups typed while the stream was busy; auto-sent in order as it frees
-  const sentNow = new Map();       // SEND NOW: wsId -> [{ text, runId, landed }] queued lines handed to the live run (sendQueuedNow) — kept until that run ends, so a STOP can give back any its transcript never showed landing
+  const sentNow = new Map();       // SEND NOW: wsId -> [{ text, wire, runId, accepted, landed }] queued lines handed to the live run (sendQueuedNow) — kept until that run ends, so a STOP can give back any its transcript never showed landing
+  const heldBack = new Map();      // wsId -> [{ texts, line }] words a confirmed STOP gave back while ANOTHER session was on screen: they go into the message box when you return (returnHeld)
   let activeLiveRow = null;     // streaming text controller for the DISPLAYED stream's in-flight run; rebound by replayChannel on switch
                                 // CLASSIC HARNESS FLOW: prose and the agent's actions (tool ▶/◀ lines, deliverables, approval
                                 // prompts) render CHRONOLOGICALLY — newest at the bottom — instead of pinning one reply block to
@@ -1105,7 +1106,7 @@ const Chat = (() => {
     system = opts.system || ''; name = opts.name || 'AGENT';
     sentHistory.length = 0; histIdx = -1; histDraft = '';   // recall never crosses a session/agent switch
     onTurn = opts.onTurn || null; interview = null;
-    receiptShown.clear(); receiptFetching.clear(); clearChoices(); turninQueue.length = 0; activeTurnin = null; wiQDepth.clear(); queued.clear(); sentNow.clear(); interrupted.clear();   // C2: per-session run-tracking + the queue gauge + turn-control state start clean for each agent (listeners stay once-registered)
+    receiptShown.clear(); receiptFetching.clear(); clearChoices(); turninQueue.length = 0; activeTurnin = null; wiQDepth.clear(); queued.clear(); sentNow.clear(); heldBack.clear(); interrupted.clear();   // C2: per-session run-tracking + the queue gauge + turn-control state start clean for each agent (listeners stay once-registered)
     // GROWTH Tier 1: the study side starts clean per session too — a prior hero's deferred study/taste beats must
     // never flush into a new session (same law as turninQueue above). A fresh beat-slot arbiter matches the DOM.
     arcRunsSeen.clear();   // GROWTH Tier 2: the arc side starts clean per session (a prior hero's arc offers never carry over)
@@ -1822,9 +1823,11 @@ const Chat = (() => {
       }
       return null;
     };
-    // the durable parts this saved aggregate already shows (so a steered row can be enriched by them), or null
+    // the durable parts this saved aggregate already shows (so a steered row can be enriched by them), or null.
+    // A rowId marks a durable row — except on a steered row: the merge that kept it lent it its first part's rowId, and that
+    // save is the next load's input (the desk's next open, the phone's every read), so it must find its span again each load.
     const committedAggregate = (row, runId, explicit) => {
-      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return null;
+      if (row.role !== 'assistant' || (row.rowId && !hasSteer(row.content)) || row.stopped || row.error || (row.attachments && row.attachments.length)) return null;
       const parts = runParts.get(runId) || [], text = steerless(row.content);
       let span = joinsTo(parts, text);
       if (!span && explicit) { const target = squash(text); span = target ? joinsTo(parts.map(squash), target) : null; }
@@ -2034,7 +2037,7 @@ const Chat = (() => {
     maybeEmptyState();   // brand-new / empty + idle stream → a one-line hint instead of a blank void
     maybeDeskPrompt();   // …and if this stream's agent still has nowhere to sit, the required next step + its door
     loadServerHistory(activeWs, historyPin);
-    if (activeWs) flushQueued(activeWs.id);   // returned to an idle stream that has a queued follow-up → send it now
+    if (activeWs) { returnHeld(activeWs.id); flushQueued(activeWs.id); }   // returned: what its confirmed STOP held goes back in the box; an idle stream's queued follow-up sends now
     // GOAL LOOP: returned to an idle stream with an ACTIVE standing goal (its moment was blocked / it was
     // backgrounded mid-loop) → continue it. kickGoal no-ops when busy/blocked/paused, so this is always safe.
     if (activeWs && typeof GoalLoop !== 'undefined' && goalOf(activeWs)) { const w = activeWs; setTimeout(() => { if (isActiveWs(w)) kickGoal(w); }, 0); }
@@ -8293,7 +8296,7 @@ const Chat = (() => {
       x.setAttribute('aria-label', 'Cancel queued message');
       x.onclick = () => { const a = queued.get(activeWs.id) || []; a.splice(i, 1); a.length ? queued.set(activeWs.id, a) : queued.delete(activeWs.id); renderQueued(); };
       const now = document.createElement('button'); now.className = 'queued-now'; now.type = 'button'; now.textContent = 'send now';
-      now.title = 'Hand this to the run that is working now: the agent reads it before its next step, instead of after the run finishes';
+      now.setAttribute('data-tip', 'Hand this to the run that is working now: the agent reads it before its next step, instead of after the run finishes');
       now.onclick = () => sendQueuedNow(activeWs.id, i, t);
       pill.appendChild(document.createTextNode('⤷ ')); pill.appendChild(label); pill.appendChild(now); pill.appendChild(x);
       strip.appendChild(pill);
@@ -8308,31 +8311,50 @@ const Chat = (() => {
      transcript's own '[steering] …' row is the proof it landed, so the success line promises the next step, nothing more.
      STOP OUTRANKS IT (0.13.5 merge): the line stays in sentNow until its run ends; a STOP the station confirms gives back
      every one the transcript never showed landing (restoreSentNow), and an answer arriving after that changes nothing —
-     no "sent" line, and never a re-queue that would auto-send it behind the stop. */
+     no "sent" line, and never a re-queue that would auto-send it behind the stop.
+     ONE LINE ON THE WIRE (0.13.5 review): the loop echoes a note as '\n[steering] <note>\n', and every reader of that echo
+     (the live row, renderHistory, both history merges, markSentNowLanded) reads ONE line — a second line rendered as the
+     agent's own prose and doubled the reply on reload. The run gets the note on one line (steerWire); a STOP gives back
+     what was typed. A pill past the sidecar's 2,000-char note clamp is never posted: the buffer would cut it and still
+     say ok. Every line it prints goes to ITS session's log only — an answer can land after you switched away. */
   function sendQueuedNow(id, i, text) {
     let note = null;   // this line's sentNow entry, once it is handed to the run
+    const say = t => { if (activeWs && activeWs.id === id) localLine(t); };
+    const requeue = () => { const q = queued.get(id) || []; q.unshift(text); queued.set(id, q); renderQueued(); };
     const back = (why) => {
       if (note && !forgetSentNow(id, note)) return;   // STOP already gave it back to the message box
-      const a = queued.get(id) || []; a.unshift(text); queued.set(id, a); renderQueued();
-      localLine(why + ' — it stays queued as your next message.');
+      requeue();
+      say(why + ' — it stays queued as your next message.');
       flushQueued(id);   // the run may have ended while we asked → the queue drains now
     };
     const a = queued.get(id) || [];
     const at = a[i] === text ? i : a.indexOf(text);
     if (at < 0) return;   // already sent / cancelled
     a.splice(at, 1); a.length ? queued.set(id, a) : queued.delete(id); renderQueued();
+    const wire = steerWire(text);
+    if (wire.length > 2000) return back('It is longer than a steering note can carry (2,000 characters)');   // sidecar/steer-buffer.js maxNoteChars
     const rid = (typeof Channels !== 'undefined' && Channels.runIdOf) ? Channels.runIdOf(id) : null;
+    if (!rid && typeof Channels !== 'undefined' && Channels.isBusy && !Channels.isBusy(id)) {
+      // the run just ended: its teardown's deferred flush (which waits for crew joining first) sends the queue — not this click
+      requeue();
+      return say('The run just finished — it goes as your next message.');
+    }
     if (!rid || typeof fetch === 'undefined') return back('The run has not started yet, so there is nothing to steer');
-    note = { text: text, runId: rid, accepted: false, landed: false };
+    note = { text: text, wire: wire, runId: rid, accepted: false, landed: false };
     sentNow.set(id, (sentNow.get(id) || []).concat([note]));
-    fetch('/api/run/steer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: rid, text: text }) })
+    fetch('/api/run/steer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId: rid, text: wire }) })
       .then(r => r.json().catch(() => null).then(j => ({ status: r.status, j: j })))
       .then(({ status, j }) => {
         if (j && j.ok) {
           if (!(sentNow.get(id) || []).includes(note)) return;   // a STOP already gave it back to the message box
           note.accepted = true;
-          if (Channels.runIdOf(id) === rid) return localLine('Sent into the live run — the agent reads it before its next step.');
-          forgetSentNow(id, note);   // its run ended while we asked: the run's own last line says whether it was applied
+          if (Channels.runIdOf(id) === rid) return say('Sent into the live run — the agent reads it before its next step.');
+          // its run ended while we asked: read = settled; never read = it goes as the next message (the loop said NOT applied)
+          forgetSentNow(id, note);
+          if (note.landed) return;
+          requeue();
+          say('The run ended before the agent read your send-now message — it goes as your next message.');
+          flushQueued(id);
           return;
         }
         back(status === 409 || status === 404 ? 'The run had already finished its work' : status === 429 ? 'The run is holding too many notes already' : 'The station did not take it');
@@ -8346,14 +8368,14 @@ const Chat = (() => {
     list.splice(k, 1); list.length ? sentNow.set(id, list) : sentNow.delete(id);
     return true;
   }
-  // the loop echoes a folded note as '\n[steering] <its first line>\n' (trimmed, clamped to the sidecar's 2000 chars):
+  // the note as the run gets it: one line (the loop echoes it as '\n[steering] <note>\n' and the page reads one line back)
+  function steerWire(text) { return String(text == null ? '' : text).replace(/\s*\r?\n\s*/g, ' ').trim(); }
   // that echo on this stream's own run is the proof the agent has it — a STOP no longer gives it back
-  function steerFirstLine(text) { return String(text == null ? '' : text).trim().slice(0, 2000).split('\n')[0]; }
   function markSentNowLanded(id, runId, delta) {
     const list = sentNow.get(id); if (!list || !list.length) return;
     const re = /(?:^|\n)\[steering\] ([^\n]*)/g; let m;
     while ((m = re.exec(String(delta || '')))) {
-      const n = list.find(x => !x.landed && x.runId === runId && steerFirstLine(x.text) === m[1]);
+      const n = list.find(x => !x.landed && x.runId === runId && x.wire === m[1]);
       if (n) n.landed = true;
     }
   }
@@ -8363,21 +8385,42 @@ const Chat = (() => {
   function restoreSentNow(id, runId) {
     const list = sentNow.get(id) || [];
     const acc = (typeof Channels !== 'undefined' && Channels.peek && Channels.peek(id)) ? String(Channels.peek(id).acc || '') : '';
-    const lost = list.filter(n => n.runId === runId && !n.landed && acc.indexOf('[steering] ' + steerFirstLine(n.text) + '\n') < 0);
+    const lost = list.filter(n => n.runId === runId && !n.landed && acc.indexOf('[steering] ' + n.wire + '\n') < 0);
     const rest = list.filter(n => n.runId !== runId);
     rest.length ? sentNow.set(id, rest) : sentNow.delete(id);
-    if (!lost.length || !input) return;
-    const typed = String(input.value || '').trim();
-    input.value = lost.map(n => n.text).concat(typed ? [typed] : []).join('\n');
-    autoGrowInput();
-    localLine(lost.length === 1 ? 'The run stopped before the agent read your send-now message — it is back in the message box.'
+    if (!lost.length) return;
+    giveBack(id, lost.map(n => n.text), lost.length === 1 ? 'The run stopped before the agent read your send-now message — it is back in the message box.'
       : 'The run stopped before the agent read ' + lost.length + ' of your send-now messages — they are back in the message box.');
   }
-  // the run is over: the sent-now lines the station took are settled (landed, or named by the loop's own "NOT applied"
-  // line); one still in flight stays until its answer — a refusal then queues it as the next message, as before
-  function settleSentNow(id, runId) {
-    const rest = (sentNow.get(id) || []).filter(n => n.runId !== runId || !n.accepted);
+  // words a stop gives back go into THEIR session's message box: now if it is on screen, else when you return (returnHeld).
+  // Never into the queue — a return would auto-send them behind the stop.
+  function giveBack(id, texts, line) {
+    if (!(activeWs && activeWs.id === id)) { heldBack.set(id, (heldBack.get(id) || []).concat([{ texts: texts, line: line }])); return; }
+    if (!input) return;
+    const typed = String(input.value || '').trim();
+    input.value = texts.concat(typed ? [typed] : []).join('\n');
+    autoGrowInput();
+    localLine(line);
+  }
+  function returnHeld(id) {
+    const held = heldBack.get(id); if (!held || !held.length) return;
+    heldBack.delete(id);
+    for (const h of held.slice().reverse()) giveBack(id, h.texts, h.line);   // oldest ends up first in the box
+  }
+  /* the run is over: a sent-now line it showed landing is settled; one the station took that the run never read (a run
+     error, a budget or loop-guard stop, a phone STOP, the gap after the loop's last drain — its own line says "NOT applied,
+     send it as a new message") goes back to the FRONT of the queue and the teardown's deferred flush sends it, as a refusal
+     would. One still in flight stays until its answer. (A desktop STOP the station confirmed already settled its run.) */
+  function settleSentNow(id, runId, acc) {
+    const list = sentNow.get(id) || [], ran = String(acc || '');
+    const unread = list.filter(n => n.runId === runId && n.accepted && !n.landed && ran.indexOf('[steering] ' + n.wire + '\n') < 0);
+    const rest = list.filter(n => n.runId !== runId || !n.accepted);
     rest.length ? sentNow.set(id, rest) : sentNow.delete(id);
+    if (!unread.length) return;
+    queued.set(id, unread.map(n => n.text).concat(queued.get(id) || []));
+    renderQueued();
+    if (activeWs && activeWs.id === id) localLine(unread.length === 1 ? 'The run ended before the agent read your send-now message — it goes as your next message.'
+      : 'The run ended before the agent read ' + unread.length + ' of your send-now messages — they go as your next messages.');
   }
   // a stream just freed (or was switched back to while idle) — send its next queued follow-up. Guarded to the
   // DISPLAYED stream so send()'s DOM writes always target the visible log; a backgrounded queue waits for return.
@@ -10328,7 +10371,9 @@ const Chat = (() => {
     // speakSafe truncates the spoken view at the first marker LINE, and holds back a still-streaming
     // partial prefix at the buffer tail ("TASK_QU…" hasn't matched yet but must not be flushed).
     const SPEAK_MARKER = /(^|\n)\s*(?:FORK|TASK_QUESTION)\s*:/i;
+    const SPEAK_STEER = /(?:^|\n)\[steering\] [^\n]*/g;   // a folded steering note's echo is the Commander's words, never the agent's (it arrives whole, so offsets hold)
     const speakSafe = (s) => {
+      s = String(s == null ? '' : s).replace(SPEAK_STEER, '');
       const m = SPEAK_MARKER.exec(s);
       if (m) return s.slice(0, m.index);
       const nl = s.lastIndexOf('\n');
@@ -10741,7 +10786,7 @@ const Chat = (() => {
       interrupted.delete(ws.id);   // consume the stop flag (whether or not it fired)
       stopSource.delete(ws.id);
       Channels.end(ws.id);
-      if (thisRunId) settleSentNow(ws.id, thisRunId);   // SEND NOW lines this run took are settled with it (a STOP already gave back the unread ones)
+      if (thisRunId) settleSentNow(ws.id, thisRunId, acc);   // SEND NOW lines this run took are settled with it; one it never read goes next (a STOP already gave back the unread ones)
       // P1: drain this directive from the QUEUE gauge on ANY teardown (shipped, in-band error, or abort) —
       // the backlog is "runs in flight", independent of whether the work shipped.
       if (wiPlaced) { const depth = wiBump(wiAid, -1); wiEmit('queue.status', { queueId: wiAid, depth: depth, maxCapacity: 64, nextAdvanceAt: 0 }); }
