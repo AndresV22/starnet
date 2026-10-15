@@ -146,4 +146,88 @@ ok(/\.settings-console \.key-empty\.key-goto p \{ font-size: 16px;[^}]*opacity: 
 ok(/data-configured="' \+ \(configured \? '1' : '0'\) \+ '"/.test(station), 'each provider card says whether it is set up');
 ok(/if \(card\.dataset\.configured === '0' && p !== activeProv\(\)\) \{[\s\S]{0,400}return;\s*\}\s*h\.setProv\(p\);/.test(station), 'a click on a provider that is not set up never switches the brain to it');
 
+// ONE LIVE LANDING (org P03 review): focusProvider sliced out of the shipped file and run over a fake Settings window and a
+// fake clock. A newer door ends the older landing (whose stay() loop used to re-land the pane on ITS card after the newer
+// door's repaint), and a click / wheel / key in Settings ends a landing, even one whose card has not painted yet.
+{
+  const vm = require('vm');
+  const iFp = station.indexOf('  let provLanding = null;'), jFp = station.indexOf('  // Following work should uncover the destination');
+  ok(iFp > 0 && jFp > iFp && jFp - iFp < 8000, 'sliced focusProvider with its one-landing slot (' + (jFp - iFp) + ' chars)');
+  const mkWorld = () => {
+    let clock = 1000, timers = [];
+    const listeners = {};
+    const pane = { scrollTop: 0, offsetTop: 0, clientHeight: 400 };
+    const ORDER = { openrouter: 300, codex: 900, anthropic: 1500 };
+    let cards = {}, painted = true;
+    const mkCard = pid => {
+      const cls = new Set();
+      return { pid, isConnected: true, offsetTop: ORDER[pid], closest: () => pane, querySelector: () => null,
+        classList: { add: c => cls.add(c), remove: c => cls.delete(c), contains: c => cls.has(c) } };
+    };
+    const settings = {
+      addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
+      removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter(f => f !== fn); },
+      querySelector: sel => { const m = /data-provider="([^"]+)"/.exec(sel); return painted && m ? cards[m[1]] || null : null; }
+    };
+    // a repaint replaces every card (the old nodes disconnect), exactly what openTerm('settings', section) does on an open window
+    const repaint = () => { Object.values(cards).forEach(c => { c.isConnected = false; }); cards = {}; Object.keys(ORDER).forEach(p => { cards[p] = mkCard(p); }); };
+    repaint();
+    const ctx = vm.createContext({
+      open: { settings }, Math, String,
+      Date: { now: () => clock },
+      setTimeout: (fn, ms) => { timers.push({ at: clock + ms, fn }); return timers.length; },
+      openTerm: () => repaint(),
+      isOAuthProvider: () => false, startCardSignin: () => {}
+    });
+    vm.runInContext(station.slice(iFp, jFp) + '\nthis.focusProvider = focusProvider;', ctx);
+    const advance = ms => {
+      const end = clock + ms;
+      for (;;) {
+        timers.sort((a, b) => a.at - b.at);
+        const t = timers[0];
+        if (!t || t.at > end) break;
+        timers.shift(); clock = t.at; t.fn();
+      }
+      clock = end;
+    };
+    const fire = t => (listeners[t] || []).slice().forEach(fn => fn({ type: t }));
+    const markedNow = () => Object.keys(cards).filter(p => cards[p].classList.contains('prov-landed'));
+    return { ctx, pane, advance, fire, repaint, markedNow, setPainted: v => { painted = v; }, landedOn: pid => pane.scrollTop === Math.max(0, ORDER[pid] - 100) };
+  };
+
+  // the review's repro: door A, then door B within 20s, nothing touched in Settings
+  {
+    const W = mkWorld();
+    W.ctx.focusProvider('openrouter');
+    ok(W.landedOn('openrouter') && W.markedNow().join() === 'openrouter', 'door A lands on card A');
+    W.advance(1000);
+    W.ctx.focusProvider('codex');
+    ok(W.landedOn('codex'), 'door B lands on card B');
+    W.advance(3000);
+    ok(W.landedOn('codex'), 'the older landing never pulls the pane back to card A after door B repainted Settings: scrollTop ' + W.pane.scrollTop);
+    ok(W.markedNow().join() === 'codex', 'one marked card, the newest door\'s: ' + JSON.stringify(W.markedNow()));
+    // B is the live landing: a background repaint still re-lands on B, never on A
+    W.pane.scrollTop = 0; W.repaint(); W.advance(400);
+    ok(W.landedOn('codex') && W.markedNow().join() === 'codex', 'a background repaint re-lands on the live (newest) landing only');
+  }
+  // the Commander takes over: a wheel / click / key in Settings ends the landing, so a later repaint does not yank the pane
+  ['wheel', 'pointerdown', 'keydown'].forEach(kind => {
+    const W = mkWorld();
+    W.ctx.focusProvider('anthropic');
+    ok(W.landedOn('anthropic'), kind + ': the door lands on the card');
+    W.fire(kind); W.pane.scrollTop = 42;
+    W.repaint(); W.advance(2000);
+    ok(W.pane.scrollTop === 42, kind + ' in Settings ends the landing: a later repaint leaves the Commander\'s scroll alone (scrollTop ' + W.pane.scrollTop + ')');
+  });
+  // ...even before the card has painted (a first open whose section paints a beat late)
+  {
+    const W = mkWorld();
+    W.setPainted(false);
+    W.ctx.focusProvider('codex');
+    W.fire('wheel'); W.pane.scrollTop = 7;
+    W.setPainted(true); W.advance(3000);
+    ok(W.pane.scrollTop === 7 && W.markedNow().length === 0, 'a scroll before the card paints ends the landing: its pending retry never lands');
+  }
+}
+
 console.log('provider-connections-ui.test.js OK -', n, 'assertions');
