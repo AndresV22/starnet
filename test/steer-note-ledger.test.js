@@ -115,6 +115,12 @@ function setup() {
       { runId: 'r1', live: false, ended: true, source: 'record', notes: { sn1: 'applied', sn2: 'unapplied' } }, 'after a restart the run record answers');
     A.eq(SB.steerNoteStatus('r1', { live: false, memory: null, record: { runId: 'r1' } }),
       { runId: 'r1', live: false, ended: true, source: 'record', notes: {} }, 'a recorded run with no ledger took none of the page\'s notes');
+    // LIVE (this lane): a station killed mid-run is recorded on its next boot by the recovery path ('interrupted', no ledger).
+    // That row cannot say which notes the run read — it is "no record", never "the station never took it".
+    A.eq(SB.steerNoteStatus('r1', { live: false, memory: null, record: { runId: 'r1', reason: 'interrupted', recoveryStatus: 'recovering' } }),
+      { runId: 'r1', live: false, ended: true, source: 'none', notes: {} }, 'an interrupted run recorded without a ledger answers "no record"');
+    A.eq(SB.steerNoteStatus('r1', { live: false, memory: null, record: { runId: 'r1', reason: 'interrupted', steerNotes: [{ id: 'sn1', applied: true }] } }).source, 'record',
+      'an interrupted row that carries a ledger still answers from it');
     A.eq(SB.steerNoteStatus('r1', { live: false, memory: null, record: null }),
       { runId: 'r1', live: false, ended: false, source: 'none', notes: {} }, 'no memory and no record: the station says it has none (never a guess)');
   }

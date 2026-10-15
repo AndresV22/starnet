@@ -136,6 +136,9 @@ function steerNoteStatus(runId, o) {
   o = o || {};
   const live = !!o.live;
   if (o.memory) return { runId: runId, live: live, ended: !!o.memory.ended, source: 'memory', notes: Object.assign({}, o.memory.notes) };
+  // a run killed mid-flight is recorded on the next boot by the recovery path ('interrupted') with no ledger: that row cannot
+  // say which notes the run read, so it is "no record" — never "the station never took it"
+  if (o.record && o.record.reason === 'interrupted' && !Array.isArray(o.record.steerNotes)) return { runId: runId, live: live, ended: true, source: 'none', notes: {} };
   if (o.record) {
     const notes = {};
     for (const n of Array.isArray(o.record.steerNotes) ? o.record.steerNotes : []) if (n && n.id) notes[String(n.id)] = n.applied === true ? 'applied' : 'unapplied';
