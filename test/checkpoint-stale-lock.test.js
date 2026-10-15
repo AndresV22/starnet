@@ -104,6 +104,9 @@ const noted = tag => failopen.counts()[tag] || 0;
     const planted = [
       'HEAD.lock', 'ORIG_HEAD.lock', 'config.lock', 'packed-refs.lock', 'gc.pid',
       branchRef.split('/').join(path.sep) + '.lock',
+      // a gc killed in its `reflog expire` step leaves these, and every later gc then fails ('failed to run reflog')
+      path.join('logs', 'HEAD.lock'),
+      path.join('logs', branchRef.split('/').join(path.sep)) + '.lock',
       path.join('objects', 'info', 'commit-graph.lock'),
       path.join('objects', 'info', 'commit-graphs', 'commit-graph-chain.lock'),
       path.join('objects', 'pack', 'multi-pack-index.lock')
@@ -162,6 +165,17 @@ const noted = tag => failopen.counts()[tag] || 0;
     A.eq(await fake.snapshot(aid, { label: 'denied' }), null, 'a failed add returns null');
     A.ok(/add failed/i.test(fake.health(aid).lastFailure.reason) && /Permission denied/.test(fake.health(aid).lastFailure.reason), 'a failed add carries Git\'s own first line: ' + fake.health(aid).lastFailure.reason);
     A.ok(fake.health(aid).lastFailure.reason.length <= 240, 'the reason stays short');
+    // an agent that cloned a repo into its workspace: add prints an unrelated warning first, then the real failure
+    answer = { code: 128, stdout: '', stderr: 'warning: adding embedded git repository: vendor/lib\nhint: You\'ve added another git repository inside your current repository.\nhint: Clones of the outer repository will not contain the contents of\nfatal: Unable to create \'' + path.join(gitDirOf(aid), 'index.lock') + '\': Permission denied\n' };
+    A.eq(await fake.snapshot(aid, { label: 'embedded' }), null, 'a failed add after an embedded-repo warning returns null');
+    A.ok(/Unable to create '<checkpoint repo>[\\/]index\.lock': Permission denied/.test(fake.health(aid).lastFailure.reason) && !/embedded/.test(fake.health(aid).lastFailure.reason),
+      'the reason is Git\'s fatal line, not the warning before it: ' + fake.health(aid).lastFailure.reason);
+    answer = { code: 1, stdout: '', stderr: 'warning: something unrelated\nthe disk is full\n' };
+    A.eq(await fake.snapshot(aid, { label: 'plain' }), null, 'a failed add with no error:/fatal: line returns null');
+    A.ok(/add failed \(exit 1\): the disk is full$/.test(fake.health(aid).lastFailure.reason), 'with no error:/fatal: line, the first line that is not a hint or warning: ' + fake.health(aid).lastFailure.reason);
+    answer = { code: 1, stdout: '', stderr: 'warning: only a warning\n' };
+    A.eq(await fake.snapshot(aid, { label: 'warning only' }), null, 'a failed add that printed only a warning returns null');
+    A.ok(/add failed \(exit 1\): warning: only a warning$/.test(fake.health(aid).lastFailure.reason), 'with nothing else, the warning itself is the reason: ' + fake.health(aid).lastFailure.reason);
     A.eq(fake.health('bad id!'), null, 'an invalid agent id has no health');
 
     /* ---- 6. a commit the index never recorded is not handed out as a restore point, and the next turn heals ---- */
@@ -199,6 +213,66 @@ const noted = tag => failopen.counts()[tag] || 0;
     A.ok(/could not be read just now/.test(busy.health(aid).lastFailure.reason), 'health says the restore list could not be read: ' + busy.health(aid).lastFailure.reason);
     const copy = fake.health(aid); copy.ok = 'tampered';
     A.ok(fake.health(aid).ok === false, 'health() hands out a copy, never the live record');
+
+    /* ---- 7. health is per ROOT: a project root whose net stays dead is never reported ok because the agent's own
+       workspace saved one (each root has its own shadow repo: an IDE holding a project file fails `add` every turn
+       while the agent's notes in its workspace keep saving) ---- */
+    const duo = 'duo', duoWt = path.join(root, duo), app = path.join(root, 'duo-project');
+    fs.mkdirSync(duoWt, { recursive: true }); fs.mkdirSync(app, { recursive: true });
+    fs.writeFileSync(path.join(duoWt, 'notes.md'), 'n1'); fs.writeFileSync(path.join(app, 'main.js'), 'v1');
+    const scopeId = 'c'.repeat(24), appReal = fs.realpathSync(app);   // the store names a root by its canonical path
+    const two = makeCheckpointStore({ fs, pathMod: path, root, runGit: realGit, clock, maxRepoBytes: 1 << 30,
+      scopeIdOf: () => scopeId, allowWorkTree: () => true });
+    const projectMeta = turn => ({ runId: 'd' + turn, turn, label: 'project edit', workTree: app });
+    const appPoint = await two.snapshot(duo, projectMeta(1));
+    A.ok(appPoint && appPoint.created, 'fixture: the project root saves its first restore point');
+    A.ok(await two.snapshot(duo, { runId: 'd1', turn: 1, label: 'notes' }), 'fixture: the agent workspace saves its first restore point');
+    const appLock = path.join(root, '.checkpoints', duo, 'roots', scopeId, 'git', 'index.lock');
+    fs.mkdirSync(appLock);   // a blocker the sweep cannot remove: every later add of the PROJECT fails
+    nowMs += 60000;
+    const appFailedAt = nowMs;
+    fs.writeFileSync(path.join(app, 'main.js'), 'v2');
+    A.eq(await two.snapshot(duo, projectMeta(2)), null, 'fixture: the project root snapshot fails');
+    nowMs += 60000;
+    fs.writeFileSync(path.join(duoWt, 'notes.md'), 'n2');
+    A.ok(await two.snapshot(duo, { runId: 'd2', turn: 2, label: 'notes' }), 'fixture: the workspace snapshot right after it succeeds');
+    let mixed = two.health(duo);
+    A.ok(mixed && mixed.ok === false, 'health stays NOT ok while the project root\'s latest attempt failed (was ok:true): ' + JSON.stringify(mixed));
+    A.eq(mixed && mixed.since, appFailedAt, 'the failing streak is the project root\'s own');
+    A.ok(mixed && mixed.lastFailure && mixed.lastFailure.kind === 'project' && mixed.lastFailure.workTree === appReal && mixed.lastFailure.scopeId === scopeId,
+      'the failure names the project root that is not saving: ' + JSON.stringify(mixed && mixed.lastFailure));
+    A.ok(mixed && /index\.lock/.test(mixed.lastFailure.reason) && mixed.lastFailure.reason.toLowerCase().indexOf(appReal.toLowerCase()) < 0, 'the reason is path-free (the root is named on its own): ' + (mixed && mixed.lastFailure.reason));
+    const rootsOf = h => (h && h.roots || []).slice().sort((a, b) => a.kind.localeCompare(b.kind));
+    A.eq(rootsOf(mixed).map(r => [r.kind, r.workTree, r.scopeId, r.ok, r.since]),
+      [['project', appReal, scopeId, false, appFailedAt], ['workspace', '', '', true, null]], 'every root reports its own latest attempt and streak');
+    nowMs += 60000;
+    fs.writeFileSync(path.join(app, 'main.js'), 'v3');
+    A.eq(await two.snapshot(duo, projectMeta(3)), null, 'fixture: the project root still fails on the next turn');
+    nowMs += 60000;
+    fs.writeFileSync(path.join(duoWt, 'notes.md'), 'n3');
+    A.ok(await two.snapshot(duo, { runId: 'd3', turn: 3, label: 'notes' }), 'fixture: the workspace keeps saving');
+    mixed = two.health(duo);
+    A.ok(mixed.ok === false && mixed.since === appFailedAt, 'still not ok, and the project streak start never moved: ' + JSON.stringify(mixed));
+    A.eq(rootsOf(mixed)[0].failures, 2, 'the project root counts its own failed attempts');
+    // the workspace failing too: both are named, the streak is the earliest
+    const duoLock = path.join(root, '.checkpoints', duo, 'git', 'index.lock');
+    fs.mkdirSync(duoLock);
+    nowMs += 60000;
+    fs.writeFileSync(path.join(duoWt, 'notes.md'), 'n4');
+    A.eq(await two.snapshot(duo, { runId: 'd4', turn: 4, label: 'notes' }), null, 'fixture: the workspace now fails too');
+    mixed = two.health(duo);
+    A.ok(mixed.ok === false && mixed.since === appFailedAt && mixed.lastFailure.kind === 'workspace', 'the newest failure leads, the streak is the earliest: ' + JSON.stringify(mixed));
+    A.eq(rootsOf(mixed).map(r => r.ok), [false, false], 'both roots report not saving');
+    fs.rmdirSync(duoLock); fs.rmdirSync(appLock);
+    nowMs += 60000;
+    A.ok(await two.snapshot(duo, projectMeta(5)), 'once unblocked the project root saves again');
+    mixed = two.health(duo);
+    A.ok(mixed.ok === false && mixed.lastFailure.kind === 'workspace', 'the workspace\'s latest attempt still failed: not ok yet');
+    nowMs += 60000;
+    A.ok(await two.snapshot(duo, { runId: 'd5', turn: 5, label: 'notes' }), 'and the workspace saves again');
+    mixed = two.health(duo);
+    A.ok(mixed.ok === true && mixed.since === null && mixed.failures === 3, 'every root saved its latest: ok, with the 3 missed points on record: ' + JSON.stringify(mixed));
+    A.ok(mixed.lastFailure && mixed.lastFailure.kind === 'workspace', 'the most recent miss is the one recalled');
 
     A.report('checkpoint-stale-lock.test');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }

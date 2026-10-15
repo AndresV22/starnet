@@ -18104,8 +18104,8 @@ async function handleCheckpointRestore(req, res) {
 }
 
 // GET /api/checkpoint?agent=<id> — the read-only snapshot index a "rewind" affordance lists from.
-// health (local backend, additive): whether this agent's LAST automatic snapshot actually saved a restore point —
-// null until one is attempted this boot. snapshot() is fail-open, so without it a dead undo net (a killed Git add's
+// health (local backend, additive): whether the LAST automatic snapshot of each of this agent's roots (its workspace,
+// each project root) actually saved a restore point, ok only while every root's did — null until one is attempted this boot. snapshot() is fail-open, so without it a dead undo net (a killed Git add's
 // stale lock refusing every later snapshot) listed exactly like a working one; the RESTORE lane and
 // station.settings show it so nobody is told a change can be undone when no restore point was saved.
 async function handleCheckpointList(req, res) {

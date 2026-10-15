@@ -21,7 +21,7 @@
      restore(agentId, snapshotId)              -> Promise<bool>   // only restores an id IN this agent's index
      restoreDetailed(agentId, snapshotId)      -> Promise<{ ok, reason?, detail?, preRestoreId? }>   // + the pre-restore undo id
      list(agentId)                             -> { version, snapshots }
-     health(agentId)                           -> null | { ok, at, since, failures, lastFailure }   // did the LAST snapshot attempt save one?
+     health(agentId)                           -> null | { ok, at, since, failures, lastFailure, roots }   // did each root's LAST snapshot attempt save one?
    A stale Git lock a killed checkpoint command left is cleared at the start of the next operation (clearStaleGitLocks). */
 'use strict';
 (function (root, factory) {
@@ -367,7 +367,8 @@
        then refuses every later add for that agent ("Unable to create index.lock: File exists"), so every later
        snapshot returned null and the undo net stayed silently dead until an over-ceiling re-init replaced the repo.
        A killed commit/reset leaves HEAD.lock, ORIG_HEAD.lock or refs/heads/<branch>.lock the same way; a killed gc
-       leaves packed-refs.lock, the commit-graph locks and gc.pid.
+       leaves packed-refs.lock, the commit-graph locks, gc.pid, and (killed in its `reflog expire` step) logs/HEAD.lock or
+       logs/refs/heads/<branch>.lock, which made every later gc fail until a re-init replaced the repo.
        Safe because it runs at the start of an operation INSIDE the per-agent serialized() section: every checkpoint
        Git command for this agent runs under that lock, gc.auto=0 / maintenance.auto=false start no background Git,
        a timed-out or aborted command's whole process tree is dead before the runner resolves, and one sidecar owns
@@ -398,6 +399,7 @@
       };
       for (const ent of await listed(gitDir)) take(gitDir, ent, true);   // index/HEAD/ORIG_HEAD/config/packed-refs.lock, gc.pid
       await walk(pathMod.join(gitDir, 'refs'), 0);                          // refs/heads/<branch>.lock
+      await walk(pathMod.join(gitDir, 'logs'), 0);                          // logs/HEAD.lock, logs/refs/heads/<branch>.lock (a gc killed in reflog expire)
       await walk(pathMod.join(gitDir, 'objects', 'info'), 0);               // commit-graph.lock, commit-graphs/commit-graph-chain.lock
       const packDir = pathMod.join(gitDir, 'objects', 'pack');
       for (const ent of await listed(packDir)) take(packDir, ent, false);   // multi-pack-index.lock
@@ -411,31 +413,68 @@
       return { removed: removed.length, skipped: skipped };
     }
 
-    /* HEALTH — whether this agent's LAST snapshot attempt actually produced a restore point. snapshot() is fail-open
-       (null, and the run goes on), so without this a dead net looked exactly like a working one: the RESTORE lane
-       kept saying a point is saved before every command while none was. In memory, per process: null until the
-       first attempt (unknown is never reported as ok).
-         health(agentId) -> null | { ok, at, since, failures, lastFailure: { at, reason } | null }
-       since = when the current failing streak began (null while ok); failures counts failed attempts since boot. */
-    const healthByAgent = new Map();
-    function recordHealth(aid, ok, reason) {
-      const prev = healthByAgent.get(aid) || { ok: null, failures: 0, since: null, lastFailure: null };
+    /* HEALTH — whether the LAST snapshot attempt of each of this agent's ROOTS actually produced a restore point.
+       snapshot() is fail-open (null, and the run goes on), so without this a dead net looked exactly like a working
+       one: the RESTORE lane kept saying a point is saved before every command while none was. Kept per root because
+       every root has its own shadow repo: a project root whose `add` fails every turn (an IDE holding one of its
+       files) must not read as saving because the agent's own workspace saved a point in the same run. In memory, per
+       process: null until the first attempt (unknown is never reported as ok).
+         health(agentId) -> null | { ok, at, since, failures, lastFailure: { at, reason, kind, workTree, scopeId } | null,
+                                     roots: [{ kind, workTree, scopeId, ok, at, since, failures, lastFailure: { at, reason } | null }] }
+       ok = every root's latest attempt saved; since = the earliest start of a current failing streak (null while ok);
+       failures = failed attempts since boot, all roots; lastFailure = the newest failure of a root that is failing now
+       (while ok: the newest one on record). kind is 'workspace' (workTree '') or 'project' (workTree = its canonical
+       root, the path its restore rows already show; scopeId '' when the root was never authorized). */
+    const MAX_HEALTH_ROOTS = 32;   // per agent; only roots whose latest attempt SAVED are ever evicted (an alarm is never dropped)
+    const healthByAgent = new Map();   // aid -> Map(rootKey -> record), least recently attempted first
+    function healthRootFor(aid, scope, requested) {
+      if (scope && !scope.id) return { key: '', kind: 'workspace', workTree: '', scopeId: '' };
+      const workTree = scope ? scope.workTree : canonicalWorkTree(requested);
+      const key = pathMod.sep === '\\' ? String(workTree).toLowerCase() : String(workTree);
+      return { key: 'project\0' + key, kind: 'project', workTree: workTree, scopeId: scope ? scope.id : '' };
+    }
+    function recordHealth(aid, root, ok, reason) {
+      let roots = healthByAgent.get(aid);
+      if (!roots) { roots = new Map(); healthByAgent.set(aid, roots); }
+      const prev = roots.get(root.key) || { ok: null, failures: 0, since: null, lastFailure: null };
       const at = clock.now();
-      if (ok) healthByAgent.set(aid, { ok: true, at: at, since: null, failures: prev.failures, lastFailure: prev.lastFailure });
-      else healthByAgent.set(aid, { ok: false, at: at, since: prev.ok === false && prev.since != null ? prev.since : at,
-        failures: prev.failures + 1, lastFailure: { at: at, reason: String(reason || 'the restore point could not be saved') } });
+      const rec = ok ? { ok: true, at: at, since: null, failures: prev.failures, lastFailure: prev.lastFailure }
+        : { ok: false, at: at, since: prev.ok === false && prev.since != null ? prev.since : at,
+          failures: prev.failures + 1, lastFailure: { at: at, reason: String(reason || 'the restore point could not be saved') } };
+      rec.kind = root.kind; rec.workTree = root.workTree; rec.scopeId = root.scopeId;
+      roots.delete(root.key); roots.set(root.key, rec);
+      for (const [key, r] of roots) { if (roots.size <= MAX_HEALTH_ROOTS) break; if (r.ok === true) roots.delete(key); }
     }
     function health(agentId) {
       if (!AID_RE.test(String(agentId || ''))) return null;
-      const h = healthByAgent.get(String(agentId));
-      return h ? { ok: h.ok, at: h.at, since: h.since, failures: h.failures, lastFailure: h.lastFailure ? { at: h.lastFailure.at, reason: h.lastFailure.reason } : null } : null;
+      const roots = healthByAgent.get(String(agentId));
+      if (!roots || !roots.size) return null;
+      const all = Array.from(roots.values());
+      const failing = all.filter(function (r) { return r.ok === false; });
+      let lead = null, since = null, at = null, failures = 0;
+      for (const r of (failing.length ? failing : all)) if (r.lastFailure && (!lead || r.lastFailure.at >= lead.lastFailure.at)) lead = r;
+      for (const r of all) {
+        failures += r.failures;
+        if (at == null || r.at > at) at = r.at;
+        if (r.ok === false && (since == null || r.since < since)) since = r.since;
+      }
+      const order = function (a, b) { return a.kind === b.kind ? (a.workTree < b.workTree ? -1 : a.workTree > b.workTree ? 1 : 0) : (a.kind === 'workspace' ? -1 : 1); };
+      return { ok: !failing.length, at: at, since: since, failures: failures,
+        lastFailure: lead ? { at: lead.lastFailure.at, reason: lead.lastFailure.reason, kind: lead.kind, workTree: lead.workTree, scopeId: lead.scopeId } : null,
+        roots: all.slice().sort(order).map(function (r) {
+          return { kind: r.kind, workTree: r.workTree, scopeId: r.scopeId, ok: r.ok, at: r.at, since: r.since, failures: r.failures,
+            lastFailure: r.lastFailure ? { at: r.lastFailure.at, reason: r.lastFailure.reason } : null };
+        }) };
     }
     // one short, path-free sentence for a failed Git step: the station's own directories never reach the UI.
     function gitFailure(step, r, aid, scope) {
       if (r && r.timedOut) return 'Git ' + step + ' timed out';
       if (r && r.aborted) return 'Git ' + step + ' was stopped';
-      let line = String((r && r.stderr) || '').split(/\r?\n/).map(function (s) { return s.trim(); })
-        .filter(function (s) { return s && !/^hint:/i.test(s); })[0] || '';
+      // Git's own error first: `add -A` in a workspace holding a cloned repo prints "warning: adding embedded git
+      // repository" before the real fatal:/error: line. Then the first line that is not a hint or warning, then any line.
+      const lines = String((r && r.stderr) || '').split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+      let line = lines.filter(function (s) { return /^(fatal|error):/i.test(s); })[0]
+        || lines.filter(function (s) { return !/^(hint|warning):/i.test(s); })[0] || lines[0] || '';
       const hide = function (text, dir, label) {
         const parts = pathMod.resolve(String(dir || '')).split(/[\\/]+/).filter(Boolean)
           .map(function (p) { return p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
@@ -577,13 +616,15 @@
       const aid = String(agentId);
       const why = {};
       const result = await takeSnapshot(aid, meta, why);
-      // a dedup (created:false) is a real, restorable point too: the net is working
-      if (result) recordHealth(aid, true);
-      else recordHealth(aid, false, why.reason);
+      // a dedup (created:false) is a real, restorable point too: the net is working (for THAT root)
+      const root = why.root || healthRootFor(aid, { id: '' });
+      if (result) recordHealth(aid, root, true);
+      else recordHealth(aid, root, false, why.reason);
       return result;
     }
     async function takeSnapshot(aid, meta, why) {
       const scope = externalScope(aid, meta.workTree, meta.authorizedWorkTree === true);
+      why.root = healthRootFor(aid, scope, meta.workTree);
       if (!scope) { why.reason = 'this project root is not authorized for restore points'; return null; }
       if (!saveScope(aid, scope)) { why.reason = 'the project root for this restore point could not be recorded'; return null; }
       const result = await commitSnapshot(aid, scope, meta, null, why);

@@ -50,6 +50,8 @@ function killOwnedLauncher() { if (process.platform === 'win32' && fixture.child
   const h = down.body.health;
   assert.equal(h && h.ok, false, 'GET /api/checkpoint says the last restore point was not saved: ' + down.text);
   assert.ok(/add/i.test(h.lastFailure.reason) && /index\.lock/.test(h.lastFailure.reason), 'the reason names the step and the blocker: ' + h.lastFailure.reason);
+  assert.equal(h.lastFailure.kind, 'workspace', 'the failure names the root that is not saving: the agent workspace');
+  assert.deepEqual((h.roots || []).map(r => [r.kind, r.workTree, r.ok]), [['workspace', '', false]], 'the per-root record rides through the route: ' + JSON.stringify(h.roots));
   assert.ok(!h.lastFailure.reason.toLowerCase().includes(fixture.workspace.toLowerCase().replace(/\\/g, '/'))
     && !h.lastFailure.reason.toLowerCase().includes(fixture.workspace.toLowerCase()), 'the reason does not print the station directory');
   const refused = await fixture.json('POST', '/api/checkpoint/restore', { agentId: 'agent', snapshotId: second.body.snapshot });
