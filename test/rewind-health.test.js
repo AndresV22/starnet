@@ -53,13 +53,13 @@ const snap = (id, ts) => ({ id: id.repeat(40).slice(0, 40), ts, label: 'shell.ex
   A.ok(/RESTORE POINTS ARE NOT SAVING/.test(r.list), 'it says plainly that restore points are not saving');
   A.ok(r.list.indexOf('REL[' + iso(t0 + 120000) + ']') >= 0, 'it says when the last attempt failed');
   A.ok(r.list.indexOf('&lt;checkpoint repo&gt;/index.lock') >= 0 && r.list.indexOf('<checkpoint repo>') < 0, 'the reason is shown, HTML-escaped');
-  A.ok(r.list.indexOf('since REL[' + iso(t0 + 60000) + ']') >= 0 && /cannot be rolled back/.test(r.list), 'it names the newest real point: changes since it cannot be undone');
+  A.ok(r.list.indexOf('after the newest restore point (REL[' + iso(t0 + 60000) + '])') >= 0 && /cannot be rolled back until one saves/.test(r.list), 'it names the newest real point: changes after it cannot be undone');
   A.ok(r.list.indexOf('rw-health') < r.list.indexOf('mc-row'), 'the note sits above the restore points');
   A.eq((r.list.match(/data-act="restore"/g) || []).length, 2, 'the real restore points stay restorable');
 
   // failing with no restore point at all: the warning AND the honest empty state
   r = await render({ enabled: true, snapshots: [], health: failing });
-  A.ok(/data-state="failing"/.test(r.list) && /from now on/.test(r.list) && /NO RESTORE POINTS YET/.test(r.list), 'no points + failing: the warning says nothing can be undone, plus the empty state');
+  A.ok(/data-state="failing"/.test(r.list) && /No change can be rolled back/.test(r.list) && /NO RESTORE POINTS YET/.test(r.list), 'no points + failing: the warning says nothing can be undone, plus the empty state');
 
   // recovered after a miss: a dim line, never the alarm
   r = await render({ enabled: true, snapshots, health: { ok: true, at: t0 + 180000, since: null, failures: 1, lastFailure: { at: t0 + 120000, reason: 'Git add timed out' } } });

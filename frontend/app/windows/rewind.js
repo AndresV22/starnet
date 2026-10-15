@@ -54,13 +54,16 @@
       if (!h || !h.lastFailure) return '';
       const when = h.lastFailure.at ? esc(fmtRel(new Date(h.lastFailure.at).toISOString())) : 'recently';
       const why = esc(String(h.lastFailure.reason || 'the restore point could not be saved'));
+      // fmtRel reads 'now' / '5m ago': keep each time in parentheses so every value reads as a sentence
       if (h.ok === false) {
-        const since = newest && newest.ts ? 'since ' + esc(fmtRel(new Date(newest.ts).toISOString())) : 'from now on';
-        return '<div class="mc-detail" id="rw-health" data-state="failing">RESTORE POINTS ARE NOT SAVING · last attempt ' + when + ': ' + why +
-          '. Changes made ' + since + ' cannot be rolled back until one saves.</div>';
+        const lost = newest && newest.ts
+          ? 'Changes made after the newest restore point (' + esc(fmtRel(new Date(newest.ts).toISOString())) + ') cannot be rolled back'
+          : 'No change can be rolled back';
+        return '<div class="mc-detail" id="rw-health" data-state="failing">RESTORE POINTS ARE NOT SAVING · last attempt (' + when + '): ' + why +
+          '. ' + lost + ' until one saves.</div>';
       }
-      return '<div class="mc-url dim" id="rw-health" data-state="missed">A restore point could not be saved ' + when + ' (' + why +
-        '). The change made right after it has no restore point of its own.</div>';
+      return '<div class="mc-url dim" id="rw-health" data-state="missed">A restore point could not be saved (' + when + '): ' + why +
+        '. The change made right after it has no restore point of its own.</div>';
     }
     async function refresh() {
       try {
