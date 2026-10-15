@@ -112,6 +112,7 @@ test/cron.arm.test.js
 test/lifecycle-armed.http.test.js
 test/checkpoint-store.test.js
 test/checkpoint-maintenance.test.js
+test/checkpoint-stale-lock.test.js
 test/shell.test.js
 test/shell.process-tree.test.js
 test/verify.run.test.js
@@ -209,6 +210,7 @@ test/subscription-stacking-oauth.e2e.test.js
 test/apps.http.test.js
 test/checkpoint-git.test.js
 test/checkpoint-maintenance.e2e.test.js
+test/checkpoint-stale-lock.e2e.test.js
 test/crew-call.http.test.js
 test/legacy-spend-provenance.http.test.js
 test/ledger-damaged-line.http.test.js

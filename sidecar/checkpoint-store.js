@@ -15,12 +15,14 @@
    whether a missing checkpoint should block a dangerous tool.
 
    makeCheckpointStore({ fs, pathMod, root, runGit, clock, keep?, scopeIdOf?, allowWorkTree?, maxRepoBytes?, maintenanceTimeoutMs? })
-     -> { snapshot, restore, restoreDetailed, list, isValidId }
+     -> { snapshot, restore, restoreDetailed, list, health, isValidId }
      runGit(args:string[], { cwd, timeoutMs? }) -> Promise<{ code:int|string, stdout, stderr }>   // resolves, never rejects
-     snapshot(agentId, { runId, turn, label, workTree? }) -> Promise<{ id, created:bool, files, bytes } | null>
+     snapshot(agentId, { runId, turn, label, workTree? }) -> Promise<{ id, created:bool, files, bytes } | null>   // null = NO restore point
      restore(agentId, snapshotId)              -> Promise<bool>   // only restores an id IN this agent's index
-     restoreDetailed(agentId, snapshotId)      -> Promise<{ ok, reason?, preRestoreId? }>   // + the pre-restore undo id
-     list(agentId)                             -> { version, snapshots } */
+     restoreDetailed(agentId, snapshotId)      -> Promise<{ ok, reason?, detail?, preRestoreId? }>   // + the pre-restore undo id
+     list(agentId)                             -> { version, snapshots }
+     health(agentId)                           -> null | { ok, at, since, failures, lastFailure, roots }   // did each root's LAST snapshot attempt save one?
+   A stale Git lock a killed checkpoint command left is cleared at the start of the next operation (clearStaleGitLocks). */
 'use strict';
 (function (root, factory) {
   const cp = typeof require === 'function' ? require('./checkpoint.js') : (root.SK && root.SK.checkpoint);
@@ -360,6 +362,130 @@
       return { removed: removed, skipped: skipped };
     }
 
+    /* clearStaleGitLocks — remove the lock files a killed checkpoint Git command leaves in THIS store's shadow repo.
+       A snapshot's `git add -A` killed at its bound (the first snapshot of a big workspace) leaves index.lock; Git
+       then refuses every later add for that agent ("Unable to create index.lock: File exists"), so every later
+       snapshot returned null and the undo net stayed silently dead until an over-ceiling re-init replaced the repo.
+       A killed commit/reset leaves HEAD.lock, ORIG_HEAD.lock or refs/heads/<branch>.lock the same way; a killed gc
+       leaves packed-refs.lock, the commit-graph locks, gc.pid, and (killed in its `reflog expire` step) logs/HEAD.lock or
+       logs/refs/heads/<branch>.lock, which made every later gc fail until a re-init replaced the repo.
+       Safe because it runs at the start of an operation INSIDE the per-agent serialized() section: every checkpoint
+       Git command for this agent runs under that lock, gc.auto=0 / maintenance.auto=false start no background Git,
+       a timed-out or aborted command's whole process tree is dead before the runner resolves, and one sidecar owns
+       a WORKSPACES dir (a crashed predecessor's ledgered Git children are killed by the boot orphan sweep). So no
+       live Git can own one of these files. Only the shadow git-dir under <root>/.checkpoints is ever looked at:
+       the work tree may be the user's own project with its own .git, and that repo is never touched. Only FILES
+       are removed (never a directory, never anything recursive), and only lock names and gc.pid. Noted once per
+       sweep; a lock that cannot be removed (EBUSY from AV/backup) is skipped and noted, and the Git command after
+       it then fails into health() instead of being reported as a restore point. */
+    const LOCK_FILE_RE = /\.lock$/;
+    function insideShadowStore(gitDir) {
+      let dir = pathMod.resolve(String(gitDir || '')), store = pathMod.resolve(pathMod.join(root, '.checkpoints'));
+      if (pathMod.sep === '\\') { dir = dir.toLowerCase(); store = store.toLowerCase(); }
+      return dir.indexOf(store + pathMod.sep) === 0;
+    }
+    async function clearStaleGitLocks(aid, gitDir) {
+      if (!insideShadowStore(gitDir)) return { removed: 0, skipped: 0 };
+      const listed = async function (dir) { try { return await listDir(dir); } catch (e) { return []; } };
+      const victims = [];
+      const take = function (dir, ent, alsoGcPid) {
+        if (ent.isFile() && (LOCK_FILE_RE.test(ent.name) || (alsoGcPid && ent.name === 'gc.pid'))) victims.push(pathMod.join(dir, ent.name));
+      };
+      const walk = async function (dir, depth) {   // refs/** and objects/info/**: small trees, bounded depth
+        for (const ent of await listed(dir)) {
+          if (ent.isDirectory()) { if (depth < 6) await walk(pathMod.join(dir, ent.name), depth + 1); }
+          else take(dir, ent, false);
+        }
+      };
+      for (const ent of await listed(gitDir)) take(gitDir, ent, true);   // index/HEAD/ORIG_HEAD/config/packed-refs.lock, gc.pid
+      await walk(pathMod.join(gitDir, 'refs'), 0);                          // refs/heads/<branch>.lock
+      await walk(pathMod.join(gitDir, 'logs'), 0);                          // logs/HEAD.lock, logs/refs/heads/<branch>.lock (a gc killed in reflog expire)
+      await walk(pathMod.join(gitDir, 'objects', 'info'), 0);               // commit-graph.lock, commit-graphs/commit-graph-chain.lock
+      const packDir = pathMod.join(gitDir, 'objects', 'pack');
+      for (const ent of await listed(packDir)) take(packDir, ent, false);   // multi-pack-index.lock
+      const removed = [];
+      let skipped = 0;
+      for (const file of victims) {
+        try { if (fsp) await fsp.unlink(file); else fs.unlinkSync(file); removed.push(pathMod.relative(gitDir, file)); }
+        catch (e) { if (!(e && e.code === 'ENOENT')) { skipped++; failNote('checkpoint.staleLock.remove', e); } }
+      }
+      if (removed.length) failNote('checkpoint.staleLock', new Error('removed ' + removed.length + ' stale Git lock file(s) an interrupted checkpoint command left in ' + aid + '\'s shadow repo: ' + removed.join(', ')));
+      return { removed: removed.length, skipped: skipped };
+    }
+
+    /* HEALTH — whether the LAST snapshot attempt of each of this agent's ROOTS actually produced a restore point.
+       snapshot() is fail-open (null, and the run goes on), so without this a dead net looked exactly like a working
+       one: the RESTORE lane kept saying a point is saved before every command while none was. Kept per root because
+       every root has its own shadow repo: a project root whose `add` fails every turn (an IDE holding one of its
+       files) must not read as saving because the agent's own workspace saved a point in the same run. In memory, per
+       process: null until the first attempt (unknown is never reported as ok).
+         health(agentId) -> null | { ok, at, since, failures, lastFailure: { at, reason, kind, workTree, scopeId } | null,
+                                     roots: [{ kind, workTree, scopeId, ok, at, since, failures, lastFailure: { at, reason } | null }] }
+       ok = every root's latest attempt saved; since = the earliest start of a current failing streak (null while ok);
+       failures = failed attempts since boot, all roots; lastFailure = the newest failure of a root that is failing now
+       (while ok: the newest one on record). kind is 'workspace' (workTree '') or 'project' (workTree = its canonical
+       root, the path its restore rows already show; scopeId '' when the root was never authorized). */
+    const MAX_HEALTH_ROOTS = 32;   // per agent; only roots whose latest attempt SAVED are ever evicted (an alarm is never dropped)
+    const healthByAgent = new Map();   // aid -> Map(rootKey -> record), least recently attempted first
+    function healthRootFor(aid, scope, requested) {
+      if (scope && !scope.id) return { key: '', kind: 'workspace', workTree: '', scopeId: '' };
+      const workTree = scope ? scope.workTree : canonicalWorkTree(requested);
+      const key = pathMod.sep === '\\' ? String(workTree).toLowerCase() : String(workTree);
+      return { key: 'project\0' + key, kind: 'project', workTree: workTree, scopeId: scope ? scope.id : '' };
+    }
+    function recordHealth(aid, root, ok, reason) {
+      let roots = healthByAgent.get(aid);
+      if (!roots) { roots = new Map(); healthByAgent.set(aid, roots); }
+      const prev = roots.get(root.key) || { ok: null, failures: 0, since: null, lastFailure: null };
+      const at = clock.now();
+      const rec = ok ? { ok: true, at: at, since: null, failures: prev.failures, lastFailure: prev.lastFailure }
+        : { ok: false, at: at, since: prev.ok === false && prev.since != null ? prev.since : at,
+          failures: prev.failures + 1, lastFailure: { at: at, reason: String(reason || 'the restore point could not be saved') } };
+      rec.kind = root.kind; rec.workTree = root.workTree; rec.scopeId = root.scopeId;
+      roots.delete(root.key); roots.set(root.key, rec);
+      for (const [key, r] of roots) { if (roots.size <= MAX_HEALTH_ROOTS) break; if (r.ok === true) roots.delete(key); }
+    }
+    function health(agentId) {
+      if (!AID_RE.test(String(agentId || ''))) return null;
+      const roots = healthByAgent.get(String(agentId));
+      if (!roots || !roots.size) return null;
+      const all = Array.from(roots.values());
+      const failing = all.filter(function (r) { return r.ok === false; });
+      let lead = null, since = null, at = null, failures = 0;
+      for (const r of (failing.length ? failing : all)) if (r.lastFailure && (!lead || r.lastFailure.at >= lead.lastFailure.at)) lead = r;
+      for (const r of all) {
+        failures += r.failures;
+        if (at == null || r.at > at) at = r.at;
+        if (r.ok === false && (since == null || r.since < since)) since = r.since;
+      }
+      const order = function (a, b) { return a.kind === b.kind ? (a.workTree < b.workTree ? -1 : a.workTree > b.workTree ? 1 : 0) : (a.kind === 'workspace' ? -1 : 1); };
+      return { ok: !failing.length, at: at, since: since, failures: failures,
+        lastFailure: lead ? { at: lead.lastFailure.at, reason: lead.lastFailure.reason, kind: lead.kind, workTree: lead.workTree, scopeId: lead.scopeId } : null,
+        roots: all.slice().sort(order).map(function (r) {
+          return { kind: r.kind, workTree: r.workTree, scopeId: r.scopeId, ok: r.ok, at: r.at, since: r.since, failures: r.failures,
+            lastFailure: r.lastFailure ? { at: r.lastFailure.at, reason: r.lastFailure.reason } : null };
+        }) };
+    }
+    // one short, path-free sentence for a failed Git step: the station's own directories never reach the UI.
+    function gitFailure(step, r, aid, scope) {
+      if (r && r.timedOut) return 'Git ' + step + ' timed out';
+      if (r && r.aborted) return 'Git ' + step + ' was stopped';
+      // Git's own error first: `add -A` in a workspace holding a cloned repo prints "warning: adding embedded git
+      // repository" before the real fatal:/error: line. Then the first line that is not a hint or warning, then any line.
+      const lines = String((r && r.stderr) || '').split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+      let line = lines.filter(function (s) { return /^(fatal|error):/i.test(s); })[0]
+        || lines.filter(function (s) { return !/^(hint|warning):/i.test(s); })[0] || lines[0] || '';
+      const hide = function (text, dir, label) {
+        const parts = pathMod.resolve(String(dir || '')).split(/[\\/]+/).filter(Boolean)
+          .map(function (p) { return p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
+        return parts.length ? text.replace(new RegExp(parts.join('[\\\\/]+'), 'gi'), label) : text;
+      };
+      line = hide(hide(hide(line, gitDirFor(aid, scope), '<checkpoint repo>'), workTreeFor(aid, scope), '<workspace>'), root, '<station>')
+        .replace(/^(fatal|error):\s*/i, '');
+      const head = 'Git ' + step + ' failed' + (r && typeof r.code === 'number' ? ' (exit ' + r.code + ')' : '');
+      return (line ? head + ': ' + line : head).slice(0, 240);
+    }
+
     // gitDir -> clock ms before which snapshot() skips the automatic size pass (set when a pass ends over the ceiling)
     const maintenanceRetryAt = new Map();
     function maintenanceDue(gitDir) { const at = maintenanceRetryAt.get(gitDir); return !(at > clock.now()); }
@@ -389,6 +515,8 @@
         return { swept: false, reinit: false, bytesBefore: before, bytesAfter: before };
       }
       let gcSucceeded = false;
+      // a gc killed on an earlier pass leaves packed-refs.lock / commit-graph locks / gc.pid that would refuse this one
+      try { await clearStaleGitLocks(aid, gitDir); } catch (e) { failNote('checkpoint.staleLock', e); }
       try {
         const gc = await git(aid, scope, ['gc', '--prune=now', '-q'], maintenanceTimeoutMs);
         gcSucceeded = !!gc && gc.code === 0;
@@ -486,9 +614,20 @@
       meta = meta || {};
       if (!AID_RE.test(String(agentId || ''))) return null;
       const aid = String(agentId);
+      const why = {};
+      const result = await takeSnapshot(aid, meta, why);
+      // a dedup (created:false) is a real, restorable point too: the net is working (for THAT root)
+      const root = why.root || healthRootFor(aid, { id: '' });
+      if (result) recordHealth(aid, root, true);
+      else recordHealth(aid, root, false, why.reason);
+      return result;
+    }
+    async function takeSnapshot(aid, meta, why) {
       const scope = externalScope(aid, meta.workTree, meta.authorizedWorkTree === true);
-      if (!scope || !saveScope(aid, scope)) return null;
-      const result = await commitSnapshot(aid, scope, meta, null);
+      why.root = healthRootFor(aid, scope, meta.workTree);
+      if (!scope) { why.reason = 'this project root is not authorized for restore points'; return null; }
+      if (!saveScope(aid, scope)) { why.reason = 'the project root for this restore point could not be recorded'; return null; }
+      const result = await commitSnapshot(aid, scope, meta, null, why);
       // Check even a dedup or failed add/commit: those were exactly the paths that left oversized
       // temporary pack data untouched forever. Restore's internal pre-undo snapshot never sweeps.
       // Skipped while a pass in the last MAINTENANCE_BACKOFF_MS left this repo over the ceiling: re-running it
@@ -504,49 +643,68 @@
         try {
           const head = (await git(aid, scope, ['rev-parse', 'HEAD'])).stdout.trim();
           const row = cp.findById(loadIndex(aid), scope.prefix + head);
-          if (!cp.isValidId(head) || !row) return null;
+          if (!cp.isValidId(head) || !row) { why.reason = 'the size sweep replaced the history and its new restore point could not be read back'; return null; }
           result.id = row.id; result.created = true; result.files = row.files; result.bytes = row.bytes;
-        } catch (e) { failNote('checkpoint.sizeCeiling.head', e); return null; }
+        } catch (e) { failNote('checkpoint.sizeCeiling.head', e); why.reason = 'the size sweep replaced the history and its new restore point could not be read back'; return null; }
       }
       if (maintenance && maintenance.swept) result.maintenance = maintenance;
+      // A commit that is not a recorded row is not a restore point: restore() refuses any id outside the index, so
+      // handing it out would let a caller offer an undo that cannot happen (an index write failure, or a dedup head
+      // the index never recorded). Read through the same resilient loader restore() uses.
+      let recorded = false;
+      try { recorded = !!cp.findById(await loadIndexResilient(aid), result.id); }
+      catch (e) { failNote('checkpoint.index.verify', e); }
+      if (!recorded) {
+        why.reason = readIndexRaw(aid).status === 'unreadable' ? 'the restore list could not be read just now'
+          : 'the restore point was saved in Git but could not be added to the restore list';
+        return null;
+      }
       return result;
     }
     /* commitSnapshot — the one snapshot code path, on an already-resolved scope. opts.always: commit even when
        nothing changed (--allow-empty) so the index gets its OWN labelled row (restore's pre-restore undo point);
        Maintenance belongs to public snapshot(), so restore's internal pre-undo capture cannot drop its target.
-       Fail-open: null on any git error. */
-    async function commitSnapshot(aid, scope, meta, opts) {
-      meta = meta || {}; opts = opts || {};
+       Fail-open: null on any git error, with why.reason (when a why object is passed) saying which step failed. */
+    async function commitSnapshot(aid, scope, meta, opts, why) {
+      meta = meta || {}; opts = opts || {}; why = why || {};
+      const failed = function (step, r) { why.reason = gitFailure(step, r, aid, scope); return null; };
       try {
         fs.mkdirSync(workTreeFor(aid, scope), { recursive: true });
         fs.mkdirSync(gitDirFor(aid, scope), { recursive: true });
+        // A Git command killed on an earlier operation (an add at its bound on a big first snapshot) left its lock.
+        try { await clearStaleGitLocks(aid, gitDirFor(aid, scope)); } catch (e) { failNote('checkpoint.staleLock', e); }
         // init the shadow repo once (idempotent: re-running init on an existing repo is harmless).
         if (!fs.existsSync(pathMod.join(gitDirFor(aid, scope), 'HEAD'))) {
           const ini = await git(aid, scope, ['init', '-q']);
-          if (ini.code !== 0) return null;
+          if (ini.code !== 0) return failed('init', ini);
         }
         const add = await git(aid, scope, ['add', '-A']);
-        if (add.code !== 0) return null;
+        if (add.code !== 0) return failed('add', add);
         const hasHead = (await git(aid, scope, ['rev-parse', '--verify', '-q', 'HEAD'])).code === 0;
+        let unrecordedHead = false;
         if (hasHead && !opts.always) {
           const diff = await git(aid, scope, ['diff', '--cached', '--quiet', 'HEAD']);   // code 0 => nothing staged changed
           if (diff.code === 0) {
             const head = (await git(aid, scope, ['rev-parse', 'HEAD'])).stdout.trim();
             const fullId = scope.prefix + head;
-            return cp.isValidId(head) && cp.isValidId(fullId)
-              ? { id: fullId, created: false, files: 0, bytes: 0, workTree: scope.id ? scope.workTree : '' }
-              : null;
+            if (!(cp.isValidId(head) && cp.isValidId(fullId))) { why.reason = 'Git could not read the current restore point'; return null; }
+            // Dedup only onto a RECORDED head: restore() refuses any id outside the index, so a head whose row was never
+            // written (an index write failure) or was pruned is no restore point. Record a fresh commit of the same tree —
+            // but never while the index is transiently UNREADABLE: recording then would rewrite it from .bak/empty.
+            const dedup = { id: fullId, created: false, files: 0, bytes: 0, workTree: scope.id ? scope.workTree : '' };
+            if (readIndexRaw(aid).status === 'unreadable' || cp.findById(await loadIndexResilient(aid), fullId)) return dedup;
+            unrecordedHead = true;
           }
         }
         const label = meta.label != null ? String(meta.label) : 'snapshot';
         const commitArgs = ['commit', '-q', '-m', label];
-        if (!hasHead || opts.always) commitArgs.push('--allow-empty');           // baseline even for an empty workspace
+        if (!hasHead || opts.always || unrecordedHead) commitArgs.push('--allow-empty');   // baseline even for an empty workspace
         const com = await git(aid, scope, commitArgs);
-        if (com.code !== 0) return null;
+        if (com.code !== 0) return failed('commit', com);
         const sha = (await git(aid, scope, ['rev-parse', 'HEAD'])).stdout.trim();
-        if (!cp.isValidId(sha)) return null;
+        if (!cp.isValidId(sha)) { why.reason = 'Git could not read the new restore point'; return null; }
         const fullId = scope.prefix + sha;
-        if (!cp.isValidId(fullId)) return null;
+        if (!cp.isValidId(fullId)) { why.reason = 'Git could not read the new restore point'; return null; }
         const size = await measure(aid, scope);
         try {
           /* THE RESILIENT LOADER, not the sync one. `loadIndex` reads only index.json + index.json.bak and returns
@@ -573,7 +731,10 @@
           saveIndex(aid, index);
         } catch (e) { failNote('checkpoint.index.persist', e); }
         return { id: fullId, created: true, files: size.files, bytes: size.bytes, workTree: scope.id ? scope.workTree : '' };
-      } catch (e) { return null; }                                               // fail-open
+      } catch (e) {                                                               // fail-open
+        why.reason = 'the restore point could not be saved (' + String((e && e.code) || 'unexpected error').slice(0, 40) + ')';
+        return null;
+      }
     }
 
     /* restore — hard-reset the agent's work-tree to a snapshot (and remove files created since). Only restores a
@@ -603,13 +764,15 @@
       const sha = record.gitCommit || fullId;
       if (!cp.isValidId(String(sha || ''))) return { ok: false, reason: 'invalid' };
       if (scope.id && fullId !== scope.prefix + sha) return { ok: false, reason: 'invalid' };   // root identity is part of the id
+      const preWhy = {};
       const pre = await commitSnapshot(aid, scope,
         { runId: '', turn: 0, label: 'pre-restore (before rewinding to ' + String(sha).slice(0, 12) + ')' },
-        { always: true });
+        { always: true }, preWhy);
       let preRecorded = false;
       try { preRecorded = !!(pre && pre.created && cp.findById(await loadIndexResilient(aid), pre.id)); }
       catch (e) { failNote('checkpoint.restore.preRestoreIndex', e); }
-      if (!preRecorded) return { ok: false, reason: 'pre_restore_failed' };       // nothing touched: no undo point, no rewind
+      // nothing touched: no undo point, no rewind. detail (additive) says which step failed, path-free.
+      if (!preRecorded) return { ok: false, reason: 'pre_restore_failed', detail: preWhy.reason || (pre ? 'the undo point could not be added to the restore list' : 'the undo point could not be saved') };
       try {
         const reset = await git(aid, scope, ['reset', '--hard', '-q', sha]);
         if (reset.code !== 0) return { ok: false, reason: 'git_failed', preRestoreId: pre.id };
@@ -638,7 +801,7 @@
       return withAvailability(aid, await loadIndexResilient(aid));
     }
 
-    return { snapshot: serialized(snapshot), restore: serialized(restore), restoreDetailed: serialized(restoreDetailed), list: list, listResilient: serialized(listResilient), rebuild: serialized(rebuildIndexFromGit), enforceSizeCeiling: serialized(enforceSizeCeiling), isValidId: cp.isValidId };
+    return { snapshot: serialized(snapshot), restore: serialized(restore), restoreDetailed: serialized(restoreDetailed), list: list, listResilient: serialized(listResilient), rebuild: serialized(rebuildIndexFromGit), enforceSizeCeiling: serialized(enforceSizeCeiling), health: health, isValidId: cp.isValidId };
   }
 
   return { makeCheckpointStore: makeCheckpointStore };
