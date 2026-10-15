@@ -83,6 +83,7 @@
     const markLabel = n => '✓ MARK ALL ' + n + ' REVIEWED';
     const RS = (typeof ReturnStore !== 'undefined') ? ReturnStore : null;
     const rows = (RS && RS.pendingRows) ? RS.pendingRows() : [];
+    for (const el of mounted) if (el !== body && !el.isConnected) mounted.delete(el);   // a replaced copy never outlives its window
     mounted.add(body);
     body.hidden = !rows.length;
     body.innerHTML =
@@ -339,6 +340,10 @@
   // DELIVERABLES mounts this as its TO REVIEW section; ReturnStore refreshes every mounted copy when crates change
   window.OutboxView = {
     build: buildOutbox,
-    refresh() { mounted.forEach(el => { if (!el.isConnected) { mounted.delete(el); return; } buildOutbox(el); }); }
+    refresh() { mounted.forEach(el => { if (!el.isConnected) { mounted.delete(el); return; } buildOutbox(el); }); },
+    // DELIVERABLES' close: every copy inside the closing window goes now, not at the next crate change (night-leak 10-15: a
+    // closed MY WORK stayed alive through `mounted` for minutes, until a refresh happened to prune it)
+    unmount(root) { mounted.forEach(el => { if (!el.isConnected || (root && (el === root || (root.contains && root.contains(el))))) mounted.delete(el); }); },
+    _mountedCount: () => mounted.size
   };
 })();

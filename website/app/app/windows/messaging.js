@@ -480,12 +480,7 @@
     buildMessaging._refresh = refreshAll;
     // live transport health: channel.connect (up/down/error) is emitted + SSE-broadcast by every hub — one
     // subscription refreshes whichever card it names, the moment health changes (not only on panel reopen).
-    if (!buildMessaging._wired && typeof U !== 'undefined' && U.bus) {
-      buildMessaging._wired = true;
-      U.bus.on('channel.connect', p => {
-        if (p && p.channel && buildMessaging._refresh && document.querySelector('.ch-card')) buildMessaging._refresh();
-      });
-    }
+    wireChannelHealth();
     // 30s heartbeat re-poll while the panel is open — a background reconnect/drop repaints without a manual reopen.
     // Self-terminating: the moment this panel's body leaves the DOM (window closed / rerendered) the timer clears.
     if (buildMessaging._poll) { clearInterval(buildMessaging._poll); }
@@ -821,5 +816,23 @@
     refreshAll();
   }
 
-  StationUI.registerWindow('messaging', 'CHANNELS', buildMessaging, { console: true, className: 'channels-console' });   // console mode = the wide SETTINGS-style two-pane window; the className scopes the no-glyph rail; dock label = window title (it's Telegram/external channels, not COMMS)
+  /* THE ONE SUBSCRIPTION LIVES AT MODULE SCOPE (night-leak, 2026-10-15). It used to be created inside the FIRST buildMessaging
+     call, so its closure context was that call's scope — the one holding `body` — and the bus kept the first CHANNELS window ever
+     opened alive for the rest of the session (heap snapshot: U.bus._h['channel.connect'][1] -> context -> body -> div.term). */
+  function onChannelConnect(p) {
+    if (p && p.channel && buildMessaging._refresh && document.querySelector('.ch-card')) buildMessaging._refresh();
+  }
+  function wireChannelHealth() {
+    if (buildMessaging._wired || typeof U === 'undefined' || !U.bus) return;
+    buildMessaging._wired = true;
+    U.bus.on('channel.connect', onChannelConnect);
+  }
+  // a closed CHANNELS window lets go: the refresh hook and the 30s poll both close over its body (the poll only noticed the
+  // window was gone at its next tick, and _refresh held the last closed window until the next open)
+  function closed() {
+    buildMessaging._refresh = null;
+    if (buildMessaging._poll) { clearInterval(buildMessaging._poll); buildMessaging._poll = null; }
+  }
+
+  StationUI.registerWindow('messaging', 'CHANNELS', buildMessaging, { console: true, className: 'channels-console', onClose: closed });   // console mode = the wide SETTINGS-style two-pane window; the className scopes the no-glyph rail; dock label = window title (it's Telegram/external channels, not COMMS)
 })();
