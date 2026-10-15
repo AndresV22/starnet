@@ -81,8 +81,9 @@
   const BUILDER_KIT = [{ instanceId: 'builder_lent', objectType: 'builder' }];
   const kitFor = lent => (lent ? WORKER_KIT.concat(BUILDER_KIT) : WORKER_KIT);
   const canLendBuilder = ctx => { try { const r = ctx && typeof ctx.canUse === 'function' ? ctx.canUse({ name: 'station.build' }) : null; return !!(r && r.ok); } catch (_) { return false; } };
-  const boundedDomainTask = (text) => {
-    try { return domainTask && typeof domainTask.classify === 'function' ? domainTask.classify(text) : null; }
+  // isFile: the worker run's own file probe (deps.fileProbe) — the dispatcher and the worker's run answer ONE way
+  const boundedDomainTask = (text, isFile) => {
+    try { return domainTask && typeof domainTask.classify === 'function' ? domainTask.classify(text, isFile ? { isFile } : undefined) : null; }
     catch (_) { return null; }
   };
 
@@ -392,6 +393,16 @@
        lead VERIFIES a foreground team.dispatch: that path never enters the background registry, so team.subagents
        used to answer [] for real, recorded worker runs and the lead reported them as never having happened (#57). */
     const runRecord = (typeof deps.runRecord === 'function') ? deps.runRecord : null;
+    /* ONE BRIEF, ONE ANSWER (review 10-15). The worker's own run classifies its brief with the host's file probe (index.js
+       runFileExists: that worker's workspace + the project it runs in), so "check about.me" with about.me in its
+       workspace is not a one-host check there. The dispatcher classified the same brief on text alone and still capped
+       that worker at 3 turns / 3 tools / 45s. fileProbe(agentId, projectRoot) -> (name) -> boolean, asked with the
+       SAME agent id and project the worker run gets. No probe wired (bare/legacy host) -> text-only, as before. */
+    const fileProbeFor = (aid, projectRoot) => {
+      if (typeof deps.fileProbe !== 'function') return null;
+      try { const probe = deps.fileProbe(aid, projectRoot); return typeof probe === 'function' ? probe : null; }
+      catch (e) { failNote('dispatch.file-probe', e); return null; }
+    };
     // the LEAD's OWN base identity (system prompt), threaded from the run host so team.spawn can clone it. Empty
     // string when absent → a spawned subagent still runs, just without an inherited persona.
     const selfSystem = (typeof deps.selfSystem === 'string') ? deps.selfSystem : '';
@@ -813,7 +824,7 @@
           // straggler is stopped ALONE and comes back as one honest `timeout` row while its siblings' work survives.
           // Background workers pass no wallMs — outliving the tool call is the whole point of background:true.
           const parentSignal = o2.signal || (ctx && ctx.signal);
-          const bounded = boundedDomainTask(job.prompt);
+          const bounded = boundedDomainTask(job.prompt, fileProbeFor(job.agentId, projectOptions(job.sessionContext || ctx).projectRoot));
           // minted up front (not inline in the runOnce call) so the row can carry the SAME id the run was filed
           // under — the page's delivery uses it to append the run to the session and to stay idempotent.
           const workerRunId = o2.runId || newId();
@@ -1157,7 +1168,7 @@
           let settle; const done = new Promise(res => { settle = res; });
           const runner = async (h) => {
             let result;
-            const bounded = boundedDomainTask(prompt);
+            const bounded = boundedDomainTask(prompt, fileProbeFor(ephemeralId, projectOptions(ctx).projectRoot));
             const contractedPrompt = openingMessage(prompt, task.context, task.resultSchema);
             try {
               result = await runOnce({
@@ -1404,7 +1415,7 @@
         const finish = async row => { await finalizeWorkerDelivery(h.runId, row); return row; };
         const wire = workerWire(ident);   // same cross-provider resolution as a fresh dispatch
         let result;
-        const bounded = boundedDomainTask(rec.prompt || '');
+        const bounded = boundedDomainTask(rec.prompt || '', fileProbeFor(rec.agentId, projectOptions(ctx, rec).projectRoot));
         // The durable record carries the lead's handoff `context`, so a resumed worker rebuilds the SAME
         // opening message a fresh dispatch would have — a restart never silently drops the handoff.
         const contractedPrompt = openingMessage(rec.prompt || '', handoffContext(rec.context), rec.resultSchema);

@@ -20441,6 +20441,8 @@ async function runOnceCore(o) {
     runOnce, roster: () => agentRoster, key: runKey, model, provider: providerId, baseUrl, reasoningEffort, subagents,
     finalizeDispatchDelivery: (id, envelope) => dispatchDeliveryStore.finalizeDispatchDelivery(dispatchDeliveryDeps, id, envelope),
     runRecord: (id) => runStore.latest(id),   // team.subagents {runId}: verify a foreground dispatch against run history (#57)
+    // the dispatcher classifies a worker's brief with the SAME file probe that worker's own run uses (one brief, one answer)
+    fileProbe: runFileExists,
     // THE HAND-OFF: where a worker's saved files really are (existing files only), and the lead's right to read them
     handoffFiles: async (aid, list) => {
       const out = [];

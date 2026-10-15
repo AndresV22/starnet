@@ -34,23 +34,67 @@
      Moldova, .py Paraguay, .sh Saint Helena, .rs Serbia, .pl Poland, .cc Cocos, .tf, .gd, .in … — and a
      lowercase "main.py" / "notes.md" / "soak-poem-x.md" beside "review"/"open"/"check" was read as ONE exact website:
      the run lost team.* and web_search, and a delegated worker was cut to 3 tools. A bare token with one of these
-     suffixes is a website only on web evidence (namesFile below). MIXED suffixes are everyday websites AND file
-     extensions (claude.ai / logo.ai, notion.so / libfoo.so): a host unless the sentence is about files. Suffixes that
-     are rarely file extensions (.com .io .me .to .tv .ly .gg …) stay hosts unless the name is a file this run can see
-     or the sentence calls it a file. */
-  const FILE_SUFFIXES = new Set('ac am cc gd gs in md mk ml mm mo pl pm ps py rs sc sh sv tf'.split(' '));
-  const MIXED_SUFFIXES = new Set(['ai', 'so']);
+     suffixes is a website only on web evidence that GOVERNS it (namesFile below). MIXED suffixes are everyday websites
+     AND file extensions (claude.ai / logo.ai, notion.so / libfoo.so, publico.pt / model.pt): a host unless that file
+     type's own vocabulary is in the sentence. Suffixes that are rarely file extensions (.com .io .me .to .tv .ly .gg …)
+     stay hosts unless the name is a file this run can see or the sentence calls it a file. */
+  const FILE_SUFFIXES = new Set('ac am bb cc cl cu gd gs in la md mk ml mm mo nc pl pm ps py rs sc sh sv tf'.split(' '));
+  /* A mixed suffix is a file only on THAT file type's words (review 10-15). Generic task words — errors, write, save,
+     test, run, "in X" — are what people say about claude.ai and notion.so too: "check claude.ai for errors" is a site
+     check, and a typo'd startup.ai must keep its early NXDOMAIN stop. */
+  const MIXED_FILE_WORDS = new Map([
+    ['ai', /\b(?:layers?|artboards?|illustrator|vectors?|swatch(?:es)?|strokes?|anchor\s+points?)\b/i],
+    ['so', /\b(?:link(?:er|ing)?\s+(?:errors?|fail(?:s|ed|ures?)?)|linker|ldd|nm|objdump|readelf|dlopen|undefined\s+(?:symbols?|references?)|missing\s+symbols?|exported\s+symbols?|shared\s+(?:objects?|librar(?:y|ies))|segfaults?|recompile)\b/i],
+    ['pt', /\b(?:weights|checkpoints?|torch|pytorch|tensors?|state_dict|fine-?tun(?:e|ed|ing))\b/i]
+  ]);
+  const MIXED_FILE_NAME = new Map([['so', /^lib[a-z0-9_+-]/]]);   // libfoo.so is a shared library
   // words that put a sentence in a file/code task (tested with the token itself cut out, so "code.py" proves nothing)
   const FILE_WORD_RE = /\b(?:files?|file\s?names?|scripts?|modules?|source|code|codebase|repo|repository|folders?|director(?:y|ies)|workspace|bugs?|fix|debug|refactor|compile|lint|tests?|functions?|class(?:es)?|methods?|imports?|edit|rewrite|write|create|save|rename|append|update|modify|delete|run|execute|line\s+\d+|diff|commit|traceback|stack\s?trace|syntax|crash(?:es)?|errors?)\b/i;
-  // words that say the token is a place on the web ("links", "urls" and "domain" are not: a markdown file has links,
-  // a config lists urls, a models.py holds the domain model)
-  const WEB_WORD_RE = /\b(?:web\s?sites?|sites?|web\s?pages?|home\s?pages?|landing\s+pages?|online|internet|visit(?:ing)?|brows(?:e|ing)|docs?|documentation)\b/i;
+  /* WEB EVIDENCE MUST GOVERN THE NAME (review 10-15). "docs", "site" or "visit" ANYWHERE in the sentence made
+     intro.md, handler.rs or notes.md a website ("review intro.md in the docs", "Check notes.md, then visit the website
+     it links to"), so the run lost team.* and web_search and the browser was confined to a file name. Web evidence now
+     counts only beside the name. STRONG (every file-like suffix, .md included): a web verb right before it ("visit X",
+     "go to X"), a site noun right after it ("the X website", "X prices"), "the site at X" / "the pricing on X", or
+     "is X up/down". WEAK (never for .md and .py — the doc and Python extensions — and only when the sentence has no
+     file/code words): "the X docs", "the docs at X", "X and read the docs". "Links", "urls" and "domain" are never web
+     evidence: a markdown file has links, a config lists urls, a models.py holds the domain model. */
+  const WEB_VERB_BEFORE_RE = /\b(?:visit(?:ing)?|brows(?:e|ing)|go(?:ing)?\s+to|surf)\s+(?:the\s+)?[`'"(<[]?$/i;
+  const SITE_NOUN_BEFORE_RE = /\b(?:(?:web\s?sites?|sites?|web\s?pages?|home\s?pages?)\s+(?:at|called|named)|(?:pricing|prices|blog(?:\s+posts?)?|landing\s+page|home\s?page)\s+(?:on|at|of))\s+[`'"(<[]?$/i;
+  // "the itch.sh website", "amazon.in prices" — but "app.py site settings" / "site-packages" are not the site
+  const SITE_NOUN_AFTER_RE = /^[`'")\]>]?\s+(?:web\s?sites?|sites?|web\s?pages?|home\s?pages?|landing\s+pages?|pricing|prices|blog)\b(?!-|\s+(?:settings?|config(?:uration)?|packages?|maps?|roots?|dir(?:ector(?:y|ies))?|modules?|generators?|builders?|variables?)\b)/i;
+  const IS_BEFORE_RE = /\b(?:is|are|was)\s+[`'"(<[]?$/i;                                  // "is example.sh up?"
+  const UP_AFTER_RE = /^[`'")\]>]?\s+(?:up|down|online|offline|reachable|unreachable)\b(?!\s+to\b)/i;
+  const STRONG_ONLY = new Set(['md', 'py']);   // the doc and Python extensions: a site only on strong evidence
+  const DOCS_BEFORE_RE = /\b(?:docs?|documentation)\s+at\s+[`'"(<[]?$/i;
+  const DOCS_AFTER_RE = /^[`'")\]>]?\s+(?:docs?|documentation)\b/i;
+  const READ_ITS_DOCS_AFTER_RE = /^[`'")\]>]?\s+and\s+(?:then\s+)?(?:read|check|browse|skim|study|look\s+(?:at|through)|summari[sz]e)\s+(?:the|its)\s+(?:[\w-]+\s+){0,2}?(?:docs?|documentation|site|website|home\s?page)\b/i;
   const IN_FILE_BEFORE_RE = /\b(?:in|into|inside|within)\s+(?:the\s+)?[`'"([]?$/i;      // "in guide.md", "into notes.md"
   const NAMED_FILE_BEFORE_RE = /\bfiles?\s+(?:(?:named|called)\s+)?[`'"([]?$/i;        // "a file named x.md", "the file x.md"
   const FILE_AFTER_RE = /^[`'")\]]?\s+files?\b/i;                                         // "the notes.md file"
   // "I'll check back later" is not an inspection of anything.
   const DIRECT_RE = /\b(check(?!\s+back\b)|check out|visit|open|read|inspect|browse|look at|review)\b|\b(docs?|documentation|website|site)\b/i;
   const EXPANSIVE_RE = /\b(find|locate|discover)\s+(?:the\s+)?(?:correct|right|official|new|current)\b|\b(alternatives?|similar sites?|where (?:it|the site) moved|domain history|archives?|wayback|compare|across the web)\b|\bsearch\s+(?:the\s+)?web\s+for\b/i;
+  /* A HAND-OFF IS NOT A ONE-SITE CHECK FOR THE LEAD (review 10-15). The policy withholds team.*, so "Ask COPY to check
+     example.com and save it into notes.md" left the lead unable to hand over the very work it was asked to hand over —
+     the soak's own symptom with a real site. The worker the lead dispatches is still classified on its own brief and
+     bounded by orchestration.js (3 turns, 3 tools, 45s) and by its own run, so the bound stays on the run that fetches.
+     Crew are named by the Commander, not known here: "ask/tell/have/let/get <name> (to) <verb>", "have a worker / the
+     team <verb>", "hand/give/pass this to <name>", "delegate", "dispatch a worker", "in the background". "have a (quick)
+     look", "let me", "make sure", "have time to" are not. */
+  const NOT_CREW = '(?:a|an|the|this|that|it|its|me|my|myself|us|our|you|your|yourself|sure|look|go|time|some)';
+  const CREW_NOUN = '(?:workers?|crew(?:mates?)?|agents?|sub-?agents?|helpers?|team(?:mates?)?|specialists?|researchers?|writers?|assistants?|clones?)';
+  const DELEGATE_RE = new RegExp(
+    '\\bdelegat(?:e|es|ed|ing)\\b(?!\\.[a-z])'
+    + '|\\b(?:hand|pass|give|assign|send|forward)\\s+(?:this|it|that|these|them)\\s+(?:off\\s+|over\\s+)?to\\s+(?!' + NOT_CREW + '\\b)[a-z]'
+    + '|\\b(?:ask|tell|get|have|let)\\s+(?:(?:the|a|an|another|my|our|one\\s+of\\s+(?:the|my|our))\\s+(?:[a-z]+\\s+)?' + CREW_NOUN
+    + '|(?!' + NOT_CREW + '\\b)[a-z][\\w-]*)\\s+(?:to\\s+)?'
+    + '(?:check|open|read|review|visit|inspect|browse|look|summari[sz]e|research|write|do|handle|take|fetch|scan|audit)\\b'
+    + '|\\b(?:dispatch|spawn|send)\\s+(?:a\\s+|an\\s+|the\\s+|some\\s+|one\\s+)?(?:workers?|crew(?:mates?)?|agents?|sub-?agents?|clones?|helpers?)\\b'
+    + '|\\bin\\s+the\\s+background\\b', 'i');
+  /* HOSTS NOBODY NAMED (review 10-15). "read the links in notes.md and check example.com" / "check example.com and the
+     pages it links to" must reach hosts the sentence does not name; confining fetch and the browser to the one named
+     host makes that impossible. "check example.com for broken links" names no such reach and stays bounded. */
+  const UNNAMED_HOSTS_RE = /\b(?:links?|urls?)\s+(?:in|inside|from|listed\s+in|on)\b|\b(?:sites?|websites?|pages?|links?|urls?)\s+(?:it|they|that|this|which)\s+links?\s+to\b|\bfollow\s+(?:the\s+|its\s+|all\s+(?:the\s+)?|each\s+|every\s+|any\s+)?(?:links?|urls?)\b/i;
   /* AN API CALL IS NOT A PAGE READ (issue #58). The policy withholds web_request, so a task that calls one host's
      API ("POST to https://api.x.com/v1/items with ${MY_KEY}, then check the response") lost the only tool that
      can do it — "check"/"read" matched DIRECT_RE — and the agent reported web_request missing. Routines were hit
@@ -78,16 +122,26 @@
     const token = m[1];
     if (opts && typeof opts.isFile === 'function' && opts.isFile(token)) return true;
     const before = src.slice(Math.max(0, m.index - 48), m.index);
-    const after = src.slice(m.index + m[0].length, m.index + m[0].length + 24);
+    const after = src.slice(m.index + m[0].length, m.index + m[0].length + 96);
     if (NAMED_FILE_BEFORE_RE.test(before) || FILE_AFTER_RE.test(after)) return true;
     const fileLike = FILE_SUFFIXES.has(suffix);
-    if (!fileLike && !MIXED_SUFFIXES.has(suffix)) return false;
-    if (IN_FILE_BEFORE_RE.test(before)) return true;
+    const mixedWords = MIXED_FILE_WORDS.get(suffix);
+    if (!fileLike && !mixedWords) return false;
     const tail = m[2] || '';
     if (/^\/[^\s\/]/.test(tail)) return false;            // docs.rs/tokio — a URL path ("main.py?" and "notes.md#x" are not)
+    // strong web evidence beside the name: "visit X", "go to X", "the site at X", "the X website", "is X up?"
+    if (WEB_VERB_BEFORE_RE.test(before) || SITE_NOUN_BEFORE_RE.test(before) || SITE_NOUN_AFTER_RE.test(after)) return false;
+    if (IS_BEFORE_RE.test(before) && UP_AFTER_RE.test(after)) return false;
     const rest = src.slice(0, m.index) + ' ' + src.slice(m.index + m[0].length);
+    if (mixedWords) {
+      const named = MIXED_FILE_NAME.get(suffix);
+      return mixedWords.test(rest) || !!(named && named.test(token));
+    }
+    if (IN_FILE_BEFORE_RE.test(before)) return true;
     if (FILE_WORD_RE.test(rest)) return true;
-    return fileLike && !WEB_WORD_RE.test(rest);            // no web evidence: a file-like suffix stays a file
+    if (STRONG_ONLY.has(suffix)) return true;              // .md/.py: "docs" words never make them a site
+    // weak web evidence beside the name, only in a sentence with no file/code words
+    return !(DOCS_AFTER_RE.test(after) || DOCS_BEFORE_RE.test(before) || READ_ITS_DOCS_AFTER_RE.test(after));
   }
 
   function hostsOf(text, opts) {
@@ -118,6 +172,7 @@
     const hosts = hostsOf(src, opts);
     if (hosts.length !== 1 || !DIRECT_RE.test(src) || EXPANSIVE_RE.test(src)) return null;
     if (API_CALL_RE.test(src) || HTTP_METHOD_RE.test(src) || INTERACTIVE_RE.test(src)) return null;
+    if (DELEGATE_RE.test(src) || UNNAMED_HOSTS_RE.test(src)) return null;
     return {
       kind: 'direct-domain', host: hosts[0],
       workerMaxIters: WORKER_MAX_ITERS, workerMaxTools: WORKER_MAX_TOOLS, workerMaxMs: WORKER_MAX_MS

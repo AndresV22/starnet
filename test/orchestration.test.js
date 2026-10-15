@@ -145,6 +145,63 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   A.eq(ro.calls[0].maxToolCalls, undefined, 'a worker asked to fix main.py has no 3-tool one-host cap');
 }
 
+/* ---- ONE BRIEF, ONE ANSWER (review 10-15): the dispatcher classifies a worker's brief with the SAME file probe the
+   worker's own run uses (index.js runFileExists: that worker's workspace + the project it runs in). Before, a worker
+   briefed "check about.me" with about.me in its workspace was capped at 3 turns / 3 tools / 45s by the dispatcher
+   while its own run was not a one-host check. Dispatch, spawn and resume all ask the probe. ---- */
+{
+  const probed = [];
+  const fileProbe = (aid, root) => { probed.push([aid, root]); return name => name === 'about.me'; };
+  const ro = fakeRunOnce();
+  const roster = new Map([['coder', { system: 'C' }]]);
+  const { dispatchTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(), workerMaxIters: 16, fileProbe });
+  await dispatchTool.run({ workers: [{ agentId: 'coder', prompt: 'check about.me' }, { agentId: 'coder', prompt: 'check example.com' }] }, { agentId: 'lead', runId: 'lead-run', emit: () => {}, projectRoot: '/proj/site' });
+  A.eq(ro.calls[0].maxIters, 16, 'dispatch: a worker briefed on a file in its workspace keeps the ordinary turn cap');
+  A.eq(ro.calls[0].maxToolCalls, undefined, 'dispatch: a worker briefed on a file in its workspace has no 3-tool cap');
+  A.eq(ro.calls[1].maxToolCalls, 3, 'dispatch: a real one-host brief is still capped with the probe wired');
+  A.ok(probed.some(([aid, root]) => aid === 'coder' && root === '/proj/site'), 'dispatch: the probe is asked for the worker agent and the project it runs in');
+}
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-spawn-probe-'));
+  try {
+    const subagents = makeSubagentManager({ fs, pathMod: path, file: path.join(root, 'sub.json'), clock: { now: () => 1000 }, emit: () => {}, newId: counter() });
+    const probed = [];
+    const fileProbe = (aid, r) => { probed.push([aid, r]); return name => name === 'about.me'; };
+    const ro = fakeRunOnce();
+    const { spawnTool } = makeOrchestrationTools({ runOnce: ro, roster: () => new Map(), key: 'k', model: 'm', selfSystem: 'S', newId: counter(), workerMaxIters: 9, fileProbe, subagents });
+    await spawnTool.run({ tasks: [{ prompt: 'check about.me' }, { prompt: 'check example.com' }] }, { agentId: 'lead', emit: () => {} });
+    const fileRun = ro.calls.find(c => /about\.me/.test(JSON.stringify(c.messages)));
+    const siteRun = ro.calls.find(c => /example\.com/.test(JSON.stringify(c.messages)));
+    A.eq(fileRun && fileRun.maxIters, 9, 'spawn: a clone briefed on a file in its workspace keeps the ordinary turn cap');
+    A.eq(fileRun && fileRun.maxToolCalls, undefined, 'spawn: a clone briefed on a file in its workspace has no 3-tool cap');
+    A.eq(siteRun && siteRun.maxToolCalls, 3, 'spawn: a real one-host brief is still capped with the probe wired');
+    A.ok(!!fileRun && probed.some(([aid]) => aid === fileRun.agentId), "spawn: the probe is asked for the clone's own ephemeral agent id");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-orch-resume-probe-'));
+  try {
+    const subagents = makeSubagentManager({ fs, pathMod: path, file: path.join(root, 'subagents.json'), clock: { now: () => 1000 }, emit: () => {}, newId: counter() });
+    const first = subagents.start({ leadId: 'lead', agentId: 'researcher', prompt: 'check about.me', runId: 'run_a', projectRoot: '/original/project' }, async () => new Promise(() => {}));
+    await tick();
+    subagents.interrupt(first.id, 'lead');
+    const reloaded = makeSubagentManager({ fs, pathMod: path, file: path.join(root, 'subagents.json'), clock: { now: () => 1001 }, emit: () => {}, newId: counter() });
+    const probed = [];
+    const fileProbe = (aid, r) => { probed.push([aid, r]); return name => name === 'about.me'; };
+    const ro = fakeRunOnce(async () => ({ reason: 'done', messages: [{ role: 'assistant', content: 'resumed' }], usd: 0 }));
+    const { resumeTool } = makeOrchestrationTools({ runOnce: ro, roster: () => new Map([['researcher', { system: 'R' }]]), key: 'k', model: 'm', newId: counter(), subagents: reloaded, workerMaxIters: 7, fileProbe });
+    await resumeTool.run({ id: first.id }, { agentId: 'lead', emit: () => {} });
+    await tick(); await tick();
+    A.eq(ro.calls[0].maxIters, 7, 'resume: a worker briefed on a file in its workspace keeps the ordinary turn cap');
+    A.eq(ro.calls[0].maxToolCalls, undefined, 'resume: a worker briefed on a file in its workspace has no 3-tool cap');
+    A.ok(probed.some(([aid, r]) => aid === 'researcher' && r === '/original/project'), 'resume: the probe is asked for the stored worker and its stored project');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 // ---- child emit forwarding: ONLY lifecycle/cost reach the lead bus (no token/COMMS pollution) ----
 {
   const ro = fakeRunOnce(async (o) => {
