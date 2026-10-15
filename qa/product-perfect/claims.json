@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "77cf77fc64805f1e1457d37109c16cd73a463aa3",
+    "sourceCommit": "274a3428e58cac74c9d841976b064bb67d0372c9",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -528,8 +528,8 @@
       },
       {
         "path": "frontend/app/glass-comms.js",
-        "bytes": 7372,
-        "sha256": "d4676f9c7fe27c5acd443fb6757e73afae809f9163d31d5527e57256f2980011"
+        "bytes": 10128,
+        "sha256": "95ed770dc13494418fcd5f36a8f9d3a1b3673f27a60867ac5ed61dce5888f78f"
       },
       {
         "path": "frontend/app/glass-demo.js",
@@ -1318,8 +1318,8 @@
       },
       {
         "path": "frontend/app/voice.js",
-        "bytes": 132264,
-        "sha256": "459f2e9e022058b327fb0ed97a9a9be70d8e81d20b30c54f69e5e5a3939bb002"
+        "bytes": 132898,
+        "sha256": "099b5092894e57b76cbcc8de0b72ada4947576e71e1432bba4954aaf88db24b6"
       },
       {
         "path": "frontend/app/waitanchor.js",
@@ -1523,8 +1523,8 @@
       },
       {
         "path": "frontend/css/app.css",
-        "bytes": 430546,
-        "sha256": "54db3ab7e9a4b8437111b08b8853052f1c9c1500c1b7f2726567b66d027eff26"
+        "bytes": 430994,
+        "sha256": "3b983247f221b6f0e252ca49fc5ccd6c8fabfe619e7822d624d0eb74a0d5b058"
       },
       {
         "path": "frontend/css/asciifx.css",
@@ -1583,8 +1583,8 @@
       },
       {
         "path": "frontend/css/glass-comms.css",
-        "bytes": 25587,
-        "sha256": "9d9ac12256668111ed545e7d93ed176a2cf0dac9baa6409186ecc5deb5242f67"
+        "bytes": 26155,
+        "sha256": "3583be1e22298a97c5779da8501c6959e06fb8066bfd63dc4f6cc7ff6ae94719"
       },
       {
         "path": "frontend/css/glass-demo.css",
