@@ -14,7 +14,7 @@
    corruption). All git failures FAIL-OPEN (a snapshot/restore problem must never crash a run); the host decides
    whether a missing checkpoint should block a dangerous tool.
 
-   makeCheckpointStore({ fs, pathMod, root, runGit, clock, keep?, scopeIdOf?, allowWorkTree? })
+   makeCheckpointStore({ fs, pathMod, root, runGit, clock, keep?, scopeIdOf?, allowWorkTree?, maxRepoBytes?, maintenanceTimeoutMs? })
      -> { snapshot, restore, restoreDetailed, list, isValidId }
      runGit(args:string[], { cwd, timeoutMs? }) -> Promise<{ code:int|string, stdout, stderr }>   // resolves, never rejects
      snapshot(agentId, { runId, turn, label, workTree? }) -> Promise<{ id, created:bool, files, bytes } | null>
@@ -58,6 +58,8 @@
     const allowWorkTree = typeof d.allowWorkTree === 'function' ? d.allowWorkTree : function () { return false; };
     const keep = d.keep != null ? d.keep : KEEP_DEFAULT;
     const maxRepoBytes = d.maxRepoBytes != null ? d.maxRepoBytes : MAX_REPO_BYTES_DEFAULT;
+    // per-call bound for gc and the re-init add/commit (injectable so a test can kill a real gc mid-repack)
+    const maintenanceTimeoutMs = d.maintenanceTimeoutMs > 0 ? d.maintenanceTimeoutMs : MAINTENANCE_GIT_TIMEOUT_MS;
     if (!fs || !pathMod || !root || typeof runGit !== 'function') throw new Error('checkpoint-store: fs/pathMod/root/runGit are required');
 
     // All roots for one agent share index.json. Serialize whole operations, not individual Git calls,
@@ -372,7 +374,7 @@
           fresh single-commit repo of the current worktree, then RE-STAMPS the index to that one commit. This
           sacrifices the older in-index rollback points to keep disk bounded — a disclosed, honest tradeoff, taken
           ONLY past the ceiling. Fail-open: any git failure leaves the repo as-is (never crash a run).
-       gc and the re-init add/commit get MAINTENANCE_GIT_TIMEOUT_MS, not the snapshot default, and every gc attempt
+       gc and the re-init add/commit get maintenanceTimeoutMs (120 s default), not the snapshot default, and every gc attempt
        is followed by sweepGitTemporaries. A pass that still ends over the ceiling (gc and re-init both failed, or the
        current tree alone is bigger than the ceiling) pauses snapshot()'s automatic passes for this git-dir for
        MAINTENANCE_BACKOFF_MS: re-running it on every mutating turn only restarted the same doomed gc, a stall inside
@@ -388,7 +390,7 @@
       }
       let gcSucceeded = false;
       try {
-        const gc = await git(aid, scope, ['gc', '--prune=now', '-q'], MAINTENANCE_GIT_TIMEOUT_MS);
+        const gc = await git(aid, scope, ['gc', '--prune=now', '-q'], maintenanceTimeoutMs);
         gcSucceeded = !!gc && gc.code === 0;
         if (!gcSucceeded) failNote('checkpoint.gc', new Error('Git maintenance ' + (gc && gc.timedOut ? 'timed out' : 'failed') + '; checkpoint storage may remain over limit'));
       } catch (e) { failNote('checkpoint.gc', e); }
@@ -432,8 +434,8 @@
           '-c', 'user.email=starnet@local', '-c', 'user.name=starnet'].concat(args),
           timeoutMs ? { cwd: workTreeFor(aid, scope), timeoutMs: timeoutMs } : { cwd: workTreeFor(aid, scope) });
         if ((await gitAt(fresh, ['init', '-q'])).code !== 0) { cleanup(); return false; }
-        if ((await gitAt(fresh, ['add', '-A'], MAINTENANCE_GIT_TIMEOUT_MS)).code !== 0) { cleanup(); return false; }
-        const com = await gitAt(fresh, ['commit', '-q', '--allow-empty', '-m', 'baseline (repo re-init: size ceiling)'], MAINTENANCE_GIT_TIMEOUT_MS);
+        if ((await gitAt(fresh, ['add', '-A'], maintenanceTimeoutMs)).code !== 0) { cleanup(); return false; }
+        const com = await gitAt(fresh, ['commit', '-q', '--allow-empty', '-m', 'baseline (repo re-init: size ceiling)'], maintenanceTimeoutMs);
         if (com.code !== 0) { cleanup(); return false; }
         const sha = (await gitAt(fresh, ['rev-parse', 'HEAD'])).stdout.trim();
         if (!cp.isValidId(sha)) { cleanup(); return false; }

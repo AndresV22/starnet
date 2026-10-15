@@ -165,6 +165,8 @@ function looseObjects(id) {
     A.eq(gcOpts.length,2,'after the back-off window maintenance is attempted again');
     const forced = await always.enforceSizeCeiling(loopAid);
     A.ok(forced.swept,'an explicit sweep is never suppressed by the back-off');
+    await makeCheckpointStore({...loopDeps,maxRepoBytes:1024,maintenanceTimeoutMs:45000}).enforceSizeCeiling(loopAid);
+    A.eq(gcOpts[gcOpts.length-1].timeoutMs,45000,'an injected maintenanceTimeoutMs reaches gc');
     A.ok(await always.restore(loopAid,b2.id),'a checkpoint taken during the back-off restores');
     A.eq(fs.readFileSync(path.join(loopWt,'notes.txt'),'utf8'),'v2','restore brings back the bytes captured at turn-b');
 
