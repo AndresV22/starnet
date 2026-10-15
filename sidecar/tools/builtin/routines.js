@@ -281,7 +281,7 @@
           provider: { type: 'string', enum: providerEnum },
           model: { type: 'string' },
           enabled: { type: 'boolean' },
-          arm: { type: 'boolean', description: 'Default true. When true, also turns scheduling on if it was never set. If the Commander turned scheduling off, it stays off (only they turn it back on) — the result says so in schedulerNote.' },
+          arm: { type: 'boolean', description: 'Default true: turns scheduling on if never set; keeps an OFF or E-STOP.' },
           repeatTimes: { type: ['integer', 'null'], description: 'Omit/null for recurring forever; one-shot schedules still run once.' }
           ,deliver: { type: 'string', enum: ['local', 'origin'], description: 'Where to send each result. origin returns it to this chat/session.' }
           ,attachToSession: { type: 'boolean', description: 'Keep delivered results in the origin conversation so replies can continue from them.' }
@@ -356,8 +356,9 @@
           ok: true,
           schedulerArmed: !!schedulerState(),
           schedulerHalted: !!schedulerHalted(),
-          // so the model cannot report "this will run daily" over a stopped scheduler
-          schedulerNote: armedNote() || undefined,
+          // so the model cannot report "this will run daily" over a stopped scheduler. (AUTO-P16-1: the arm schema has ~0 payload
+          // headroom, so the arm rule's detail lives HERE, in the result the model reads after the call — a save never lifts an E-STOP.)
+          schedulerNote: schedulerHalted() ? armedNote() + ' (saving this routine did not lift it — only the Commander resumes)' : (armedNote() || undefined),
           // the one arm rule, said as it happened: THIS create turned scheduling on, or kept the Commander's OFF
           schedulerArmedNow: !wasArmed && !!schedulerState() && !schedulerHalted(),
           schedulerOffByChoice: offByChoice,
