@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "ca18f61440e5776a53d027b6fe35462c292ff3f5",
+    "sourceCommit": "6c2035c8a18ba16a85866eefdabd90b3a879cb08",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -343,8 +343,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 866298,
-        "sha256": "e656b4b2c2ba4186fbd832363cbb7846213fdd13da85f9b0435c78fc70162a90"
+        "bytes": 874574,
+        "sha256": "607be16ebe309f987e1c4b1236ec1ea99bbd735f37b4dd44126178022ae631da"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -433,8 +433,8 @@
       },
       {
         "path": "frontend/app/delegated.js",
-        "bytes": 50791,
-        "sha256": "05ace17a9eea3e749987ef1f2f651557098b5723f3688c6a1047064f5768b0a4"
+        "bytes": 52067,
+        "sha256": "dbaa184921390912b07e62a3f6934b2aa38d97335b45032ead8d796dccc19498"
       },
       {
         "path": "frontend/app/deliverables.js",
@@ -453,8 +453,8 @@
       },
       {
         "path": "frontend/app/dialogue.js",
-        "bytes": 26971,
-        "sha256": "e790d3c9eda7a206a43e10d2a67ebb4269fd382af0a5fc0a602ef5e2a929a9ff"
+        "bytes": 32540,
+        "sha256": "d5398e2a9b986e477bedc3561a8bafdc3dcf44a090d7726b28de6f1b18e6c3ec"
       },
       {
         "path": "frontend/app/discoverystore.js",
@@ -693,8 +693,8 @@
       },
       {
         "path": "frontend/app/modeldock.js",
-        "bytes": 55855,
-        "sha256": "b88875dab5a0cbb005b49635420b453a24010c279e798ce8ce7e0b09ae24cecb"
+        "bytes": 56009,
+        "sha256": "73f83be60041176df1e1f4d03ea737f9185c734edc5c5aada7895d9027459f28"
       },
       {
         "path": "frontend/app/modelpicker.js",
@@ -1308,8 +1308,8 @@
       },
       {
         "path": "frontend/app/voice-live.js",
-        "bytes": 102510,
-        "sha256": "9f39f27da143e0e8d759b58a390d92f4328e74a1ba98d868c2893e3a6965cb04"
+        "bytes": 102668,
+        "sha256": "b510c768da1722d8920379fa53f035e9a88306f829e4dc26dc66c61f10777240"
       },
       {
         "path": "frontend/app/voice-stream.js",
@@ -1318,8 +1318,8 @@
       },
       {
         "path": "frontend/app/voice.js",
-        "bytes": 132121,
-        "sha256": "153baf78e8c5a2051a11df69826f998c9cb9275fdd71391b54c67ebba83045b3"
+        "bytes": 132264,
+        "sha256": "459f2e9e022058b327fb0ed97a9a9be70d8e81d20b30c54f69e5e5a3939bb002"
       },
       {
         "path": "frontend/app/waitanchor.js",
@@ -1523,8 +1523,8 @@
       },
       {
         "path": "frontend/css/app.css",
-        "bytes": 429414,
-        "sha256": "b6e3169936c53931b524f22dc0cc8766ec06411e0ccb22249c0ee8a6281d88e4"
+        "bytes": 429787,
+        "sha256": "4b207af9941e869e7b83dc18db02a51ce3c817471c700a73fe32c41dc2226b9a"
       },
       {
         "path": "frontend/css/asciifx.css",
