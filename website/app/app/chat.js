@@ -8282,8 +8282,12 @@ const Chat = (() => {
     const arr = (activeWs && queued.get(activeWs.id)) || [];
     strip.innerHTML = '';
     arr.forEach((t, i) => {
-      // the tip names what this pill will do: send after the run (STOP gives it back instead), or send now into it
-      const pill = document.createElement('span'); pill.className = 'queued-pill'; pill.title = 'Queued: sends when this run finishes (STOP puts it back in the message box); send now hands it to the working run instead. — ' + t;
+      const pill = document.createElement('span'); pill.className = 'queued-pill';
+      // the pill clips the text (.queued-text max-width), so its tip carries the whole message — then what the pill DOES: it
+      // sends after this run, or its send now key hands it to the run working now. The tip card keeps 400 chars (tooltip.js
+      // MAX_LEN): the message gives way, the hint never does. (Same shape as the org pass P27 tip, naming SEND NOW.)
+      const QHINT = 'sends after this run · send now hands it to the running task', room = 400 - QHINT.length - 5;
+      pill.setAttribute('data-tip', '“' + (t.length > room ? t.slice(0, room - 1) + '…' : t) + '” · ' + QHINT);
       const label = document.createElement('span'); label.className = 'queued-text'; label.textContent = t;
       const x = document.createElement('button'); x.className = 'queued-x'; x.type = 'button'; x.textContent = '✕';
       x.setAttribute('aria-label', 'Cancel queued message');
