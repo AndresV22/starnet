@@ -10978,9 +10978,11 @@ const Chat = (() => {
             if (isActiveWs(ws) && input) { input.value = text; autoGrowInput(); }
           }
         } else {
-        // A network-kind failure means this response stream died. The durable journal—not this transport error—
-        // decides whether the task resumes safely or pauses for mutation review after the sidecar reconnects.
-        if (v.kind === 'network' && thisRunId) { interruptedStreams.add(ws.id); armReconnectWatch(); }
+        // NO RECONNECT WATCH HERE, whatever the words (night N2, 2026-10-15). This error is IN-BAND: the sidecar
+        // composed and streamed it, so this page's connection never dropped, and the run's journal was retired on
+        // this end. A provider's "terminated"/"network error" used to read as network, arm the probe, and print
+        // "connection restored" about a connection that was never lost. A real drop THROWS (marked at Harness's
+        // transport throw site) and the catch below arms the watch on verdict.transport.
         persistPartial(ws, acc);
         if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.error(v.userMessage, v.raw); }
         ws.history.push({ role: 'assistant', content: errorHistoryLine(v), error: true, ts: Date.now(), projectRoot: runRoot });   // so the failure (and its real reason) survives a switch-back/reload — error:true keeps it off the model's wire
@@ -11207,7 +11209,11 @@ const Chat = (() => {
         if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.error(v.userMessage, v.raw); resolvePresence(ws, { error: true }); }
         ws.history.push({ role: 'assistant', content: errorHistoryLine(v), error: true, ts: Date.now(), projectRoot: runRoot });   // keep a readable trace of the failure (never replayed to the model)
         goalStall = v.userMessage;
-        if (v.kind === 'network' && thisRunId) { interruptedStreams.add(ws.id); armReconnectWatch(); }
+        // This response stream died: the durable journal — not this error — decides whether the task resumes safely
+        // or pauses for mutation review once the sidecar answers again. Armed on PROVENANCE (verdict.transport: the
+        // error was marked at Harness's own transport throw site), never on words — Chromium/WebView2's bare
+        // "network error" body-read rejection now arms it, and a sidecar-written "sidecar HTTP 502 — … terminated" does not.
+        if (v.transport === true && thisRunId) { interruptedStreams.add(ws.id); armReconnectWatch(); }
         if (thisRunId && typeof Workstreams !== 'undefined' && Workstreams.noteRunEnd) Workstreams.noteRunEnd(ws.id, thisRunId, false);
         if (isActiveWs(ws)) offerRetry(v);   // RETRY: context-aware recovery chip (a dropped connection is retryable)
       }

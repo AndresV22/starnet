@@ -18,6 +18,8 @@
    • cap         — (capdenied only) the resolved capability id ('web'|'cabinet'|…) parsed from the
                    raw 'no <need> — …' message, so copy can name WHICH power was missing + its gear.
    • raw         — the original technical text, kept for a de-emphasized sub-line / title tooltip.
+   • transport   — (network only) true when the error was MARKED at Harness.chat's own transport throw site, i.e.
+                   this page's connection provably dropped; false for words that merely read like a drop.
 
    RENDERING THE ACTION (the door): `actionButton(verdict)` maps a verdict to { label, run } — a
    ready-to-wire button that OPENS the exact surface (Build.open() for BUILD MODE, the settings PROVIDERS
@@ -313,6 +315,16 @@
   function isTransportLoss(raw) {
     return /cannot reach|can'?t reach|unreachable|failed to fetch|fetch failed|networkerror|load failed|connection (?:refused|reset)|disconnected|\bterminated\b|socket (?:hang up|closed)|other side closed|premature close|econnreset|epipe/i.test(String(raw || ''));
   }
+  /* DID THIS PAGE'S OWN CONNECTION TO THE SIDECAR DROP? (night N2, 2026-10-15.) Answered by PROVENANCE, never by words:
+     Harness.chat marks the errors its own transport raised — the fetch() rejection, the body read rejection, the body
+     ending before the lead's completion — with `starnetTransport` (see harness.js transportLoss). Words cannot answer
+     it: Chromium/WebView2 rejects a body read on a dead sidecar with a bare "network error" the word list above never
+     knew, and the same words can arrive IN-BAND, composed and streamed by a perfectly live sidecar. A string can never
+     carry the mark, so no provider text can claim it. Only a marked error is a transport loss the reconnect watch may
+     act on (verdict.transport); isTransportLoss above still shapes the COPY of an unmarked text, nothing more. */
+  function isTransportThrow(err) {
+    return !!err && typeof err === 'object' && typeof err.starnetTransport === 'string' && err.starnetTransport !== '';
+  }
   /* IS THIS THE SIDECAR'S *OUTBOUND* CALL FAILING? (2026-07-29 — from a real user's diagnostics report.)
      The word order is the tell, and it is decisive. A BROWSER fetch rejection says "Failed to fetch" (Chromium),
      "NetworkError" or "Load failed". NODE/undici says "fetch failed" — the other order. So a raw text carrying
@@ -532,6 +544,12 @@
       return { userMessage: k.msg, kind: 'user_abort', retryable: k.retryable, action: k.action, raw: raw };
     }
     let kind = null;
+    // this page's own transport dropped (marked at Harness's throw site): a transport loss whatever words the
+    // browser chose — the provenance is the proof, so no text ladder below may re-read it
+    const transport = isTransportThrow(err);
+    if (transport) {
+      kind = 'network';
+    } else
     // Managed-credit exhaustion (only emitted when a credits backend is wired) — a UI-level fault the sidecar
     // classifier doesn't model. Catch it before everything else so the CTA points at the STORE, not blind retry.
     // ONLY "out of managed credit" means an empty wallet: "Managed credits are unavailable" also says "managed credit",
@@ -700,8 +718,10 @@
     }
     // transport loss: the ONE kind whose copy names a component, so it is the one kind that owes proof. The
     // measured verdict rides along on `engineAlive` so a diagnostic report can state what was actually probed.
+    // `transport` says whether THIS PAGE's connection provably dropped (a marked throw) — the only thing that may
+    // arm COMMS's reconnect watch. An unmarked text keeps the network copy but never claims the connection was lost.
     if (kind === 'network') {
-      return { userMessage: transportMessage(engineAlive), kind: kind, retryable: k.retryable, action: k.action, raw: raw, engineAlive: engineAlive };
+      return { userMessage: transportMessage(engineAlive), kind: kind, retryable: k.retryable, action: k.action, raw: raw, engineAlive: engineAlive, transport: transport };
     }
     return { userMessage: k.msg, kind: kind, retryable: k.retryable, action: k.action, raw: raw };
   }
@@ -876,5 +896,5 @@
   }
 
   return { friendlyError, actionButton, connectorDoor, connectorChipLabel, routeConsoleSearch, linkStartFailure, explainStop, stopLine, STOP_EXPLAINERS, KINDS, CAP_INFO,
-    _internals: { providerFromRaw, kindFromRaw, isTransportLoss, isUpstreamFetchFailure, isUserAbort, REASON_TO_KIND, capFromRaw, capdeniedMessage, codexConnected, transportMessage } };
+    _internals: { providerFromRaw, kindFromRaw, isTransportLoss, isTransportThrow, isUpstreamFetchFailure, isUserAbort, REASON_TO_KIND, capFromRaw, capdeniedMessage, codexConnected, transportMessage } };
 });
