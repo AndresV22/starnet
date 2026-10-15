@@ -60,7 +60,9 @@ const fetchDown = async () => { throw new TypeError('Failed to fetch'); };
   A.ok(cancelIdx > 0 && localIdx > 0, 'stopActive both defines the local abort and calls Harness.cancel');
   A.ok(/\.then\(v => \{ if \(v && v\.ok\) localAbort\(\); else stopFailed\(id, v\); \}/.test(stop), 'the local fetch is aborted ONLY on ok:true; anything else routes to stopFailed');
   A.ok(!/const ac = aborters\.get\(id\); if \(ac\) \{ try \{ ac\.abort\(\); \} catch \(_\) \{\} \}\s*\/\/ aborts the fetch/.test(stop) || /localAbort/.test(stop), 'no unconditional pre-cancel abort remains');
-  A.ok(/\} else localAbort\(\);/.test(stop), 'with no run id there is nothing server-side to kill: the local abort stands alone');
+  // (stall report 2026-10-13) a send with no run id also asks the station to stop the report holding its conversation
+  // (stop-truth.test.js 1b), but its own local abort never waits on that answer
+  A.ok(/\} else \{ if \(!rid\) stopReportHolding\(id\); localAbort\(\); \}/.test(stop), 'with no run id there is nothing server-side to kill: the local abort stands alone');
   A.ok(/stopFailed\(id, \{ ok: false, error: /.test(stop), 'a rejected cancel promise also routes to stopFailed (never a silent stop)');
 
   const failed = A.fnBody(chatSrc, 'function stopFailed');
