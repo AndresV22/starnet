@@ -34,7 +34,7 @@ function stopRig(opts) {
     isBusy: () => true,
     loopStop: () => false,
     localLine: t => lines.push(t),
-    interrupted: new Set(), stopSource: new Map(), queued: new Map(), sentNow: new Map(),
+    interrupted: new Set(), stopSource: new Map(), queued: new Map(), sentNow: new Map(), heldBack: new Map(),
     flushQueued: () => {},
     status: () => {}, updateControls: () => {},
     retireOpenConsents: (wsId, runId) => retired.push([wsId, runId]),
@@ -55,14 +55,14 @@ function stopRig(opts) {
   const promptEnd = src.indexOf('  function backgroundPermissionNotify(', promptStart);
   A.ok(settleStart > 0 && settleEnd > settleStart && promptStart > 0 && promptEnd > promptStart, 'the bell settlement helpers are present');
   const helperNames = ['function restoreQueued', 'function settleStoppedAsks', 'function sendQueuedNow', 'function forgetSentNow',
-    'function steerFirstLine', 'function markSentNowLanded', 'function restoreSentNow', 'function settleSentNow'];
+    'function steerWire', 'function markSentNowLanded', 'function restoreSentNow', 'function settleSentNow', 'function giveBack', 'function returnHeld'];
   const helperSrc = helperNames.map(h => A.fnBody(src, h));
   A.ok(helperSrc.every(Boolean), 'the STOP / SEND NOW helpers are present: ' + helperNames.filter((h, i) => !helperSrc[i]).join(', '));
   const helpers = helperSrc.join('\n');
   const stop = A.fnBody(src, 'function stopActive');
   A.ok(stop.length > 500 && stop.length < 12000, 'stopActive body located');
   vm.runInContext(src.slice(settleStart, settleEnd) + src.slice(promptStart, promptEnd) + '\n' + helpers + '\n' + stop
-    + '\n;this.__stop = stopActive; this.__announced = announcedPrompt; this.__sendNow = sendQueuedNow; this.__landed = markSentNowLanded; this.__settleSentNow = settleSentNow;', ctx);
+    + '\n;this.__stop = stopActive; this.__announced = announcedPrompt; this.__sendNow = sendQueuedNow; this.__landed = markSentNowLanded; this.__settleSentNow = settleSentNow; this.__returnHeld = returnHeld;', ctx);
   return { ctx, bus, emitted, settled, notified, lines, retired, aborted, confirm: v => cancelResolve(v) };
 }
 
@@ -159,8 +159,51 @@ function stopRig(opts) {
     // the wiring the sandbox injects: the live run's tokens mark echoes, and every teardown settles the run's lines
     A.ok(/onToken: d => \{ acc \+= d; Channels\.appendToken\(ws\.id, d\); if \(thisRunId && d && d\.indexOf\('\[steering\] '\) >= 0\) markSentNowLanded\(ws\.id, thisRunId, d\);/.test(src),
       'the run\'s own token stream marks a sent-now line read when its [steering] echo arrives');
-    A.ok(/\} finally \{[\s\S]{0,600}Channels\.end\(ws\.id\);\s*if \(thisRunId\) settleSentNow\(ws\.id, thisRunId\);/.test(src), 'send()\'s teardown settles the run\'s sent-now lines on every end');
+    A.ok(/\} finally \{[\s\S]{0,600}Channels\.end\(ws\.id\);\s*if \(thisRunId\) settleSentNow\(ws\.id, thisRunId, acc\);/.test(src), 'send()\'s teardown settles the run\'s sent-now lines on every end, against the run\'s own text');
+    A.ok(/if \(activeWs\) \{ returnHeld\(activeWs\.id\); flushQueued\(activeWs\.id\); \}/.test(src), 'returning to a session gives back what its confirmed STOP held, before its queue drains');
     A.ok(/queued\.clear\(\); sentNow\.clear\(\);/.test(src), 'a session switch starts with no sent-now lines, like the queue');
+  }
+
+  {
+    // the run ends some OTHER way (an error, a budget or loop-guard stop, a phone STOP, the window after the loop's last drain):
+    // a line the station took that the run never read goes back to the FRONT of the queue as the next message — the
+    // teardown's deferred flush sends it, as a refusal would — never dropped while the loop's own line says "send it as a new message"
+    const r = stopRig();
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    r.ctx.fetch = () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: true }) });
+    r.ctx.queued.set('ws1', ['use the blue folder', 'say hi in French', 'make it short', 'later']);
+    r.ctx.__sendNow('ws1', 0, 'use the blue folder'); r.ctx.__sendNow('ws1', 0, 'say hi in French'); r.ctx.__sendNow('ws1', 0, 'make it short');
+    await tick(); await tick();
+    r.ctx.__landed('ws1', 'run-1', '\n[steering] use the blue folder\n');
+    Channels.end('ws1');
+    r.ctx.__settleSentNow('ws1', 'run-1', 'Working.\n[steering] use the blue folder\nHola.\n[steering] say hi in French\n\n[steering] 1 steering note arrived as this run was ending and was NOT applied — send it as a new message.\n');
+    A.eq(r.ctx.queued.get('ws1'), ['make it short', 'later'], 'only the line the run never read goes back, ahead of the queue');
+    A.ok(r.lines.some(l => /ended before the agent read your send-now message/.test(l) && /next message/.test(l)), 'one line says it goes next: ' + JSON.stringify(r.lines));
+    A.eq(r.ctx.sentNow.has('ws1'), false, 'the ended run keeps no send-now lines');
+  }
+  {
+    // the STOP is confirmed while ANOTHER session is on screen: its message box is not the stopped one's
+    const r = stopRig({ typed: 'for the other agent' });
+    Channels.begin('ws1', Date.now()); Channels.setRunId('ws1', 'run-1', Date.now());
+    r.ctx.fetch = () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: true }) });
+    r.ctx.queued.set('ws1', ['use the blue folder']);
+    r.ctx.__sendNow('ws1', 0, 'use the blue folder');
+    await tick(); await tick();
+    r.ctx.__stop('click');
+    r.ctx.activeWs = { id: 'ws2', agentId: 'mira', conversationMode: 'chat' };
+    const before = r.lines.length;
+    r.confirm({ ok: true });
+    await tick();
+    A.eq(r.ctx.input.value, 'for the other agent', 'the other session\'s message box is left alone');
+    A.eq(r.lines.length, before, 'and its log gets no line about another session\'s stop');
+    A.eq(r.ctx.queued.has('ws1'), false, 'it is never queued either (a return would auto-send it behind the stop)');
+    r.ctx.input.value = '';
+    r.ctx.activeWs = { id: 'ws1', agentId: 'agent', conversationMode: 'chat' };
+    r.ctx.__returnHeld('ws1');
+    A.eq(r.ctx.input.value, 'use the blue folder', 'back on the stopped session, the unread line is in its message box, unsent');
+    A.ok(r.lines.slice(before).some(l => /stopped before the agent read your send-now message/.test(l)), 'with its line, in its own log');
+    r.ctx.__returnHeld('ws1');
+    A.eq(r.ctx.input.value, 'use the blue folder', 'given back once');
   }
 
   // ── 2. the stopped run's open asks settle everywhere once the station CONFIRMS the stop ──
