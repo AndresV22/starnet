@@ -35,6 +35,16 @@ const css = fs.readFileSync(path.join(__dirname, '../frontend/css/comms-convo.cs
   A.eq(GoalLoop.continuationGoal('please read this: [Continuing toward your session goal]\nGoal: x\n\nContinue working toward this goal. '), null, 'quoting the marker mid-message is not a goal step');
   A.eq(GoalLoop.continuationGoal('[Continuing toward your session goal]\nGoal: x'), null, 'a truncated marker without its directive is not a goal step');
   A.eq(GoalLoop.continuationGoal(null), null, 'nothing is not a goal step');
+  // a goal step SAVED before the org pass (0.13.2 / 0.13.3 / the 0.13.5 candidate wrote "standing goal") still reads back
+  const legacy = '[Continuing toward your standing goal]\nGoal: ship the landing page\n\n'
+    + 'Continue working toward this goal. Take the next concrete step. '
+    + 'If you believe the goal is complete, state so explicitly and stop. '
+    + 'If you are blocked and need input from the user, say so clearly and stop.';
+  A.eq(GoalLoop.continuationGoal(legacy), 'ship the landing page', 'a pre-org-pass "standing goal" step names its goal too');
+  A.eq(GoalLoop.continuationGoal('[Continuing toward your standing goal]\nGoal: ship it\n\nAdditional criteria the Commander added:\n- 1. dark mode\n\nContinue working toward the goal AND every criterion. '),
+    'ship it', '…with its criteria attached');
+  A.eq(GoalLoop.continuationGoal('[Continuing toward your mystery goal]\nGoal: x\n\nContinue working toward this goal. '), null, 'only the two known heads are goal steps');
+  A.ok(wire.indexOf('[Continuing toward your session goal]') === 0, 'the WRITER still uses the current head only');
 }
 
 /* ---------- 2. the goal step line: ONE system row, the goal named, nothing of the internal prompt ---------- */
@@ -72,9 +82,10 @@ const mkRow = () => { const cls = new Set(); return { d: { classList: { add: c =
     { role: 'assistant', content: 'Green.', ts: 2 },
     { role: 'user', content: GoalLoop.continuationPrompt(s), ts: 3 },
     { role: 'assistant', content: 'Drafted the hero section.', ts: 4 },
-    { role: 'user', content: GoalLoop.continuationPrompt(s), ts: 5, from: 'nova' }
+    { role: 'user', content: GoalLoop.continuationPrompt(s), ts: 5, from: 'nova' },
+    { role: 'user', content: '[Continuing toward your standing goal]\nGoal: old goal\n\nContinue working toward this goal. Take the next concrete step.', ts: 6 }
   ]);
-  A.eq(steps, ['ship the landing page'], 'a stored goal step replays as ONE station line naming the goal');
+  A.eq(steps, ['ship the landing page', 'old goal'], 'a stored goal step (current OR pre-org-pass head) replays as ONE station line naming the goal');
   A.eq(users.map(u => u.t), ['can you check the build?', GoalLoop.continuationPrompt(s)], 'only real turns replay as the Commander\'s (a delegated brief keeps its own row)');
   A.ok(!users.some(u => /^\[Continuing toward your session goal\]/.test(u.t) && !u.from), 'the internal continuation prompt never replays as the Commander\'s speech');
   A.eq(agents.length, 2, 'the agent\'s replies still replay');

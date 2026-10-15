@@ -2726,8 +2726,8 @@ const Chat = (() => {
   /* A GOAL STEP IS THE STATION'S WORDS (org P29-sys, 2026-10-14). The goal loop sends each continuation as a user-role turn
      (GoalLoop.continuationPrompt — that wire text is unchanged), but the Commander never typed it: COMMS shows the step as ONE
      compact system line naming the goal — live (send) and on every replay (renderHistory) — never the station's internal prompt
-     as the Commander's speech. goalStepOf reads the stored turn's own text, so history written before this change replays the
-     same way. */
+     as the Commander's speech. goalStepOf reads the stored turn's own text — GoalLoop.continuationGoal accepts the current head
+     AND the pre-org-pass "standing goal" head — so history written before this change replays the same way. */
   function goalStepOf(text) {
     return (typeof GoalLoop !== 'undefined' && GoalLoop.continuationGoal) ? GoalLoop.continuationGoal(text) : null;
   }

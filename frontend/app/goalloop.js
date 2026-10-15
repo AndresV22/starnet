@@ -133,6 +133,9 @@
      toolset swap (prompt caching + the moat's real-prop reach stay intact). Carries the goal, any subgoals, and
      the judge's reason so the agent knows why it's still going. */
   const CONT_HEAD = '[Continuing toward your session goal]\nGoal: ';
+  // the head every goal step stored BEFORE the org pass carries (0.13.2 / 0.13.3 / the 0.13.5 candidate wrote "standing goal"):
+  // a saved session replays those steps too, so the READER accepts both heads; only CONT_HEAD is ever written
+  const CONT_HEAD_RE = /^\[Continuing toward your (?:session|standing) goal\]\nGoal: /;
   const CONT_SUBS = '\n\nAdditional criteria the Commander added:\n';
   const CONT_TAIL = '\n\nContinue working toward this goal. ';
   function continuationPrompt(s) {
@@ -157,8 +160,9 @@
      nothing new on the wire). */
   function continuationGoal(text) {
     const t = String(text == null ? '' : text);
-    if (t.indexOf(CONT_HEAD) !== 0) return null;
-    const rest = t.slice(CONT_HEAD.length);
+    const head = CONT_HEAD_RE.exec(t);
+    if (!head) return null;
+    const rest = t.slice(head[0].length);
     const cuts = [rest.indexOf(CONT_SUBS), rest.indexOf(CONT_TAIL)].filter(i => i >= 0);
     if (!cuts.length) return null;
     const goal = rest.slice(0, Math.min.apply(null, cuts)).trim();
