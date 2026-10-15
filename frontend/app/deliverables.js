@@ -127,7 +127,7 @@
     if (state.blobUrl) try { URL.revokeObjectURL(state.blobUrl); } catch (_) {}
     state.blobUrl = '';
   }
-  async function openDesktop(r, f, href, say, folderKey, inLibrary) {
+  async function openDesktop(r, f, href, say, folderKey, pointBelow) {
     const core = tauriCore();
     if (!core || !core.invoke) return false;
     if (f.sandboxed) {
@@ -143,11 +143,12 @@
       // re-mint: the host confirmation above may have outlasted the first ticket's few-minute life
       try { await core.invoke('open_external_url', { url: openHref(f) }); }
       // the file row's own folder key takes over (org pass 10-14, P24): reveal it in its folder, or copy its full path.
-      // No key on this row: a TO REVIEW FILES row (outbox.js) has no key slot, but its run is filed in the library below,
-      // whose drawer row carries one; a library row whose key never wired keeps the old real places to look.
+      // No key on this row: a TO REVIEW FILES row (outbox.js) has no key slot; it points at the library below ONLY while a
+      // library card for its run is really drawn there (pointBelow) — a cleared or filtered-out run has none, so it and a
+      // library row whose key never wired keep the old real places to look.
       catch (_) {
         if (folderKey && folderKey.click) { folderKey.click(); if (say) say('Could not open that file — showing where it is saved instead.', true); }
-        else if (say && !inLibrary) say('Could not open that file — open its run in the library below; the folder key on its file row shows where it is saved.', true);
+        else if (say && pointBelow) say('Could not open that file — open its run in the library below; the folder key on its file row shows where it is saved.', true);
         else if (say) say('Could not open that file — use its session or workspace folder to find it on disk.', true);
       }
     }
@@ -218,6 +219,13 @@
     }
     return null;
   }
+  // is a library card for this run drawn in the window holding this link? (TO REVIEW lists cleared runs too: includeCleared=1)
+  function libraryShows(link, runId) {
+    if (!runId || !link || !link.closest) return false;
+    const win = link.closest('.dlv');   // the library TO REVIEW is mounted inside (stationui's DELIVERABLES builder)
+    if (!win || !win.querySelectorAll) return false;
+    return Array.prototype.some.call(win.querySelectorAll('article.dlv-card[data-run]'), el => el.getAttribute('data-run') === String(runId));
+  }
   async function handleOpenClick(ev, rows, state, say) {
     const link = ev && ev.target && ev.target.closest ? ev.target.closest('a[data-file]') : null;
     if (!link) return false;
@@ -243,7 +251,7 @@
     ev.stopPropagation();
     if (core && core.invoke) {
       const li = link.closest('li'); const slot = li && li.querySelector ? li.querySelector('.dlv-floc') : null;
-      return openDesktop(r, f, fileHref(f), say, slot ? slot.querySelector('.deliverable-folder') : null, !!slot);
+      return openDesktop(r, f, fileHref(f), say, slot ? slot.querySelector('.deliverable-folder') : null, !slot && libraryShows(link, r.runId));
     }
     return previewInCard(f, card.querySelector('[data-preview]'), state || {}, say);
   }
@@ -423,7 +431,7 @@
       const bulk = nFiles ? (nFiles + (nFiles === 1 ? ' file · ' : ' files · ') + fmtSize(r.size)) : 'no files';
       const facts = '<span class="dlv-pill ' + pill.cls + '">' + esc(pill.label) + '</span>' + crewHtml(r) +
         '<span class="dlv-meta">' + esc(bulk) + (r.createdAt ? ' · ' + esc(agoOf(r.createdAt, now)) : '') + '</span>';
-      return '<article class="dlv-card" data-i="' + i + '">' +
+      return '<article class="dlv-card" data-i="' + i + '"' + (r.runId ? ' data-run="' + esc(r.runId) + '"' : '') + '>' +
         '<button class="dlv-head" type="button" aria-expanded="false" aria-controls="dlv-more-' + i + '">' +
         '<span class="dlv-caret" aria-hidden="true">▸</span><span class="dlv-headmain"><span class="dlv-say">' + say2 + '</span>' +
         '<span class="dlv-facts">' + facts + '</span></span></button>' +

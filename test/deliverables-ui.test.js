@@ -80,9 +80,10 @@ A.eq(D.rowsForRun(runRows, 'missing', '').length, 0, 'a missing run never falls 
   A.ok(/\.dlv-floc \.dlv-loc-key \.fb-label \{ display: none; \}/.test(fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'css', 'deliverables-glass.css'), 'utf8')), 'the row keys are glyph-only (their words ride the tip and aria-label)');
   A.ok(/if \(folderKey && folderKey\.click\) \{ folderKey\.click\(\);/.test(src), 'a failed desktop OPEN runs the folder key instead of the old hunt-for-it sentence');
   // a TO REVIEW FILES row (outbox.js) shares this OPEN seam but has no key slot: its fallback must name the library row
-  // that really carries the key, never a folder key that is not on that surface
-  A.ok(/slot \? slot\.querySelector\('\.deliverable-folder'\) : null, !!slot\)/.test(src) &&
-    /else if \(say && !inLibrary\) say\('Could not open that file — open its run in the library below; the folder key on its file row shows where it is saved\.'/.test(src) &&
+  // that really carries the key, never a folder key that is not on that surface, and only while that library card is drawn
+  // (a cleared run stays in TO REVIEW with no library card: deliverables-open.test.js runs that case)
+  A.ok(/slot \? slot\.querySelector\('\.deliverable-folder'\) : null, !slot && libraryShows\(link, r\.runId\)\)/.test(src) &&
+    /else if \(say && pointBelow\) say\('Could not open that file — open its run in the library below; the folder key on its file row shows where it is saved\.'/.test(src) &&
     !/its folder key shows where it is saved/.test(src), 'a keyless TO REVIEW row points at the library row that has the folder key');
   const ob = fs.readFileSync(require('path').join(__dirname, '..', 'frontend', 'app', 'windows', 'outbox.js'), 'utf8');
   A.ok(/DLV\.handleOpenClick\(/.test(ob) && !/dlv-floc/.test(ob), 'TO REVIEW rows still route OPEN through the library seam without their own key slot');
