@@ -141,10 +141,17 @@ for (const o of [undefined, { cancelSource: 'estop_by_run' }]) {
   A.ok(!/in <b>MCP CONNECTORS<\/b>|in <b>KEYS<\/b>|in TOOLSETS:|'CATALOG' : 'MCP CONNECTORS'/.test(con), 'ABILITIES copy names no retired tab (MCP CONNECTORS, KEYS, TOOLSETS)');
   A.ok(/in <b>CONNECTED SERVICES<\/b>, or paste a custom platform key in <b>SAVED API CONNECTIONS<\/b>/.test(con), 'the catalog footer names CONNECTED SERVICES and SAVED API CONNECTIONS');
   A.ok(/\{ id: 'keys', label: 'SAVED API CONNECTIONS'/.test(con) && /\{ id: 'mcp', label: 'CONNECTED SERVICES'/.test(con) && /\{ id: 'toolsets', label: 'BUILT-IN ABILITIES'/.test(con), 'the names it uses are the real tab labels');
-  A.ok(/Gmail, Notion and other services connect in CONNECT › ABILITIES › CATALOG; a custom API key goes in SAVED API CONNECTIONS beside it\.<\/p>' \+\s*'<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-catalog">↗ CATALOG<\/button><\/div>/.test(ui), 'API KEYS sends Gmail/Notion (SIGN IN catalog connectors) to CATALOG with a full-strength glass key, outside the dimmed prose');
-  A.ok(!/Keys for Gmail, Notion and other services live in CONNECT › ABILITIES › SAVED API CONNECTIONS/.test(ui), 'never the old wrong door: SAVED API CONNECTIONS cannot connect Gmail or Notion');
-  A.ok(/toServiceCatalog\.addEventListener\('click', \(\) => \{ sfx\('click'\); openTerm\('connectors', 'catalog'\); \}\)/.test(ui), 'the key opens the connectors catalog section');
-  A.ok(/P\('find-a-service', [^\n]*\{ term: 'connectors', section: 'catalog' \}\)/.test(places), 'which is the places.js find-a-service target');
+  // (live walk 10-14) the service-key door lands ON SAVED API CONNECTIONS — the place its sentence names — and the sign-in
+  // services are named at CATALOG, the neighbouring tab of that same window
+  A.ok(/A key for any other service goes in CONNECT › ABILITIES › SAVED API CONNECTIONS; Gmail, Notion and other sign-in services connect from CATALOG beside it\.<\/p>' \+\s*'<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-keys">▸ SAVED API CONNECTIONS<\/button><\/div>/.test(ui), 'API KEYS: one full-strength glass key to SAVED API CONNECTIONS, outside the dimmed prose; Gmail/Notion named at CATALOG');
+  A.ok(!/data-act="to-service-catalog"|↗ CATALOG<\/button>/.test(ui), 'the old door to CATALOG (which the sentence never named as the key place) is gone');
+  A.ok(!/Keys for Gmail, Notion and other services live in CONNECT › ABILITIES › SAVED API CONNECTIONS/.test(ui), 'never the old wrong claim: SAVED API CONNECTIONS cannot connect Gmail or Notion');
+  A.ok(/toServiceKeys\.addEventListener\('click', \(\) => \{ sfx\('click'\); openTerm\('connectors', 'keys'\); \}\)/.test(ui), 'the key opens the connectors SAVED API CONNECTIONS section');
+  A.ok(/P\('api-connections', 'CONNECT › ABILITIES › SAVED API CONNECTIONS', [^\n]*\{ term: 'connectors', section: 'keys' \}\)/.test(places), 'which is the places.js api-connections target');
+  A.ok(/P\('find-a-service', [^\n]*\{ term: 'connectors', section: 'catalog' \}\)/.test(places) && /\{ id: 'catalog', label: 'CATALOG'/.test(con), 'CATALOG, named for the sign-in services, is a real tab of that window');
+  // (live walk 10-14) the STORE under the key keeps the section's spacing, never flush against the key
+  const setCss = rd('frontend/css/settings.css');
+  A.ok(/\.settings-console \.mc-acts \+ #credits-store:not\(:empty\) \{ margin-top: 18px; \}/.test(setCss) && /'<div id="credits-store"><\/div>';/.test(ui), 'the STORE sits 18px below the API KEYS key row');
   // the named examples really are SIGN IN catalog connectors (the reason the door is CATALOG, not SAVED API CONNECTIONS)
   const cat = rd('sidecar/mcp/catalog.js');
   for (const id of ['gmail', 'notion']) A.ok(new RegExp("\\{ id: '" + id + "', [^\\n]*authType: 'oauth'").test(cat), id + ' is an oauth CATALOG connector');

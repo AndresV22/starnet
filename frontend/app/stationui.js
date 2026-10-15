@@ -6175,8 +6175,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         rerender('settings');
       });
     };
-    const toServiceCatalog = body.querySelector('[data-act="to-service-catalog"]');
-    if (toServiceCatalog) toServiceCatalog.addEventListener('click', () => { sfx('click'); openTerm('connectors', 'catalog'); });
+    const toServiceKeys = body.querySelector('[data-act="to-service-keys"]');
+    if (toServiceKeys) toServiceKeys.addEventListener('click', () => { sfx('click'); openTerm('connectors', 'keys'); });
     // org P04 (g4 final round): API KEYS' no-key line lands ON the selected provider's card — the error doors' own landing
     body.querySelectorAll('[data-act="to-prov-card"][data-provider]').forEach(b => b.addEventListener('click', () => { sfx('click'); focusProvider(b.dataset.provider); }));
     body.querySelectorAll('.prov-card[data-provider]').forEach(card => {
@@ -7666,13 +7666,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<h4 class="ms-h">API KEYS</h4>' +
       '<div class="key-list">' + keysHtml() + '</div>' +
       '<p class="set-about">Credentials are saved locally and used to authenticate with the selected service. Saved keys stay masked. Desktop storage uses the OS keychain when available.</p>' +
-      // org P05: model keys live here; services connect in CONNECT › ABILITIES — one door, the places.js find-a-service target.
-      // Gmail and Notion are SIGN IN catalog connectors (sidecar/mcp/catalog.js authType 'oauth'): SAVED API CONNECTIONS only lists
-      // them read-only and its + SAVE KEY drop never connects them, so the named examples land on CATALOG (whose own footer
-      // names SAVED API CONNECTIONS for a custom key). The key sits OUTSIDE the .set-about prose: that paragraph's 0.55
-      // reading-dim greyed it into a disabled-looking key.
-      '<p class="set-about">Gmail, Notion and other services connect in CONNECT › ABILITIES › CATALOG; a custom API key goes in SAVED API CONNECTIONS beside it.</p>' +
-      '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-catalog">↗ CATALOG</button></div>' +
+      // org P05: model keys live here; a SERVICE key lives in CONNECT › ABILITIES › SAVED API CONNECTIONS — one door, the
+      // places.js api-connections target (live walk 10-14: the door used to open CATALOG, so no key reached the place the
+      // sentence named). Gmail and Notion are SIGN IN catalog connectors (sidecar/mcp/catalog.js authType 'oauth') that
+      // SAVED API CONNECTIONS cannot connect, so the line says they connect from CATALOG — the neighbouring tab of the
+      // window this key opens. The key sits OUTSIDE the .set-about prose: that paragraph's 0.55 reading-dim greyed it into a
+      // disabled-looking key.
+      '<p class="set-about">A key for any other service goes in CONNECT › ABILITIES › SAVED API CONNECTIONS; Gmail, Notion and other sign-in services connect from CATALOG beside it.</p>' +
+      '<div class="mc-acts"><button type="button" class="bb sm" data-act="to-service-keys">▸ SAVED API CONNECTIONS</button></div>' +
       // STORE / MANAGED CREDITS — rendered ONLY when the sidecar reports a configured credits backend (/api/credits).
       // When credits aren't wired this stays an empty node (no dead card, no fake balance — the honesty law). wireCredits
       // fetches the real balance + history and the external purchase link; buying opens a browser tab, never an in-app form.
