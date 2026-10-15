@@ -8899,7 +8899,7 @@ const Chat = (() => {
        read as a contradiction). */
     const set = localLine('⊙ goal set for this session only: ' + s.goal + ' (budget ' + s.maxTurns + ' turns). It works while StarNet is open and stays with this session through a reload. Working toward it…');
     if (set && typeof StationUI !== 'undefined' && StationUI.openTerm) {
-      systemDoor(set, '▸ AUTOMATE › GOAL LOOPS', () => StationUI.openTerm('automation', 'loops'), { cls: 'goal-loops-door', lead: 'Lasting goal loops:' });
+      systemDoor(set, '▸ AUTOMATE › GOAL LOOPS', () => StationUI.openTerm('automation', 'loops'), { cls: 'goal-loops-door', lead: 'Lasting goal loops:', dest: 'automation:loops' });
     }
     // an untitled session is named from its goal NOW (no-op when it already has a name): the first step may wait on a busy
     // stream or a pending card, and the rail row + COMMS title must never wear the continuation prompt meanwhile
@@ -9164,7 +9164,7 @@ const Chat = (() => {
       const st = localLine('Loop: every ' + cur.label + ', ' + cur.fired + '/' + LOOP_MAX_ITERS + ' runs done'
         + (cur.skipped ? ', ' + cur.skipped + ' tick' + (cur.skipped === 1 ? '' : 's') + ' skipped (a run, a question or another stream had the floor)' : '')
         + ' — "' + String(cur.prompt).slice(0, 60) + '". It stops if you close StarNet; /routine makes it permanent.');
-      automateDoor(st, '▸ AUTOMATE › SCHEDULES', 'routines-create');   // org P19: the lasting form of a loop is a schedule
+      automateDoor(st, '▸ AUTOMATE › SCHEDULES › NEW', 'routines-create');   // org P19: the lasting form of a loop is a schedule (its own label: it opens the New schedule form, not the list)
       return st;
     }
 
@@ -9973,12 +9973,16 @@ const Chat = (() => {
      never a key bigger than the message it belongs to. A run of consecutive system lines never shows the same door twice: the
      key moves down to the newest line that offers it, so it sits under the last thing it answers.
      node = a system row (localLine / systemCard); onOpen = what the key opens; opts.cls = an extra class (automate-door …);
-     opts.lead = a short label in front of the key ("Lasting goal loops:"). */
+     opts.lead = a short label in front of the key ("Lasting goal loops:"); opts.dest = where the key goes ('automation:routines').
+     A door is the SAME door only when it goes to the same place (live walk 10-14: /loop status's key to New schedule and
+     /routine's key to Scheduled jobs shared one label, and the label-only match dropped the loop's door): the de-dupe reads
+     the destination, never the label alone. */
   function systemDoor(node, label, onOpen, opts) {
     if (!node || !node.appendChild) return null;
     opts = opts || {};
+    const dest = opts.dest || ('label:' + label);
     for (let p = node.previousElementSibling; p && p.classList && p.classList.contains('system'); p = p.previousElementSibling) {
-      const dup = Array.from(p.querySelectorAll('.sys-door')).find(k => k.textContent === label);
+      const dup = Array.from(p.querySelectorAll('.sys-door')).find(k => k.dataset && k.dataset.door === dest);
       if (!dup) continue;
       const was = dup.parentNode; dup.remove();
       if (was && !was.querySelector('.sys-door')) was.remove();   // its lead label leaves with it
@@ -9989,6 +9993,7 @@ const Chat = (() => {
     if (opts.lead) { const k = document.createElement('span'); k.className = 'sys-doors-lead'; k.textContent = opts.lead; doors.appendChild(k); }
     const key = document.createElement('button'); key.type = 'button';
     key.className = 'sys-door' + (opts.cls ? ' ' + opts.cls : ''); key.textContent = label;
+    key.dataset.door = dest;
     key.onclick = onOpen;
     doors.appendChild(key);
     return key;
@@ -9998,7 +10003,7 @@ const Chat = (() => {
      routines-create / loops / away). */
   function automateDoor(node, label, section) {
     if (!node || typeof StationUI === 'undefined' || !StationUI.openTerm) return null;
-    return systemDoor(node, label, () => StationUI.openTerm('automation', section), { cls: 'automate-door' });
+    return systemDoor(node, label, () => StationUI.openTerm('automation', section), { cls: 'automate-door', dest: 'automation:' + section });
   }
   // the server ran /routine or /away and printed its reply: the reply carries the door to the tab that holds that work
   // (/cron is a CLIENT action — cronCommand attaches its own door)

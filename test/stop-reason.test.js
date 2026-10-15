@@ -132,7 +132,7 @@ A.ok(/function noteStopReason\(/.test(chat) && /m\.stopped && m\.stopNote\) tool
   const src = A.fnBody(chat, 'function goalCommand(');
   const lines = [], opened = [];
   // the set line is a system row; its door row is that row's own child (systemDoor, P29-sys), never inside the prose
-  const mkEl = () => { const el = { type: '', className: '', textContent: '', onclick: null, kids: [] }; el.appendChild = n => { el.kids.push(n); return n; }; el.classList = { contains: c => (' ' + el.className + ' ').indexOf(' ' + c + ' ') >= 0 }; Object.defineProperty(el, 'children', { get: () => el.kids }); el.querySelectorAll = () => []; return el; };
+  const mkEl = () => { const el = { type: '', className: '', textContent: '', onclick: null, kids: [], dataset: {} }; el.appendChild = n => { el.kids.push(n); return n; }; el.classList = { contains: c => (' ' + el.className + ' ').indexOf(' ' + c + ' ') >= 0 }; Object.defineProperty(el, 'children', { get: () => el.kids }); el.querySelectorAll = () => []; return el; };
   const row = mkEl(); row.className = 'cmsg system';
   const doc = { createElement: mkEl, createTextNode: t => ({ text: t }) };
   const GoalLoop = { create: (goal) => ({ goal, maxTurns: 8, status: 'active' }), statusLine: () => '' };

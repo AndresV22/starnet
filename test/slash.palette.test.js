@@ -99,7 +99,7 @@ A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the pale
   const opened = [];
   // a small fake DOM: enough element behaviour for systemDoor (children, classList, sibling walk, remove)
   const mkEl = (cls) => {
-    const el = { type: '', className: cls || '', textContent: '', onclick: null, kids: [], parentNode: null };
+    const el = { type: '', className: cls || '', textContent: '', onclick: null, kids: [], parentNode: null, dataset: {} };
     el.appendChild = n => { if (n && typeof n === 'object') n.parentNode = el; el.kids.push(n); return n; };
     Object.defineProperty(el, 'children', { get: () => el.kids.filter(k => k && k.classList) });
     el.classList = { contains: c => (' ' + el.className + ' ').indexOf(' ' + c + ' ') >= 0 };
@@ -128,7 +128,7 @@ A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the pale
     loop('status');
     A.ok(/It stops if you close StarNet; \/routine makes it permanent\.$/.test(lines[0]), '/loop status keeps its note: ' + lines[0]);
     const d = doorOf(node);
-    A.ok(d && d.type === 'button' && /\bsys-door\b/.test(d.className) && d.textContent === '▸ AUTOMATE › SCHEDULES', '/loop status carries one door key to SCHEDULES');
+    A.ok(d && d.type === 'button' && /\bsys-door\b/.test(d.className) && d.textContent === '▸ AUTOMATE › SCHEDULES › NEW', '/loop status carries one door key to SCHEDULES › NEW (its own label: it opens the form, not the list)');
     A.ok(doorRowOk(node, d), 'the key rides a door row of its own under the line, not the tail of its text');
     d.onclick(); A.eq(opened.pop(), 'automation:routines-create', '…which opens the New schedule form');
   }
@@ -186,11 +186,23 @@ A.ok(/closeSlash[\s\S]{0,200}slashValueMode = null/.test(src), 'closing the pale
     const line = () => { const n = mkEl('cmsg system'); n.appendChild(mkEl('body')); run.appendChild(n); return n; };
     const automateDoor = new Function('StationUI', 'document', DOOR_SRC + '\nreturn automateDoor;')(SUI, doc);
     const systemDoor = new Function('StationUI', 'document', DOOR_SRC + '\nreturn systemDoor;')(SUI, doc);
-    const a = line(); automateDoor(a, '▸ AUTOMATE › SCHEDULES', 'routines-create');
+    const a0 = line(); automateDoor(a0, '▸ AUTOMATE › SCHEDULES', 'routines');
     const b = line(); automateDoor(b, '▸ AUTOMATE › SCHEDULES', 'routines');
     A.eq(run.querySelectorAll('sys-door').length, 1, 'a run of system lines shows the SCHEDULES door once');
-    A.ok(!a.querySelector('.sys-doors') && b.querySelectorAll('sys-door').length === 1, '…under the newest line that offers it (the emptied row leaves with it)');
+    A.ok(!a0.querySelector('.sys-doors') && b.querySelectorAll('sys-door').length === 1, '…under the newest line that offers it (the emptied row leaves with it)');
     b.querySelector('.sys-door').onclick(); A.eq(opened.pop(), 'automation:routines', '…and it opens what the newest line offers');
+    // (live walk 10-14) the de-dupe reads the DESTINATION: /loop status's door to New schedule survives a /routine door to the list,
+    // even when two doors carry the same words
+    const run2 = mkEl('chat-log');
+    const line2 = () => { const n = mkEl('cmsg system'); n.appendChild(mkEl('body')); run2.appendChild(n); return n; };
+    const l1 = line2(); automateDoor(l1, '▸ AUTOMATE › SCHEDULES', 'routines-create');
+    const l2 = line2(); automateDoor(l2, '▸ AUTOMATE › SCHEDULES', 'routines');
+    A.ok(l1.querySelectorAll('sys-door').length === 1 && l2.querySelectorAll('sys-door').length === 1, 'two doors to different places are both kept, whatever their words');
+    l1.querySelector('.sys-door').onclick(); A.eq(opened.pop(), 'automation:routines-create', '…the first still opens New schedule');
+    const l3 = line2(); systemDoor(l3, '▸ AUTOMATE › SCHEDULES', () => {}, {});
+    const l4 = line2(); systemDoor(l4, '▸ AUTOMATE › SCHEDULES', () => {}, {});
+    A.ok(!l3.querySelector('.sys-doors') && l4.querySelectorAll('sys-door').length === 1, 'a door given no destination still de-dupes on its own words');
+    A.ok(/automateDoor\(st, '▸ AUTOMATE › SCHEDULES › NEW', 'routines-create'\)/.test(src) && src.includes("SERVER_SLASH_DOORS = { routine: ['▸ AUTOMATE › SCHEDULES', 'routines']"), 'the loop door and the /routine door read differently');
     const c = line(); automateDoor(c, '▸ AUTOMATE › AWAY WORK', 'away');
     A.ok(b.querySelectorAll('sys-door').length === 1 && c.querySelectorAll('sys-door').length === 1, 'a different door on the next line keeps both');
     run.appendChild(mkEl('cmsg agent'));   // a reply ends the run: the same door again belongs to a new run
