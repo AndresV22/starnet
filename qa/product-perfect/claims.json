@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "4fd93c315cc7a25bc82ae637f76d28094d16c246",
+    "sourceCommit": "ec7867e437efc2ea0850bd8fb792259756b0c7e3",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -1183,8 +1183,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 925423,
-        "sha256": "efe175b6837b5abd6e34f2f6ad2d4f12180257d255982f0fac9548ac3b8bbd40"
+        "bytes": 926610,
+        "sha256": "2beaa90edf715cf35dd3b6ef6c7015bd088c975eafbf1f2655ded4ee588c2596"
       },
       {
         "path": "frontend/app/stepin.js",
@@ -1363,13 +1363,13 @@
       },
       {
         "path": "frontend/app/windows/messaging.js",
-        "bytes": 62389,
-        "sha256": "5a4144d115e93237046ba779ca19fae7dc2efaf084415bcadfe66e089e5f77b4"
+        "bytes": 63280,
+        "sha256": "592c02a61f16c0ede083c7aba673264e16fa2fd13dd9b3d17b0605f59e8679d6"
       },
       {
         "path": "frontend/app/windows/outbox.js",
-        "bytes": 28785,
-        "sha256": "ccbfe321204ce582c39364d64f72af67c5a1d5be84cb27fb2e73b30ffe30f27a"
+        "bytes": 29345,
+        "sha256": "c7a197c5aa69edffcc78c555a903e926528a0b7d57de581bfdb2e0fd9fba2c96"
       },
       {
         "path": "frontend/app/windows/rewind.js",
@@ -1388,8 +1388,8 @@
       },
       {
         "path": "frontend/app/windows/workflows.js",
-        "bytes": 95281,
-        "sha256": "7d4b00be69d052c393cb39145ca3174f931bcd47b54dfd5b05227eb943aad5f7"
+        "bytes": 95737,
+        "sha256": "012092929930628d7a844ea0ebaf53e751fe99bcfb128adfb661652dd653c224"
       },
       {
         "path": "frontend/app/workflowline.js",
