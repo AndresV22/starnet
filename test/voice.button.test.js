@@ -771,6 +771,41 @@ async function opensWithin(t, ms) {
     A.eq(played[played.length-1],'Next reply opens normally.','cut: the next reply is spoken');
   }
 
+  // --- EVERY speaker-off path puts the speech note away -----------------------------------------
+  // 2026-10-15 report: "this warning pops up and never goes away once you turn off voice whilst the agent is
+  // chatting". Only a new SPOKEN reply (or a click) cleared the note, and a muted station opens none — the
+  // speaker key cleared it, but ending Local Live / hands-free (the restore of a mute voice mode lifted) and
+  // `/voice off` after it did not, so the note sat under the COMMS keys for good.
+  {
+    const fail503 = url => String(url).includes('/api/tts')
+      ? Promise.resolve({ok:false,status:503,headers:{get:()=> 'application/json'},json:async()=>({reason:'unavailable'})})
+      : Promise.resolve({ok:true,json:async()=>({})});
+    const noted = t => /couldn.t be spoken/.test(t.nodes['voice-toggle'].title);
+    const raiseNote = async t => {
+      t.Voice.setSpeakReplies(false); A.ok(t.Voice.forceSpeakOn(), 'note: voice mode lifts a hand-set mute');
+      t.Voice.speakChunk('A sentence the engine drops.', 'agent', {replyToken:t.Voice.replyToken()});
+      await until(() => noted(t), 1000);
+      A.ok(noted(t), 'note: a dropped sentence raises the note while the speaker is on');
+    };
+    const paths = {
+      'Local Live ends (restoreSpeak)': t => { t.Voice.stopSpeaking(); t.Voice.restoreSpeak(); },
+      'hands-free ends (stopConvo)': t => t.Voice.stopConvo(),
+      '/voice off (stopConvo, then setSpeakReplies off)': t => { t.Voice.stopConvo(); t.Voice.setSpeakReplies(false); },
+      'the speaker key': t => t.nodes['voice-toggle'].onclick()
+    };
+    for (const [name, mute] of Object.entries(paths)) {
+      const t = boot({Audio:AutoEndAudio, fetch:fail503});
+      await raiseNote(t);
+      mute(t);
+      A.eq(t.Voice.isOn(), false, 'note: ' + name + ' leaves the speaker off');
+      A.ok(!noted(t), 'note: ' + name + ' puts the speech note away');
+      // the agent keeps talking while muted — nothing may bring the note back
+      t.Voice.speakChunk('More words while muted.', 'agent', {replyToken:t.Voice.replyToken()}); t.Voice.endReply();
+      await tick(30);
+      A.ok(!noted(t), 'note: ' + name + ' — a muted reply never re-raises the note');
+    }
+  }
+
   // --- Local Live pins one voice AND one serving engine for the whole conversation ------------
   // Without this pin, every streamed sentence reread localStorage and independently chose Kokoro vs Edge.
   // A settings click or one transient local-engine failure could therefore change speaker mid-conversation.
