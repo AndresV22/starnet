@@ -115,7 +115,7 @@ function titleFor(ws, opts) {
     activeWs: ws, Workstreams: { active: () => ws, titleOf: w => w.title || (w.id === 'general' ? 'General' : 'New session') },
     streamLabel: w => w.title || (w.id === 'general' ? 'General' : 'New session'),
     GroupChat: { membersOf: () => opts.members || null },
-    App: { agentName: id => ({ agent: 'ULTRON', cy: 'CYPHER', a3: 'NOVA', a4: 'IRIS', a5: 'ECHO' })[id] || null },
+    App: { agentName: id => ({ agent: 'ULTRON', cy: 'CYPHER', a3: 'NOVA', a4: 'IRIS', a5: 'ECHO' })[id] || null, sessionDisplayName: opts.displayName },
     ProjectHome: { owns: () => !!opts.project }
   };
   vm.createContext(ctx);
@@ -133,6 +133,26 @@ A.eq(titleFor({ id: 'g2', title: 'Launch plan', agentId: 'agent', conversationMo
 A.eq(titleFor({ id: 's1', title: 'Fix it' }, { project: true }).text, 'COMMS', 'P26: a shown project home owns the title (the writer steps aside)');
 A.eq(titleFor({ id: 's1', title: 'Fix it' }, { hudActivity: true }).text, 'COMMS', 'P26: the HUD ▮ ACTIVITY view owns the title');
 A.eq(titleFor({ id: 's1', title: 'Fix it' }).tip, 'This conversation: Fix it', 'P26: the full name rides a data-tip when the panel clamps it');
+// org wiring (D12 x P26 x P25): the COMMS title and the busy row print the name the RAIL printed, so two untitled sessions
+// are told apart in the header exactly as in the rail ("New session · NOVA"), never a bare "New session" over both
+A.eq(titleFor({ id: 's2' }, { displayName: w => (w.id === 's2' ? 'New session · NOVA' : '') }).text, 'COMMS · New session · NOVA',
+  'D12 x P26: an untitled session the rail disambiguated reads the same in the COMMS title');
+A.eq(titleFor({ id: 's3' }, { displayName: () => '' }).text, 'COMMS · New session', '…and with no rail name it falls back to Workstreams.titleOf');
+{
+  const APPSRC = read('frontend/app/app.js');
+  const body = A.fnBody(APPSRC, 'function sessionDisplayName(');
+  const names = new Map([['s1', { base: 'New session', shown: 'New session · NOVA' }], ['s2', { base: 'New session', shown: 'New session · NOVA 2' }]]);
+  const W = { titleOf: w => w.title || 'New session' };
+  const display = new Function('Workstreams', 'railShownNames', body + '\nreturn sessionDisplayName;')(W, names);
+  A.eq([display({ id: 's1' }), display({ id: 's2' })], ['New session · NOVA', 'New session · NOVA 2'], 'D12 x P26: the shared name is the one the rail printed');
+  A.eq(display({ id: 's1', title: 'Ship it' }), 'Ship it', 'a session titled since the last rail pass never shows the stale printed name');
+  A.eq(display({ id: 's9' }), 'New session', 'a session the rail did not print (filtered out) reads its own title');
+  const rail = A.fnBody(APPSRC, 'function renderRail(');
+  const fill = rail.indexOf('railShownNames = new Map(rows.map((w, i) => [w.id, { base: baseTitles[i], shown: titles[i] }]));');
+  A.ok(fill > 0 && rail.indexOf('Chat.paintTitle();   // ORG P26') > fill, 'renderRail records this pass\'s names BEFORE it repaints the COMMS title');
+  A.ok(/refreshRail: renderRail, sessionDisplayName,/.test(APPSRC), 'App exports the shared name');
+  A.ok(/' IS BUSY IN ' \+ shownName\(peer\)\.toUpperCase\(\)/.test(CHAT), 'P25 x D12: the busy row names the session as the rail does');
+}
 A.ok(/activeWs = nextWs;\n    paintTitle\(\);/.test(CHAT) && /return \{ init, load, paintTitle,/.test(CHAT), 'P26: Chat.load paints the title and Chat exports the writer');
 A.ok(/if \(typeof Chat !== 'undefined' && Chat\.paintTitle\) Chat\.paintTitle\(\);   \/\/ ORG P26/.test(read('frontend/app/app.js')), 'P26: the rail repaint (rename / auto-title) repaints the title');
 const PH = read('frontend/app/project-home.js'), HUD = read('frontend/app/hudmode.js');
@@ -159,7 +179,7 @@ A.ok(/if \(!ws\) ws = Workstreams\.create\(a\.name, \{ agentId: id, activate: fa
 A.ok(/start\.onclick = \(\) => newWorkstream\(\)/.test(APP) && /'sessions with ' \+ name \+ ' yet\.'/.test(APP), 'P25: the narrowed rail offers START ONE for an agent with no session yet');
 A.ok(!/switch to its stream to task it/.test(APP) && /pick it ON THE LINE in COMMS to talk to it/.test(APP) && APP.includes("' recruited — ' + deskLine") && !/' summoned — /.test(APP), 'P25: the background-hire toast no longer promises a stream that does not exist');
 A.ok(/ws = blank \? cur : Workstreams\.create\(st\.label/.test(CHAT), 'P25: a starter on a blank open session fills it (behaviour in test/starters.test.js)');
-A.ok(/String\(busyName\)\.toUpperCase\(\) \+ ' IS BUSY IN ' \+ streamLabel\(peer\)\.toUpperCase\(\)/.test(CHAT) && !/'ALSO RUNNING IN '/.test(CHAT), 'P25: the busy row reads <NAME> IS BUSY IN <SESSION> · VIEW ACTIVE RUN');
+A.ok(/String\(busyName\)\.toUpperCase\(\) \+ ' IS BUSY IN ' \+ shownName\(peer\)\.toUpperCase\(\)/.test(CHAT) && !/'ALSO RUNNING IN '/.test(CHAT), 'P25: the busy row reads <NAME> IS BUSY IN <SESSION> · VIEW ACTIVE RUN');
 A.ok(/function\s+maybeEmptyState[\s\S]{0,300}busyPeerFor\(activeWs\)/.test(CHAT), 'P25: the busy row stays visible in an empty session (it explains why a first message queues)');
 
 /* ---------- P33: starter-room machines show what they are (the shipped hit-test, run against the real catalogs) ---------- */

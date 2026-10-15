@@ -2002,7 +2002,13 @@ const Chat = (() => {
         return ids.slice(0, 2).map(nm).join(', ') + (more > 0 ? ' +' + more : '');
       }
     }
-    return streamLabel(ws);
+    return shownName(ws);
+  }
+  // the name the RAIL prints for a session (App.sessionDisplayName: D12's "New session · NOVA" / "… 2" included), else
+  // streamLabel — so the COMMS title and the busy row never name a session the rail no longer shows by that name
+  function shownName(w) {
+    const n = (w && typeof App !== 'undefined' && App.sessionDisplayName) ? App.sessionDisplayName(w) : '';
+    return n || streamLabel(w);
   }
   function paintTitle() {
     const t = el('comms-title'); if (!t) return;
@@ -2305,7 +2311,7 @@ const Chat = (() => {
     const label = document.createElement('span'); label.className = 'dim';
     // ORG P25: say WHO is busy and WHERE — it explains why a first message here queues (kept visible in an empty session)
     const busyName = peer ? ((typeof App !== 'undefined' && App.agentName && App.agentName(peer.agentId || 'agent')) || name || 'This agent') : '';
-    label.textContent = peer ? (String(busyName).toUpperCase() + ' IS BUSY IN ' + streamLabel(peer).toUpperCase()) : String(detail || 'AGENT BUSY');
+    label.textContent = peer ? (String(busyName).toUpperCase() + ' IS BUSY IN ' + shownName(peer).toUpperCase()) : String(detail || 'AGENT BUSY');
     rowEl.appendChild(label);
     if (peer) {
       const view = document.createElement('button'); view.type = 'button'; view.className = 'choice'; view.textContent = 'VIEW ACTIVE RUN';
@@ -8681,7 +8687,7 @@ const Chat = (() => {
     // concurrent same-agent runs (workspace lease guards the real collision). The peer surfaces as the soft
     // status row + a tooltip; send stays live.
     const peer = !isBusy() ? busyPeerFor(activeWs) : null;
-    if (input) { input.disabled = false; input.title = peer ? ('This agent is also running in ' + streamLabel(peer)) : ''; }
+    if (input) { input.disabled = false; input.title = peer ? ('This agent is also running in ' + shownName(peer)) : ''; }
     const sendBtn = el('chat-send'); if (sendBtn) sendBtn.disabled = false;
     const attachBtn = el('chat-attach'); if (attachBtn) attachBtn.disabled = false;
     renderQueued();
