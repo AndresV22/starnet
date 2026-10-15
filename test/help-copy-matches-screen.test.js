@@ -33,6 +33,10 @@ A.ok(!/check CONNECT/.test(onboarding) && /check SETTINGS › AI & MODELS before
   'the awakening\'s model-failure line points at SETTINGS › AI & MODELS');
 A.ok(!/Open CONNECT/.test(firstvalue) && /Open SETTINGS › AI & MODELS to configure/.test(firstvalue),
   'FIRST VALUE\'s model fallback points at SETTINGS › AI & MODELS');
+// (live walk 10-14) FIELD MANUAL › HELP › NO REPLY named only SYSTEM › SETTINGS: it names the tab the provider's key is on
+A.ok(/fmEntry\('NO REPLY', 'Check the connection', 'Open <b>SYSTEM › SETTINGS › AI &amp; MODELS<\/b> and check the selected provider’s sign-in or key\./.test(tutorial)
+  && !/Open <b>SYSTEM › SETTINGS<\/b> and check the selected provider/.test(tutorial),
+  'FIELD MANUAL › HELP › NO REPLY points at SYSTEM › SETTINGS › AI & MODELS');
 
 // ---- the glossary ----
 const gsrc = read('frontend/app/glossary.js');
