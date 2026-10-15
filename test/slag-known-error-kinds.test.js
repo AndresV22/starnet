@@ -37,7 +37,7 @@ const BUCKET = {
   billing: 'NAMED', managed_credit: 'NAMED', managed_credit_link: 'NAMED', auth: 'NAMED', no_model: 'NAMED', oauth: 'NAMED',
   grok_oauth_unavailable: 'NAMED', quota_exhausted: 'NAMED', model_not_found: 'NAMED', context_overflow: 'NAMED',
   content_policy_blocked: 'NAMED', capdenied: 'NAMED', spotify_not_connected: 'NAMED', stale_session: 'NAMED', spend_unknown: 'NAMED',
-  output_limit: 'NAMED', hook_blocked: 'NAMED', local_model_memory: 'NAMED',
+  output_limit: 'NAMED', hook_blocked: 'NAMED', local_model_memory: 'NAMED', endpoint_mismatch: 'NAMED',
   // harness stops (2026-10-11) — the agent got stuck / stopped early / failed to save: the cause may be the model or StarNet
   // itself, so the post-mortem keeps "see RECORD, resend, report it if it repeats"
   loop_stuck: 'GENERIC', unknown_tools: 'GENERIC', tool_keeps_failing: 'GENERIC', no_progress: 'GENERIC', incomplete_work: 'GENERIC',

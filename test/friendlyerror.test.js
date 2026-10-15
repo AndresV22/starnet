@@ -498,6 +498,40 @@ for (const raw of [
   A.eq(friendlyError('the spending limit on your OpenAI account was reached').kind !== 'spend_unknown', true, 'a provider spending-limit sentence is not StarNet\'s ledger');
 }
 
+// GH#111: the OLLAMA card pointed at LM Studio. The adapter's sentence names the server and the card that speaks to it;
+// COMMS leads with that sentence (not "Something went wrong — try again"), offers no doomed retry, and its door lands on
+// the CUSTOM card. The text is the real adapter's, produced by the real adapter against LM Studio's 200 reply.
+// (async: report() below waits for it, since report() exits the process)
+const wrongServerCase = (async () => {
+  const { makeOpenAICompatibleProvider } = require('../sidecar/providers/openai-compatible.js');
+  const lmStudio = makeOpenAICompatibleProvider({ baseUrl: 'http://127.0.0.1:1234/v1', nativeOllama: true, fetch: async (url, init) =>
+    new Response(JSON.stringify({ error: 'Unexpected endpoint or method. (' + ((init && init.method) || 'GET') + ' ' + new URL(url).pathname + ')' }), { status: 200 }) });
+  let thrown = null;
+  try { for await (const _ of lmStudio.stream({ model: 'm', messages: [{ role: 'user', content: 'hi' }] })) { /* drain */ } } catch (e) { thrown = e; }
+  A.ok(thrown && /is not an Ollama server/.test(thrown.message), 'the adapter names the wrong server: ' + (thrown && thrown.message));
+  const raw = String(thrown && thrown.message);
+  const { kindFromRaw } = require('../frontend/app/friendlyerror.js')._internals;
+  // the page receives the in-band error TEXT (the browser path); the node path also sees the Error with its flag
+  for (const input of [raw, thrown]) {
+    const v = friendlyError(input, null, { engineAlive: true });
+    A.eq(v.kind, 'endpoint_mismatch', 'a wrong server behind the OLLAMA card has its own kind (' + typeof input + ')');
+    A.ok(/^The OLLAMA card's URL \(127\.0\.0\.1:1234\) is not an Ollama server: .*SETTINGS → AI & MODELS → CUSTOM with its \/v1 URL instead\.$/.test(v.userMessage),
+      'the headline IS the adapter sentence, without the bracketed server words: ' + v.userMessage);
+    A.eq(v.retryable, false, 'no ↻ Try again: a resend reaches the same server');
+    A.eq([v.action, v.provider], ['settings', 'custom'], 'the door is AI & MODELS, landing on the CUSTOM card');
+    A.eq(v.raw, raw, 'the server\'s own words stay in raw for diagnostics');
+  }
+  A.eq(kindFromRaw(raw), 'endpoint_mismatch', 'the browser fallback ladder reads the adapter sentence too');
+  A.eq(actionButton(friendlyError(raw)).label, '▸ OPEN AI & MODELS', 'the door is the existing AI & MODELS key, no new control');
+  const focused = [], priorUI = global.StationUI;
+  global.StationUI = { focusProvider(pid) { focused.push(pid); }, openTerm() {} };
+  try { actionButton(friendlyError(raw)).run(); } finally { if (priorUI === undefined) delete global.StationUI; else global.StationUI = priorUI; }
+  A.eq(focused, ['custom'], 'pressing it lands on the CUSTOM card');
+  // only the adapter's sentence: the bare LM Studio words (an unknown proxy) and Ollama's own errors keep their kinds
+  A.eq(kindFromRaw('Unexpected endpoint or method. (POST /api/chat)'), 'unknown', 'the bare server sentence alone proves nothing about the card');
+  A.ok(friendlyError('model runner has unexpectedly stopped').kind !== 'endpoint_mismatch', 'Ollama\'s own error is not a wrong server');
+})();
+
 // An explicit Ollama allocation failure is terminal and points at the primary model picker.
 {
   const raw = 'Local model ran out of memory. Close other local models. [openai-compatible http 500 - llama-server terminated: cudaMalloc failed: out of memory]';
@@ -630,4 +664,4 @@ for (const raw of [
   }
 }
 
-A.report('friendlyerror.test');
+wrongServerCase.then(() => A.report('friendlyerror.test'), e => { A.ok(false, 'the wrong-server case threw: ' + (e && e.stack)); A.report('friendlyerror.test'); });
