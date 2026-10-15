@@ -276,8 +276,9 @@ const mk = (over) => { const d = deps(over); return { S: makeSlashActions(d), ca
     });
     const r = await S.run('away', 'list');
     A.ok(/2 queued/.test(r.title), 'the listing counts the backlog');
-    A.ok(/built — waiting in DELIVERABLES › TO REVIEW/.test(r.lines[1]), 'a finished build is marked as waiting');
-    A.ok(r.lines.some(l => /waiting for your keep\/discard/.test(l)), 'pending builds are surfaced');
+    A.ok(/built — waiting in DELIVERABLES › NEEDS A DECISION/.test(r.lines[1]), 'a finished build is marked as waiting where it is decided (the library\'s NEEDS A DECISION)');
+    A.ok(!r.lines.some(l => /TO REVIEW/.test(l)), 'never sent to TO REVIEW: that rating list has no KEEP IT or DISCARD (org P12)');
+    A.ok(r.lines.some(l => /waiting for your KEEP IT or DISCARD — open MY WORK › DELIVERABLES \(NEEDS A DECISION\)/.test(l)), 'pending builds are surfaced, with where they are decided');
     A.ok(r.lines.some(l => /Build while away: OFF/.test(l)), 'the grant state is always stated');
   }
 
@@ -300,7 +301,7 @@ const mk = (over) => { const d = deps(over); return { S: makeSlashActions(d), ca
     const failed = await mk({ workshop: { shiftNow: async () => ({ ok: true, fired: true, reason: 'no-manifest', parked: false }) } })
       .S.run('away', 'now');
     A.eq(failed.ok, false, 'a shift that produced nothing is a failure, not a success');
-    A.ok(!/waits in (OUTBOX|DELIVERABLES)/.test(failed.text), 'a failed shift never claims work is waiting in DELIVERABLES › TO REVIEW');
+    A.ok(!/waits in (OUTBOX|DELIVERABLES)/.test(failed.text), 'a failed shift never claims work is waiting in DELIVERABLES');
     A.ok(/nothing usable/.test(failed.text), 'it says the shift produced nothing usable');
     // a PARKED item will never be retried — the user must be told, or the work silently disappears
     const parked = await mk({ workshop: { shiftNow: async () => ({ ok: true, fired: true, reason: 'run-failed', parked: true }) } })
@@ -310,7 +311,7 @@ const mk = (over) => { const d = deps(over); return { S: makeSlashActions(d), ca
     const built = await mk({ workshop: { shiftNow: async () => ({ ok: true, fired: true, reason: 'built', manifest: { title: 'a build-time dashboard' } }) } })
       .S.run('away', 'now');
     A.ok(/a build-time dashboard/.test(built.text), 'a real build names itself from the manifest');
-    A.ok(/DELIVERABLES › TO REVIEW/.test(built.text), 'a real build points at DELIVERABLES › TO REVIEW (the OUTBOX folded into it)');
+    A.ok(/MY WORK › DELIVERABLES \(NEEDS A DECISION\) for KEEP IT or DISCARD/.test(built.text) && !/TO REVIEW/.test(built.text), 'a real build points at the library\'s NEEDS A DECISION, where KEEP IT / DISCARD live, never TO REVIEW (org P12): ' + built.text);
   }
 
   {
