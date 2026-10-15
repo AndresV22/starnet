@@ -44,7 +44,7 @@
 
     const trophiesHtml = surf.trophies.length
       ? '<div class="gx-tros">' + surf.trophies.map(troRow).join('') + '</div>'
-      : '<div class="gx-tros"><p class="dim" style="font-style:italic;">the case stands empty &mdash; dust on the glass. ship real work and your first honour lands here.</p></div>';
+      : '<div class="gx-tros"><p class="dim" style="font-style:italic;">the case stands empty &mdash; dust on the glass. ship real work and your first milestone lands here.</p></div>';
 
     const toolsHtml = surf.tools.length
       ? '<div class="gx-sec" style="margin-top:14px;"><span class="gx-title">LIVING TOOLS</span> <span class="gx-tag">' + surf.tools.length + '</span></div>'
