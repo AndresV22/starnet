@@ -131,25 +131,31 @@ function makeRemoteHost(d) {
        Self-contained (the phone runs this same function): the marker rule is fork.js's — a list number, keyword (MARKER_KEY's
        one case rule), colon, `||` options. */
     const squash = s => String(s == null ? '' : s).replace(/(?:\d{1,2}[.)][ \t]*)?[*_`~]*(?:\bF(?:ORK|ork)|[Tt][Aa][Ss][Kk]_[Qq][Uu][Ee][Ss][Tt][Ii][Oo][Nn])[*_`~]*[ \t]*:[^\n]*\|\|[^\n]*/g, '').replace(/\s+/g, '');
+    // A steering note folded mid-run streams into the local reply as a '\n[steering] …\n' line, but the durable
+    // transcript stores only the model's own turns. Twins are matched WITHOUT those lines; the local row (which
+    // still carries them, so a reload can redraw the note) is the one that survives.
+    const steerless = text => String(text || '').replace(/(?:^|\n)\[steering\] [^\n]*\n?/g, '');
+    const hasSteer = text => /(?:^|\n)\[steering\] /.test(String(text || ''));
+    // the [start, end] run of contiguous parts that joins to exactly `text`, or null
     const joinsTo = (parts, text) => {
       for (let start = 0; start < parts.length - 1; start++) {
         if (!text.startsWith(parts[start])) continue;
         let joined = parts[start];
         for (let end = start + 1; end < parts.length; end++) {
           joined += parts[end];
-          if (joined === text) return true;
+          if (joined === text) return [start, end];
           if (joined.length >= text.length) break;
         }
       }
-      return false;
+      return null;
     };
+    // the durable parts this saved aggregate already shows (so a steered row can be enriched by them), or null
     const committedAggregate = (row, runId, explicit) => {
-      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return false;
-      const parts = runParts.get(runId) || [], text = String(row.content || '');
-      if (joinsTo(parts, text)) return true;
-      if (!explicit) return false;
-      const target = squash(text);
-      return !!target && joinsTo(parts.map(squash), target);
+      if (row.role !== 'assistant' || row.rowId || row.stopped || row.error || (row.attachments && row.attachments.length)) return null;
+      const parts = runParts.get(runId) || [], text = steerless(row.content);
+      let span = joinsTo(parts, text);
+      if (!span && explicit) { const target = squash(text); span = target ? joinsTo(parts.map(squash), target) : null; }
+      return span ? parts.slice(span[0], span[1] + 1) : null;
     };
     const kept = [], buckets = new Map();
     let userRunId = '';
@@ -168,9 +174,15 @@ function makeRemoteHost(d) {
         finalSlots.set(id, kept.length);
       }
       if (row.role === 'user') userRunId = String(row.sourceRunId || '');
-      if (committedAggregate(row, String(row.sourceRunId || userRunId), !!row.sourceRunId)) continue;
+      const aggregate = committedAggregate(row, String(row.sourceRunId || userRunId), !!row.sourceRunId);
+      if (aggregate && !hasSteer(row.content)) continue;
+      if (aggregate) {   // keep the steered row: each durable part it already shows enriches it instead of re-inserting
+        for (const part of aggregate) { const k = 'assistant\u0000' + part, q = buckets.get(k) || []; q.push(kept.length); buckets.set(k, q); }
+        kept.push({ row, key: null });
+        continue;
+      }
       if (row.role === 'assistant' && !String(row.content == null ? '' : row.content).trim()) continue;
-      const key = row.role + '\u0000' + String(row.content || '');
+      const key = row.role + '\u0000' + (row.role === 'assistant' ? steerless(row.content) : String(row.content || ''));
       const q = buckets.get(key) || []; q.push(kept.length); buckets.set(key, q);
       kept.push({ row, key });
     }
@@ -189,7 +201,7 @@ function makeRemoteHost(d) {
       const idx = at >= 0 ? q.splice(at, 1)[0] : -1;
       if (idx >= 0) {
         const prior = kept[idx].row;
-        kept[idx].row = authoritative ? withFinal(prior, turn) : Object.assign({}, turn, prior, { role: turn.role, content, ts: turn.ts != null ? turn.ts : prior.ts });
+        kept[idx].row = authoritative ? withFinal(prior, turn) : Object.assign({}, turn, prior, { role: turn.role, content: hasSteer(prior.content) ? prior.content : content, ts: turn.ts != null ? turn.ts : prior.ts });
         anchor = idx;
         continue;
       }
