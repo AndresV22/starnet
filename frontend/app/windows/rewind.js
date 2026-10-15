@@ -46,6 +46,22 @@
           : '<span class="dim">PROJECT ACCESS REVOKED · REAUTHORIZE THIS ROOT TO RESTORE</span>') + '</div>' +
         '</div>';
     }
+    // TRUTHFUL NET STATE: the paragraph above promises a point before every command, but a snapshot is fail-open —
+    // when one cannot be saved (a killed Git command's lock, a timeout on a huge workspace) the run goes on with no
+    // undo point. The server's health record (GET /api/checkpoint .health: the LAST automatic attempt this boot)
+    // says so here instead of the list silently looking complete. No health yet = nothing attempted = no claim.
+    function healthNote(h, newest) {
+      if (!h || !h.lastFailure) return '';
+      const when = h.lastFailure.at ? esc(fmtRel(new Date(h.lastFailure.at).toISOString())) : 'recently';
+      const why = esc(String(h.lastFailure.reason || 'the restore point could not be saved'));
+      if (h.ok === false) {
+        const since = newest && newest.ts ? 'since ' + esc(fmtRel(new Date(newest.ts).toISOString())) : 'from now on';
+        return '<div class="mc-detail" id="rw-health" data-state="failing">RESTORE POINTS ARE NOT SAVING · last attempt ' + when + ': ' + why +
+          '. Changes made ' + since + ' cannot be rolled back until one saves.</div>';
+      }
+      return '<div class="mc-url dim" id="rw-health" data-state="missed">A restore point could not be saved ' + when + ' (' + why +
+        '). The change made right after it has no restore point of its own.</div>';
+    }
     async function refresh() {
       try {
         const j = await Harness.api.get('/api/checkpoint?agent=' + encodeURIComponent(agentId));
@@ -55,7 +71,7 @@
         const empty = (j && j.enabled)
           ? 'NO RESTORE POINTS YET.<br><span>They appear once this agent runs a command or edits a file at a WORKBENCH.</span>'
           : 'NO RESTORE POINTS YET.<br><span>They appear once this agent runs a <b>shell command</b>. File-edit snapshots aren\'t enabled on this station.</span>';
-        listEl.innerHTML = snaps.length ? snaps.map(row).join('') : '<div class="fb-empty">' + empty + '</div>';
+        listEl.innerHTML = healthNote(j && j.health, snaps[0]) + (snaps.length ? snaps.map(row).join('') : '<div class="fb-empty">' + empty + '</div>');
       } catch (_) { listEl.innerHTML = '<div class="mc-detail">sidecar offline — start it to manage restore points.</div>'; }
     }
     let armTimer = 0;

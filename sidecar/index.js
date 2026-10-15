@@ -18095,7 +18095,7 @@ async function handleCheckpointRestore(req, res) {
   catch (e) { return json(500, { error: 'restore failed: ' + ((e && e.message) || e) }); }
   finally { lifecycle.release(); }
   if (!out || !out.ok) {
-    if (out && out.reason === 'pre_restore_failed') return json(500, { error: 'restore refused: the current workspace could not be saved as an undo point first, so nothing was changed' });
+    if (out && out.reason === 'pre_restore_failed') return json(500, { error: 'restore refused: the current workspace could not be saved as an undo point first, so nothing was changed' + (out.detail ? ' (' + out.detail + ')' : '') });
     if (out && out.reason === 'git_failed') return json(500, { error: 'restore did not complete; the workspace as it was just before is saved as restore point ' + String(out.preRestoreId || '').slice(0, 12), preRestoreId: out.preRestoreId || '' });
     return json(404, { error: 'no such snapshot for that agent' });
   }
@@ -18104,6 +18104,10 @@ async function handleCheckpointRestore(req, res) {
 }
 
 // GET /api/checkpoint?agent=<id> — the read-only snapshot index a "rewind" affordance lists from.
+// health (local backend, additive): whether this agent's LAST automatic snapshot actually saved a restore point —
+// null until one is attempted this boot. snapshot() is fail-open, so without it a dead undo net (a killed Git add's
+// stale lock refusing every later snapshot) listed exactly like a working one; the RESTORE lane and
+// station.settings show it so nobody is told a change can be undone when no restore point was saved.
 async function handleCheckpointList(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   try {
@@ -18112,7 +18116,7 @@ async function handleCheckpointList(req, res) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(agent)) return json(400, { error: 'bad agentId' });
     const remoteEnv = executionEnvironment.backendIdFor(agent) === 'ssh' ? executionEnvironment.forAgent(agent) : null;
     const snapshots = remoteEnv && typeof remoteEnv.listCheckpoints === 'function' ? await remoteEnv.listCheckpoints(agent) : checkpointStore.list(agent).snapshots;
-    json(200, { enabled: remoteEnv ? true : CHECKPOINTS_ENABLED, snapshots });
+    json(200, remoteEnv ? { enabled: true, snapshots } : { enabled: CHECKPOINTS_ENABLED, snapshots, health: checkpointStore.health(agent) });
   } catch (e) {
     // HONESTY (GROUND_UP_AUDIT P2): a thrown store read is a real failure — report 500 so a crash isn't
     // masked as "no restore points". A genuinely-empty list still returns 200 {snapshots:[]} above (shape

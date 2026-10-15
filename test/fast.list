@@ -80,6 +80,7 @@ test/test-list-runner.test.js
 test/runroute.test.js
 test/checkpoint.test.js
 test/checkpoint-default-on.test.js
+test/rewind-health.test.js
 test/module-scope-shadowing.test.js
 test/source-text-integrity.test.js
 test/verify.test.js

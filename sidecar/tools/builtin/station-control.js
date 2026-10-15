@@ -410,7 +410,7 @@
       ['GET', '/api/skill-market', j => ({ market: (j.entries || []).map(e => ({ slug: e.slug, name: e.name, installed: /^(installed|update|bundled|tampered)$/.test(String(e.status || '')), status: e.status, version: e.version })) })]],
     apps: [['GET', '/api/apps', j => ({ apps: (j.apps || []).map(x => ({ id: x.id, name: x.name })), routinesOn: j.routinesOn })]],
     projects: [['GET', '/api/projects', j => ({ projects: (j.projects || []).map(p => ({ name: p.displayPath || p.root, root: p.root, trusted: !!p.blessed })) })]],
-    checkpoints: [['GET', a => '/api/checkpoint?agent=' + enc(a.agent || 'agent'), j => ({ enabled: j.enabled, snapshots: (j.snapshots || []).slice(0, 30) })]],
+    checkpoints: [['GET', a => '/api/checkpoint?agent=' + enc(a.agent || 'agent'), j => ({ enabled: j.enabled, snapshots: (j.snapshots || []).slice(0, 30), health: j.health || null })]],
     deliverables: [['GET', a => '/api/workshop/pending?agent=' + enc(a.agent || 'agent')]],
     away: [['GET', a => '/api/workshop/backlog?agent=' + enc(a.agent || 'agent'), j => ({ agentId: j.agentId, awayWorkOn: j.granted, queue: (j.items || []).slice(0, 40).map(i => ({ id: i.id, title: i.title, state: i.state })), nextShiftAt: j.nextShiftAt })]],
     library: [['GET', '/api/deliverables', j => ({ total: j.total, summary: j.summary, recent: (j.items || []).slice(0, 25).map(i => ({ id: i.id, title: clip(i.title, 100), status: i.status, kind: i.kind, agentId: i.agentId })) })]],
