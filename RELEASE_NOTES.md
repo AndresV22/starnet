@@ -97,7 +97,7 @@ The big one. 0.13.3 was security only; this is the feature update that was promi
 - **Errors take you to the fix.** A key or credit error's key reads OPEN AI & MODELS and lands on that provider's card. SIGN IN and RECONNECT really start the sign-in, a billing error names the provider, and a used-up ChatGPT, Grok or Kimi plan says it resets on its own schedule instead of telling you to top up.
 - **Claude Code never throws away a finished turn.** A reply that was already done is delivered instead of being counted as a timeout and run again.
 - **STOP frees the conversation right away.** It ends a retry wait at once instead of sleeping it out, and on a message still waiting its turn it also stops the automatic report on delegated work that was holding the chat, so your next message doesn't sit on connecting.
-- **Reconnecting is more dependable.** When the station drops in the middle of a reply in the Windows app, COMMS now notices and starts recovery. A station that stops answering no longer leaves COMMS stuck on reconnecting (#116), and COMMS says recovery is under way only once it really is.
+- **Reconnecting is more dependable.** When the station drops in the middle of a reply in the Windows app, COMMS now notices and starts recovery. A station that stops answering no longer leaves COMMS stuck on reconnecting, and COMMS says recovery is under way only once it really is.
 - **StarNet starts after a crash** even when Windows has given the crashed station's process number to another program.
 - **A delegated report that finished while StarNet was closed shows once,** not twice.
 - **The DELEGATED card no longer says "stopped" before the station has answered.** It reads checking… until it knows, or status unknown if the station can't be reached.
