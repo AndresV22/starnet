@@ -82,7 +82,8 @@ const NY = require('../frontend/app/needsyou.js');
   // (Andrew 10-15, premium pass) one agent's builds are ONE card, never the same line repeated per build
   const b0 = byKind('build')[0], twoBuilds = NY._internals.html([b0, Object.assign({}, b0, { key: 'build:b2', since: (b0.since || NOW) + 1000, rail: { verb: 'keep or discard', text: 'Pricing page v3' } })], NOW);
   A.eq((twoBuilds.match(/class="ny-item /g) || []).length, 1, 'two builds from one agent are one card');
-  A.ok(/<span class="ny-verb">keep or discard<\/span> · 2 builds/.test(twoBuilds) && /<span class="ny-count">2<\/span>/.test(twoBuilds), '…that says how many, while the header still counts every wait');
+  A.ok(/<span class="ny-verb">keep or discard<\/span> · Pricing page v2 <span class="ny-more-n">\+1 more<\/span>/.test(twoBuilds) && /<span class="ny-count">2<\/span>/.test(twoBuilds),
+    '…that names the build its click opens (the oldest) and how many more wait, while the header still counts every wait');
   A.ok(/class="ny-face"[^>]*data-ny-aid=/.test(twoBuilds), 'each card carries the agent\'s portrait well');
 
   // the doors
@@ -92,9 +93,18 @@ const NY = require('../frontend/app/needsyou.js');
   NY.openKey('loop:L1'); A.eq(ui.terms.pop(), ['loops', null], 'loop results open GOAL LOOPS');
   A.ok(!opened.length, 'none of them opens a conversation');
   global.document = { querySelector: sel => sel === '#dl-status' ? { closest: () => ({}) } : null, hidden: false };
-  NY.openKey('build:b1'); A.eq(ui.terms.pop(), ['deliverables', null], 'a build opens DELIVERABLES…');
+  // (Andrew 10-15: "it only takes you to deliverables … instead of where you are ACTUALLY needed") a build opens ITS OWN session,
+  // where its keep/discard card is; only a build whose session cannot be had falls back to DELIVERABLES › NEEDS A DECISION
+  NY.openKey('build:b1'); A.eq(ui.terms.pop(), ['deliverables', null], 'a build whose session cannot be had opens DELIVERABLES…');
   A.eq(shownStatus, 'pending', '…filtered to NEEDS A DECISION');
   global.document = undefined;
+  const ensured = [];
+  global.WorkshopStore.ensureSession = m => { ensured.push(m.runId); return 'workshop-' + m.runId; };
+  const termsBefore = ui.terms.length;
+  A.eq(NY.openKey('build:b1'), { conversation: true }, 'a build opens its own session (NOTIFICATIONS steps aside for it)');
+  A.eq(opened.pop(), ['ws', 'workshop-b1'], '…THAT build session, where its keep/discard card is');
+  A.ok(ensured[0] === 'b1' && ui.terms.length === termsBefore, '…adopted through WorkshopStore, and DELIVERABLES is not opened');
+  delete global.WorkshopStore.ensureSession;
   // what a door opened: NOTIFICATIONS steps aside (workConversation) only for a session, never over a window it just opened
   A.eq(NY.openKey('loop:L1'), { conversation: false }, 'a window door reports it opened a window, not a conversation'); ui.terms.pop();
   A.eq(NY.openKey('approval:nope'), false, 'an unknown key opens nothing');
