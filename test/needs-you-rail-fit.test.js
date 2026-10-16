@@ -275,6 +275,112 @@ A.ok(keysSideBySide(['Approve once', 'Deny']), 'Approve once · Deny share one r
 layout = { rail: RAILS.find(r => r.px === laptop), zoom: 100, bar: 0, laid: true };
 A.ok(!keysSideBySide(['Approve once', 'Deny']), '…and stack on the 200px rail at STANDARD (' + Math.floor(lineWidth()) + 'px): each key stays whole, the row grows by a key');
 
+/* ---- 8. the name line: the PLACE gives up its room before the NAME does (fix round 10-16) ----
+   Line 1 of a row is a flex line: WHO · in <where> · age. A group's names may wrap (.ny-who shrinks), and that let the
+   flex algorithm shrink the name in proportion beside a long place: on Andrew's 400px rail MISS FORTUNE broke onto two
+   lines (MISS / FORTUNE) and "ULTRON, CYPHER +3" onto two, while "in ⚒ Speedrun timer with checkpoint splits + test
+   course" kept 219px. The line is laid out here with the CSS flex algorithm (Flexbox §9.7, one line) from the REAL rules —
+   each item's flex, min-width and type, the line's gap, the container query that takes the place out of the line on a
+   narrow row — and VT323's own advance, on every rail at every TEXT SIZE:
+   - a name stays on one line whenever it, its time and the gaps fit the line (the place takes only what is left, "…");
+   - the time is never pushed out of the row (a name wraps first, only when it and its time alone overflow the line). */
+{
+  const topRule = sel => { const m = new RegExp('^' + sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{([^}]*)\\}', 'm').exec(glass); A.ok(!!m, 'pipglass.css still has `' + sel + ' {` at the top level'); return m ? m[1] : ''; };
+  const P = 'body.glass-demo:not(.hud-mode) #left .ws-needs ';
+  const lineRule = topRule(P + '.ny-line'), whoRule = topRule(P + '.ny-who'), whereRule = topRule(P + '.ny-where'), ageRule = topRule(P + '.ny-age');
+  const flexOf = (rule, what) => {
+    const m = /(?:^|[;\s])flex:\s*([^;]+);/.exec(rule); A.ok(!!m, what + ' keeps a flex rule');
+    const v = m ? m[1].trim() : 'none';
+    if (v === 'none') return { grow: 0, shrink: 0, basis: 'auto' };
+    if (v === 'auto') return { grow: 1, shrink: 1, basis: 'auto' };
+    const t = v.split(/\s+/), num = s => /^\d*\.?\d+$/.test(s);
+    if (t.length === 1 && num(t[0])) return { grow: +t[0], shrink: 1, basis: 0 };
+    const grow = +t[0], shrink = t[1] && num(t[1]) ? +t[1] : 1, b = num(t[1] || '') ? t[2] : t[1];
+    return { grow, shrink, basis: !b || /^0(px|%)?$/.test(b) ? 0 : b === 'auto' || b === 'content' ? 'auto' : parseFloat(b) };
+  };
+  const minOfRule = rule => { const m = /(?:^|[;\s])min-width:\s*(\d+)(?:px)?;/.exec(rule); return m ? +m[1] : 'auto'; };
+  const typeOf = (rule, what) => { const [f] = px(rule, /font(?:-size)?: (\d+)px/, what + ' keeps its type size'); const [ls] = px(rule, /letter-spacing: (\.?\d*\.?\d+)px;/, what + ' keeps its letter-spacing'); return f * EM + ls; };
+  const [gap] = px(lineRule, /gap: 0 (\d+)px;/, 'the name line keeps its gap');
+  const perWho = typeOf(whoRule, 'the name'), perWhere = typeOf(whereRule, 'the place'), perAge = typeOf(ageRule, 'the time');
+  const cq = /@container \(max-width: (\d+)px\) \{\s*body\.glass-demo:not\(\.hud-mode\) #left \.ws-needs \.ny-where \{[^}]*(?:position: absolute|display: none)/.exec(glass);
+  A.ok(!!cq, 'a narrow row takes the place out of its name line (the container query)');
+  const placeOutBelow = cq ? +cq[1] : 0;
+  const moreEm = Number((/\.ny-who > \.ws-agent-more \{ margin-left: (\.?\d*\.?\d+)em; \}/.exec(glass) || [])[1]) || 0;   // a group's "+N" keeps its gap
+  // a name's widths: max-content (one line) and min-content (its longest unbreakable run: a group's "+N" rides its last name)
+  function nameBox(names, more) {
+    const w = s => s.length * perWho, gapMore = more ? moreEm * fontPxOf(whoRule) : 0, tail = more ? gapMore + w('+' + more) : 0;
+    const words = names.split(' ');
+    return { maxC: w(names) + tail, minC: Math.max(...words.map((x, k) => w(x) + (k === words.length - 1 ? tail : 0))) };
+  }
+  function fontPxOf(rule) { return +(/font-size: (\d+)px/.exec(rule) || [])[1]; }
+  // Flexbox §9.7 resolving flexible lengths, one line, no wrap
+  function flexLine(avail, items) {
+    const minOf = i => i.min === 'auto' ? i.minC : i.min;
+    const base = items.map(i => i.basis === 'auto' ? i.maxC : i.basis);
+    const hypo = items.map((i, k) => Math.max(minOf(i), base[k]));
+    const gaps = gap * (items.length - 1);
+    const growing = hypo.reduce((s, x) => s + x, 0) + gaps < avail;
+    const factor = i => growing ? i.grow : i.shrink;
+    const target = hypo.slice();
+    const frozen = items.map((i, k) => factor(i) === 0 || (growing ? base[k] > hypo[k] : base[k] < hypo[k]));
+    const initialFree = avail - gaps - items.reduce((s, i, k) => s + (frozen[k] ? target[k] : base[k]), 0);
+    for (let guard = 0; guard < 12 && frozen.some(f => !f); guard++) {
+      const un = items.map((_, k) => k).filter(k => !frozen[k]);
+      let free = avail - gaps - items.reduce((s, i, k) => s + (frozen[k] ? target[k] : base[k]), 0);
+      const sumF = un.reduce((s, k) => s + factor(items[k]), 0);
+      if (sumF < 1 && Math.abs(initialFree * sumF) < Math.abs(free)) free = initialFree * sumF;
+      if (growing) un.forEach(k => { target[k] = base[k] + (sumF ? free * items[k].grow / sumF : 0); });
+      else { const sumS = un.reduce((s, k) => s + items[k].shrink * base[k], 0); un.forEach(k => { target[k] = base[k] + (sumS ? free * items[k].shrink * base[k] / sumS : 0); }); }
+      let total = 0; const viol = {};
+      un.forEach(k => { const c = Math.max(minOf(items[k]), target[k]); viol[k] = c - target[k]; total += viol[k]; target[k] = c; });
+      un.forEach(k => { if (Math.abs(total) < 1e-9 || (total > 0 ? viol[k] > 0 : viol[k] < 0)) frozen[k] = true; });
+    }
+    return { sizes: target, used: target.reduce((s, x) => s + x, 0) + gaps };
+  }
+  const whoF = flexOf(whoRule, 'the name'), whereF = flexOf(whereRule, 'the place'), ageF = flexOf(ageRule, 'the time');
+  const ROWS = [
+    { what: 'MISS FORTUNE beside a build session\'s long place', names: 'MISS FORTUNE', place: 'in ⚒ Speedrun timer with checkpoint splits + test course', age: '2h' },
+    { what: 'a group of five beside its long title', names: 'ULTRON, CYPHER', more: 3, place: 'in Scout the speedrun community for course ideas and leaderboards', age: '' },
+    { what: 'ULTRON beside "General"', names: 'ULTRON', place: 'in General', age: '13d' }
+  ];
+  const wrapped = [], pushed = [], placeWide = [], tooNarrow = new Set();
+  let placeShown = 0, oneLineAt400 = 0;
+  for (const rail of RAILS) for (const zoom of ZOOMS) for (const r of ROWS) {
+    layout = { rail, zoom, bar: 0, laid: true };
+    const avail = lineWidth(), placeIn = avail + lampCol + colGap > placeOutBelow;
+    const nb = nameBox(r.names, r.more);
+    const who = Object.assign({ min: minOfRule(whoRule) }, whoF, nb);
+    const where = Object.assign({ min: minOfRule(whereRule), maxC: r.place.length * perWhere, minC: r.place.length * perWhere }, whereF);
+    const age = Object.assign({ min: minOfRule(ageRule), maxC: r.age.length * perAge, minC: r.age.length * perAge }, ageF);
+    const items = placeIn ? [who, where, age] : [who, age], out = flexLine(avail, items);
+    const at = rail.name + ' @' + zoom + '%: ' + r.what;
+    const roomForName = nb.maxC + (items.length - 1) * gap + age.maxC <= avail + 0.01;
+    if (roomForName && out.sizes[0] < nb.maxC - 0.01) wrapped.push(at + ' — the name gets ' + out.sizes[0].toFixed(1) + 'px of the ' + nb.maxC.toFixed(1) + ' it needs, the place ' + (placeIn ? out.sizes[1].toFixed(1) : 'none'));
+    // (where not even the name's longest word, its time and the gap fit — the 200px rail at X-LARGE and up — no flex rule
+    // can keep the time in the line: counted below, not this rule's to fix)
+    const roomForWord = nb.minC + (items.length - 1) * gap + age.maxC <= avail + 0.01;
+    if (r.age && !roomForWord) tooNarrow.add(rail.name + ' @' + zoom + '%');
+    else if (r.age && out.used > avail + 0.01) pushed.push(at + ' — the line needs ' + out.used.toFixed(1) + 'px of ' + avail.toFixed(1) + ': its time is pushed out of the row');
+    if (placeIn) {
+      placeShown++;
+      if (out.sizes[1] > Math.max(0, avail - (out.sizes[0] + 2 * gap + out.sizes[2])) + 0.01) placeWide.push(at + ' — the place takes more than the name and the time leave');
+      if (rail.px === dragMax && zoom === 90 && roomForName) oneLineAt400++;
+    }
+  }
+  A.ok(placeShown > 10 && oneLineAt400 === ROWS.length, '(the place is in the line on the wide rails: ' + placeShown + ' layouts, all three rows at Andrew\'s 400px rail at 90%)');
+  A.eq(wrapped.slice(0, 4), [], 'a name stays on one line wherever it, its time and the gaps fit the line: the place gives up its room first (' + wrapped.length + ' wrapped)');
+  A.eq(pushed.slice(0, 4), [], 'the time is never pushed out of the row: a name too long for the line beside its time wraps at a space instead (' + pushed.length + ' pushed out)');
+  if (tooNarrow.size) console.log('NOTE: not even a name\'s longest word and its time fit one line at ' + [...tooNarrow].join(', ') + ' (unchanged by this rule)');
+  A.eq(placeWide.slice(0, 4), [], 'the place takes only the room the name and the time leave, and shows the rest as "…" (' + placeWide.length + ')');
+  // Andrew's rail, the review's two cases, named
+  layout = { rail: RAILS.find(r => r.px === dragMax), zoom: 90, bar: 0, laid: true };
+  for (const r of ROWS.slice(0, 2)) {
+    const nb = nameBox(r.names, r.more);
+    const out = flexLine(lineWidth(), [Object.assign({ min: minOfRule(whoRule) }, whoF, nb), Object.assign({ min: minOfRule(whereRule), maxC: r.place.length * perWhere, minC: r.place.length * perWhere }, whereF), Object.assign({ min: minOfRule(ageRule), maxC: r.age.length * perAge, minC: r.age.length * perAge }, ageF)]);
+    A.ok(out.sizes[0] >= nb.maxC - 0.01 && out.sizes[1] < r.place.length * perWhere, 'Andrew\'s 400px rail at 90%: ' + r.what + ' — the name on one line (' + out.sizes[0].toFixed(1) + ' of ' + nb.maxC.toFixed(1) + 'px), the place cut to ' + out.sizes[1].toFixed(1) + 'px with "…"');
+  }
+}
+
 /* ---- 7. an agent's builds are one row whose COUNT is never cut (two reviews 10-16, P1) ----
    "+22 more" after the oldest build's title sat on line 3+ of the two-line clamp on every default rail: 22 real waits
    vanished from the rail while the header counted them. The count leads the line, so it ends on line 1 or 2 on every

@@ -610,7 +610,10 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-dot {
 }
 /* something broke (failed work, a failed routine): its lamp and its line say so; the row stays in the panel's voice */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-dot { background: var(--bad); }
-/* line 1: AGENT (the row's headline, in its colour) · in <where> ........ time */
+/* line 1: AGENT (the row's headline, in its colour) · in <where> ........ time. The place gives up its room first (review
+   10-16): it starts from nothing and takes only what the name and the time leave (flex-basis 0, then "…"), so a two-word
+   name (MISS FORTUNE) or a group's names stay on one line beside a long place; a name wraps only where it and its time
+   alone overflow the line, and the time is never pushed out of the row */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-line { display: flex; align-items: baseline; gap: 0 8px; min-width: 0; line-height: 1.15; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who { flex: 0 1 auto; font-size: 19px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); text-shadow: var(--pg-glow-soft); }
 /* a group chat's headline is its members' names, the SESSIONS row's own line ("ULTRON, CYPHER +3"): it wraps at a space
@@ -631,7 +634,7 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:not(.approval, .question
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-what { color: var(--bad); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-age { flex: none; margin-left: auto; font-size: 15px; letter-spacing: .4px; font-variant-numeric: tabular-nums; color: var(--cg-mute, var(--text)); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where {
-  flex: 0 1 auto; min-width: 0; padding: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+  flex: 1 1 0; min-width: 0; padding: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
   font: 15px 'VT323', monospace; letter-spacing: .4px; color: var(--cg-mute, var(--text)); background: none; border: 0; box-shadow: none; text-shadow: none;
 }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where:is(:hover, :focus-visible) { color: var(--ph-bright); }
