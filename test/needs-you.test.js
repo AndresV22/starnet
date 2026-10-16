@@ -148,7 +148,9 @@ const shown = i => readAs(i, WHOLE), cut = i => readAs(i, CUT);
     A.ok(!/ny-review/.test(NY._internals.html([shown(wa)], Date.now())), '…and its row is not offered as the Review door: ' + Object.keys(w)[0]);
   }
   const glassCss = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'pipglass.css'), 'utf8');
-  A.ok(/\.ny-keys \{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; \}/.test(glassCss) && /\.ny-key \{\s*flex: 1 1 auto; min-width: 0; min-height: 34px; padding: 5px 8px; font: 15px\/1\.1 'VT323'/.test(glassCss) && !/\.ny-key\.ny-review \{ flex: 1 1 100%; \}/.test(glassCss), 'the two keys share one row down to the 200px rail at 15px, never three stacked full-width keys');
+  A.ok(/\.ny-keys \{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; \}/.test(glassCss) && /\.ny-key \{\s*flex: 1 1 auto; min-width: 0; min-height: 34px; padding: 5px 8px; font: 15px\/1\.1 'VT323'/.test(glassCss) && !/\.ny-key\.ny-review \{ flex: 1 1 100%; \}/.test(glassCss)
+    && /\.ny-keys > \.ny-key \{ flex: 1 1 0; min-width: max-content; min-height: 34px; \}/.test(glassCss),
+    'a row has two keys, never three: they share its text column where both labels fit (the 232px rail at STANDARD) and stack, whole and 34px tall, where they do not (the 200px rail; test/needs-you-rail-fit.test.js lays both out)');
   A.eq((NY._internals.keysFor(cut(longPath)).match(/>Review</g) || []).length, 1, 'a cut line still shows exactly one Review, never a blind Approve');
   A.eq((k(longCmd).match(/>Review</g) || []).length, 1, 'a hidden-detail ask read whole still shows exactly one Review, never a blind Approve');
   global.Chat.consentPhrase = phrase;
