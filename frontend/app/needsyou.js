@@ -241,14 +241,19 @@ const NeedsYou = (() => {
     return !!box && box.clientHeight > 0 && box.clientWidth > 0
       && box.scrollHeight <= box.clientHeight + 2 && box.scrollWidth <= box.clientWidth + 2;
   }
-  // read every approval row the rail shows; true when an answer moved (that row's keys follow)
+  // read every approval row the rail shows; true when an answer moved (that row's keys follow). A row fitRows folded into
+  // "N more" shows nothing to read or press: it keeps its last reading, and is read afresh the moment it shows again (the
+  // heartbeat fits before it reads; an expand redraws, then reads). Reading it as "not whole" flipped its keys, which
+  // changed its height, which unfolded it, which read it whole again: the panel rebuilt twice a second at a fold boundary.
   function measure(host, list) {
     const asks = new Map(list.filter(i => i.kind === 'approval').map(i => [i.key, i]));
     const whole = new Set();
     if (asks.size) {
       for (const li of host.querySelectorAll('li.ny-item[data-ny-key]')) {
         const i = asks.get(li.dataset && li.dataset.nyKey);
-        if (i && shownWhole(li)) whole.add(fitId(i));
+        if (!i) continue;
+        if (li.hidden) { if (wholeLines.has(fitId(i))) whole.add(fitId(i)); continue; }
+        if (shownWhole(li)) whole.add(fitId(i));
       }
     }
     if (whole.size === wholeLines.size && [...whole].every(id => wholeLines.has(id))) return false;
@@ -376,8 +381,8 @@ const NeedsYou = (() => {
         const el = li.querySelector('.ny-age'), text = age(since.get(li.dataset.nyKey), now);
         if (el && el.textContent !== text) el.textContent = text;
       });
-      remeasure(host, list);   // …and re-read each line: TEXT SIZE or the rail's width may have moved under it
-      fitRows(host);           // …and how many rows fit whole in the room
+      fitRows(host);           // …and how many rows fit whole in the room (TEXT SIZE or the rail's width may have moved)
+      remeasure(host, list);   // …then re-read each line the rail now shows (a row just unfolded is read before it paints)
       return;
     }
     lastShape = shape;

@@ -1,5 +1,5 @@
 'use strict';
-/* node test/needs-you-fold.test.js — NEEDS YOU's fold counts WAITS, and its rows keep their age honest
+/* node test/needs-you-fold.test.js — NEEDS YOU's fold counts WAITS, its rows keep their age honest, and it settles
    (two independent reviews of the one-panel rail, 2026-10-16).
 
    1. "N more" counted CARDS while the header counted WAITS: an agent's 23 builds are one card, so a folded build card
@@ -8,8 +8,13 @@
       shown plus N.
    2. A card of builds that carry no time showed the age "now" (Math.min of no times is Infinity): the module's own rule
       is "no time: show no age".
+   3. At a fold boundary fitRows and the Approve-once reading fed each other: a row read whole got Approve once, its keys
+      stacked and grew it, fitRows folded it, the next reading saw a hidden row as "not whole", its keys went back to
+      Review, it fit again… and the panel rebuilt twice a second forever. A folded row now keeps its last reading and is
+      read afresh the moment it shows; the safety rule (Approve once only for a line read whole, re-read at the click)
+      holds throughout.
    GENUINE (executed): the real needsyou.js renders into a host laid out by a height model (a row's lines and its keys,
-   Approve once · Deny stacking in this column), so the real fitRows and measure run. */
+   Approve once · Deny stacking in this column), so the real fitRows, measure and heartbeat run. */
 const A = require('./_assert.js');
 
 const NOW = 40 * 86400000;
@@ -33,7 +38,7 @@ const NY = require('../frontend/app/needsyou.js');
 
 /* ---- the section, laid out: head, rows (name + ask lines, then keys), and the fold key when it shows ---- */
 const HEAD = 30, MORE = 25;
-const lineCut = false;   // every ask line reads whole here
+let lineCut = false;   // every ask line reads cut (a TEXT SIZE change, a dragged rail): the boxes read it live
 const dataset = attrs => Object.fromEntries([...attrs.matchAll(/data-([a-z-]+)="([^"]*)"/g)].map(m => [m[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase()), m[2]]));
 const LISTENERS = {};   // needsyou.js wires its click listener once (one section per page): every host here shares it
 function makeHost(room) {
@@ -106,5 +111,41 @@ const keysOf = (host, k) => (rowOf(host, k) || { labels: [] }).labels.join(' · 
   A.eq(rowOf(host, 'build:u0').ageEl.textContent, '40m', 'ULTRON\'s card shows its oldest build\'s age');
   click(host, host.more);   // Show fewer
 
+  /* ---- 4. at a fold boundary the heartbeat settles: no rebuild loop ---- */
+  pending = [
+    { wsId: 'proj', p: { promptId: 'q2', tool: 'brief.ask', argsSummary: JSON.stringify({ question: 'Which tier should lead?' }), agentId: 'agent', askedAt: NOW - 120000 } },
+    { wsId: 'home', p: { promptId: 'a2', tool: 'fs.read', argsSummary: 'notes.md', agentId: 'agent', askedAt: NOW - 60000 } }];
+  builds = []; workers = [];
+  await NY.refreshFeeds(true);
+  // the room holds the approval with Review · Deny on one row (100px), not with Approve once · Deny stacked (140px)
+  host = remount(HEAD + 100 + 100 + 1);
+  const settled = host.writes;
+  for (let beat = 0; beat < 6; beat++) { clock += 1000; NY.render(); }
+  A.eq(host.writes - settled, 0, 'six heartbeats at the fold boundary rebuild nothing (it rebuilt the panel twice a beat, forever)');
+  A.eq(shownKeys(host), ['ask:q2'], 'the approval, read whole (Approve once · Deny no longer fit), is folded');
+  A.eq([headerOf(host), moreOf(host)], [2, 1], '…into "1 more", under a header of 2');
+  A.eq(keysOf(host, 'ask:a2'), 'Approve once · Deny', '…keeping the keys of its last reading while folded');
+
+  /* ---- 5. the safety rule holds at the fold: a folded row's reading is never trusted blind ---- */
+  click(host, host.more);   // expand: the folded row shows, and is read before anything paints
+  A.eq(keysOf(host, 'ask:a2'), 'Approve once · Deny', 'unfolded and read whole: Approve once');
+  lineCut = true; clock += 1000; NY.render();
+  A.eq(keysOf(host, 'ask:a2'), 'Review · Deny', 'its line reads cut now: the next heartbeat offers Review');
+  lineCut = false; clock += 1000; NY.render();
+  A.eq(keysOf(host, 'ask:a2'), 'Approve once · Deny', 'whole again: Approve once');
+  lineCut = true;   // cut since that heartbeat: the click reads it again
+  answered.length = 0; opened.length = 0;
+  click(host, host.buttons.find(b => b.dataset.nyAct === 'once' && b.dataset.nyKey === 'ask:a2'));
+  A.eq(answered, [], 'a click on Approve once for a line cut since the last reading approves nothing');
+  A.eq(opened, ['home'], '…it opens the card that shows the whole request');
+  lineCut = false;
+  click(host, host.more);   // Show fewer: folded again, and settled again
+  const settled2 = host.writes;
+  for (let beat = 0; beat < 4; beat++) { clock += 1000; NY.render(); }
+  A.eq(host.writes - settled2, 0, 'collapsed again, it settles again');
+  // the room grows (a smaller TEXT SIZE) while the folded row's line is cut: the heartbeat that unfolds it reads it too
+  lineCut = true; host.clientHeight = 1000; clock += 1000; NY.render();
+  A.eq(shownKeys(host), ['ask:q2', 'ask:a2'], 'room for both: the heartbeat unfolds the approval');
+  A.eq(keysOf(host, 'ask:a2'), 'Review · Deny', '…and reads it in the same beat, before it paints: a line cut while folded never shows Approve once');
   A.report('needs-you-fold.test');
 })().catch(e => { console.error(e); process.exit(1); });
