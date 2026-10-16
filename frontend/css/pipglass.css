@@ -604,7 +604,11 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-dot {
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-dot { background: var(--bad); }
 /* line 1: AGENT (the row's headline, in its colour) · in <where> ........ time */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-line { display: flex; align-items: baseline; gap: 0 8px; min-width: 0; line-height: 1.15; }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who { flex: none; font-size: 19px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); text-shadow: var(--pg-glow-soft); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who { flex: 0 1 auto; font-size: 19px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); text-shadow: var(--pg-glow-soft); }
+/* a group chat's headline is its members' names, the SESSIONS row's own line ("ULTRON, CYPHER +3"): it wraps at a space
+   rather than end in "…", and its +N keeps its gap */
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who > .ws-agent-names { white-space: normal; overflow: visible; text-overflow: clip; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who > .ws-agent-more { margin-left: .4em; }
 /* line 2: the ask first, then what it is about; two lines at most (the whole sentence is its hover tip) */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-what {
   font-size: 16px; line-height: 1.25; letter-spacing: .4px; color: color-mix(in srgb, var(--text) 94%, var(--panel2)); overflow-wrap: anywhere; overflow: hidden;

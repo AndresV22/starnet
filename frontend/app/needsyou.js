@@ -54,6 +54,10 @@ const NeedsYou = (() => {
     if (!id || !has(App, 'agents')) return '';
     try { const a = (App.agents() || []).find(x => x && x.id === id); return (a && a.color) || ''; } catch (_) { return ''; }
   }
+  // the SESSIONS rail's agent line (App.railAgentLine: HTML its own U.esc escaped) as words, for the bell, NOTIFICATIONS and
+  // the tips: its "+N" is a span of its own, so it gets its space back ("ULTRON, CYPHER +3")
+  const ENT = { lt: '<', gt: '>', quot: '"', '#39': "'", amp: '&' };
+  const textOfLine = h => String(h).replace(/<span class="ws-agent-more">/g, ' ').replace(/<[^>]*>/g, '').replace(/&(lt|gt|quot|#39|amp);/g, (m, e) => ENT[e]);
   function titleOf(ws) { return (ws && (ws.title || (typeof Workstreams !== 'undefined' && Workstreams.generalId && ws.id === Workstreams.generalId() ? 'General' : ''))) || 'a conversation'; }
   function questionOf(p) {
     try { const j = JSON.parse(p.argsSummary || '{}'); if (j && typeof j.question === 'string' && j.question.trim()) return j.question.trim(); } catch (_) { /* a plain-text ask */ }
@@ -197,7 +201,13 @@ const NeedsYou = (() => {
       for (const id of GroupChat.attentionIds()) {
         const ws = Workstreams.get(id); if (!ws) continue;
         const st = GroupChat.stateOf ? GroupChat.stateOf(id) : null;
-        out.push({ key: 'group:' + id, kind: 'group', wsId: id, who: 'GROUP', what: st && st.approvals ? 'has an approval waiting' : 'has a question waiting', where: titleOf(ws), since: 0 });
+        // a group is told by its members' names, the SESSIONS rail's own line ("ULTRON, CYPHER +3"; Andrew 10-13: never a
+        // GROUP label), and its portrait is the first of them (the lead, when the lead is a member, as that line orders them)
+        const line = has(App, 'railAgentLine') ? String(App.railAgentLine(ws) || '') : '';
+        const members = (GroupChat.membersOf && GroupChat.membersOf(id)) || [];
+        const aid = !members.length || members.includes(ws.agentId) ? ws.agentId : members[0];
+        out.push({ key: 'group:' + id, kind: 'group', wsId: id, who: line ? textOfLine(line) : nameOf(aid), whoHtml: line, aid,
+          what: st && st.approvals ? 'has an approval waiting' : 'has a question waiting', where: titleOf(ws), since: 0 });
       }
     }
     storedRows(out);   // after the live asks: a conversation they already list is never a second row
@@ -338,7 +348,7 @@ const NeedsYou = (() => {
         + '<span class="ny-face" aria-hidden="true"' + (i.aid ? ' data-ny-aid="' + esc(i.aid) + '"' : '') + '><img alt="" draggable="false" hidden><span class="ny-dot"></span></span>'
         // "in <where>" is the row's door for the keyboard and a screen reader on every rail (pipglass.css only hides it from
         // sight where the line has no room): its name says who, what, and where it lands
-        + '<div class="ny-line">' + (i.who ? '<span class="ny-who"' + (color ? ' style="color:' + esc(color) + '"' : '') + '>' + esc(i.who) + '</span>' : '')
+        + '<div class="ny-line">' + (i.who ? '<span class="ny-who"' + (color ? ' style="color:' + esc(color) + '"' : '') + '>' + (i.whoHtml || esc(i.who)) + '</span>' : '')
         + '<button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '" aria-label="' + esc((i.who ? i.who + ' ' : '') + lineOf(i) + place) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
         + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + place + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + lineHtml(i) + '</div>'
         + (keys ? '<div class="ny-keys">' + keys + '</div>' : '')

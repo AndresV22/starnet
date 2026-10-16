@@ -27,7 +27,7 @@ const pend = [
   { wsId: 'gone', p: { promptId: 'p9', tool: 'fs.write', askedAt: 1 } }
 ];
 global.Channels = { allPending: () => pend };
-global.GroupChat = { attentionIds: () => ['grp'], stateOf: () => ({ approvals: 1 }) };
+global.GroupChat = { attentionIds: () => ['grp'], stateOf: () => ({ approvals: 1 }), membersOf: id => id === 'grp' ? ['writer', 'agent', 'researcher'] : null };
 global.Overseer = { snapshot: () => ({ workers: [
   { runId: 'wr1', status: 'error', reason: 'timeout', agentId: 'researcher', parentStreamId: 'home', streamId: 'thread_mira', completedAt: NOW - 300000 },
   { runId: 'wr2', status: 'done', agentId: 'researcher', parentStreamId: 'home', completedAt: NOW - 1000 },
@@ -48,6 +48,18 @@ const consentCard = {};
 global.document = undefined;
 global.Delegated = require('../frontend/app/delegated.js');   // the page loads both; worker end-lines are worded once, there
 const NY = require('../frontend/app/needsyou.js');
+// the SESSIONS rail's own agent line (app.js railAgentName + railAgentLine, run as shipped, with the production U.esc), as App
+// exposes it: NEEDS YOU names a group chat by the line its session row reads
+{
+  const appSrc = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'app.js'), 'utf8');
+  const util = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'js', 'util.js'), 'utf8');
+  const s0 = util.indexOf('  esc(s) {'), s1 = util.indexOf('\n  // seeded-ish', s0);
+  A.ok(s0 >= 0 && s1 > s0 && s1 - s0 < 500, 'fixture: the production escaping method');
+  const ctx = vm.createContext({ GroupChat: global.GroupChat, agents: new Map([['agent', { name: 'NOVA' }], ['writer', { name: 'VEX' }], ['researcher', { name: 'MIRA' }]]) });
+  vm.runInContext('this.U = {' + util.slice(s0, s1) + '};\n' + A.fnBody(appSrc, 'function railAgentName(w)') + '\n' + A.fnBody(appSrc, 'function railAgentLine(w)') + '\nthis.line = railAgentLine;', ctx);
+  global.App.railAgentLine = ctx.line;
+  A.ok(/\n    railAgentLine,/.test(appSrc), 'App exposes railAgentLine: NEEDS YOU reads the SESSIONS row\'s own line');
+}
 // what the rail READ of a row's ask line (needsyou.js measure, run for real on a stand-in row): a clamped .ny-what that holds
 // all of its text, or one that cuts it. Approve once is offered only for a line read whole (test/needs-you-rail-fit.test.js
 // reads it at every TEXT SIZE and rail width); a line never read offers Review
@@ -62,6 +74,14 @@ const shown = i => readAs(i, WHOLE), cut = i => readAs(i, CUT);
   const ask = list.find(i => i.key === 'ask:p2');
   A.eq(ask.who + ' | ' + ask.what + ' | ' + ask.where + ' | ' + ask.workerWsId, 'VEX | send an email to beta@list | General | thread_vex', 'a delegated worker\'s ask names the WORKER, says exactly what, and where');
   A.eq(list.find(i => i.key === 'ask:p1').what, 'Which price tier should lead?', 'a question shows the question itself');
+  // (two reviews 10-16) a group chat waiting on you was headed "GROUP" with an empty portrait well: standing law (Andrew 10-13) is
+  // that a group reads its members' names, never a GROUP label. It is the SESSIONS row's own line, its portrait the lead's
+  const grp = list.find(i => i.key === 'group:grp');
+  A.eq([grp.who, grp.aid].join(' | '), 'NOVA, VEX +1 | agent', 'a group chat that waits on you is named by its members ("NOVA, VEX +1": the SESSIONS row\'s line, lead first), never GROUP');
+  const grpHtml = NY._internals.html([grp], NOW);
+  A.ok(/<span class="ny-who"[^>]*><span class="ws-agent-names">NOVA, VEX<\/span><span class="ws-agent-more">\+1<\/span><\/span>/.test(grpHtml) && /class="ny-face"[^>]*data-ny-aid="agent"/.test(grpHtml) && !/>GROUP</.test(grpHtml),
+    '…drawn as that very line, with the lead\'s portrait in its well: ' + grpHtml.slice(0, 300));
+  A.eq(NY.lineOf(grp), 'has an approval waiting', '(its line stays what the group waits on)');
   A.ok(!list.some(i => i.key === 'ask:p9'), 'an ask in a conversation this page does not hold is not listed');
   A.ok(!list.some(i => /wr2|wr5/.test(i.key)), 'finished work and work the Commander stopped never need you');
   A.ok(!list.some(i => i.key === 'worker:wr4'), 'a failure older than three days is history, not a to-do');

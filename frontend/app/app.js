@@ -6037,6 +6037,8 @@ const App = (() => {
     // a dismiss from NOTIFICATIONS re-render it from any view, and must never un-hide it above PROJECTS)
     railView: () => railView,
     railAgentFilter: () => railAgentFilter,
+    // NEEDS YOU names a group chat that waits on you by the SAME line its session row reads ("ULTRON, CYPHER +3")
+    railAgentLine,
     // THE POST-SUMMON DESK STEP, owned by the session (chat.js maybeDeskPrompt): the read that decides whether a
     // stream still owes its agent a workstation, and the door its chip opens (BUILD MODE, armed on WORKSTATIONS).
     needsWorkstation: needsWorkstation,
