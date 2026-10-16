@@ -13,9 +13,18 @@
       Review, it fit again… and the panel rebuilt twice a second forever. A folded row now keeps its last reading and is
       read afresh the moment it shows; the safety rule (Approve once only for a line read whole, re-read at the click)
       holds throughout.
+   4. (fix round) A FIRST row taller than the room settles too. fitRows never folds row 1, and the section's own scrollbar
+      took the ask line's width: an approval whose Approve once · Deny stacked past the room brought the scrollbar in, the
+      narrower line wrapped to a cut third line, the reading went to Review, Review fit, the scrollbar left, the line read
+      whole again… two rebuilds every heartbeat, forever, painting Approve once over a line just read as cut. The section
+      now reserves its scrollbar's gutter and the panel takes the measured gutter back (--ny-gutter), so the line has one
+      width, scrolling or not.
    GENUINE (executed): the real needsyou.js renders into a host laid out by a height model (a row's lines and its keys,
-   Approve once · Deny stacking in this column), so the real fitRows, measure and heartbeat run. */
+   Approve once · Deny stacking in this column), so the real fitRows, measure and heartbeat run; case 4's scrollbar and
+   the panel's give-back are read from the real pipglass.css. */
 const A = require('./_assert.js');
+const fs = require('fs');
+const path = require('path');
 
 const NOW = 40 * 86400000;
 let clock = NOW;
@@ -41,7 +50,15 @@ const HEAD = 30, MORE = 25;
 let lineCut = false;   // every ask line reads cut (a TEXT SIZE change, a dragged rail): the boxes read it live
 const dataset = attrs => Object.fromEntries([...attrs.matchAll(/data-([a-z-]+)="([^"]*)"/g)].map(m => [m[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase()), m[2]]));
 const LISTENERS = {};   // needsyou.js wires its click listener once (one section per page): every host here shares it
-function makeHost(room) {
+/* (case 4) the section's own scrollbar, as the browser lays it out from the REAL stylesheet: BAR px wide (Chrome's thin
+   scrollbar on Windows, measured live 10-16), shown while the section overflows — or always, where pipglass.css reserves
+   its gutter (scrollbar-gutter: stable) — and the panel's right margin giving back up to its own width of what
+   --ny-gutter says. Whatever the scrollbar takes and the panel does not give back narrows every ask line. */
+const GLASS = fs.readFileSync(path.join(__dirname, '..', 'frontend/css/pipglass.css'), 'utf8');
+const RESERVED = /scrollbar-gutter:\s*stable/.test((/^#left \.ws-needs \{([^}]*)\}/m.exec(GLASS) || [])[1] || '');
+const GIVE_BACK = (/body\.glass-demo:not\(\.hud-mode\) #left \.ws-needs \.ny-list \{[^}]*margin-right:\s*max\(0px,\s*(\d+)px - var\(--ny-gutter, 0px\)\)/.exec(GLASS) || [])[1];
+const BAR = 10, RAIL = 200;
+function makeHost(room, scroll) {
   const doc = { activeElement: null, hidden: false };
   const host = { hidden: false, writes: 0, rows: [], buttons: [], more: null, listeners: LISTENERS, _h: '', clientHeight: room,
     setAttribute() {}, addEventListener(t, fn) { LISTENERS[t] = fn; }, contains: () => false,
@@ -56,8 +73,10 @@ function makeHost(room) {
         const row = { dataset: dataset(m[2]), labels, hidden: false, ageEl: { textContent: (/<span class="ny-age">([^<]*)<\/span>/.exec(inner) || [])[1] },
           // 60px of name and ask lines, then the keys: one row of them (40px), or Approve once · Deny stacked (80px)
           h: 60 + (!labels.length ? 0 : labels.includes('Approve once') ? 80 : 40) };
-        // the ask line's box, as the browser reports it: a row the section folded away (hidden) is not laid out
-        const what = { get clientHeight() { return row.hidden ? 0 : 40; }, get scrollHeight() { return row.hidden ? 0 : lineCut ? 60 : 40; },
+        // the ask line's box, as the browser reports it: a row the section folded away (hidden) is not laid out. (case 4)
+        // its line fits two lines in the full text column and wraps to a cut third in any narrower one
+        const cut = () => lineCut || (scroll ? host.narrowed() > 0 : false);
+        const what = { get clientHeight() { return row.hidden ? 0 : 40; }, get scrollHeight() { return row.hidden ? 0 : cut() ? 60 : 40; },
           get clientWidth() { return row.hidden ? 0 : 150; }, get scrollWidth() { return row.hidden ? 0 : 150; } };
         row.querySelector = sel => sel === '.ny-age' ? row.ageEl : sel === '.ny-what' ? what : null;
         return row;
@@ -67,12 +86,19 @@ function makeHost(room) {
       this.buttons = [...h.matchAll(/<button type="button" class="ny-key[^"]*" data-ny-act="([^"]*)" data-ny-key="([^"]*)"[^>]*>([^<]*)</g)].map(m =>
         ({ dataset: { nyAct: m[1], nyKey: m[2] }, label: m[3], closest: sel => sel === 'li.ny-item' ? host.rows.find(r => r.dataset.nyKey === m[2]) || null : null }));
     } };
+  if (scroll) {   // (case 4) the section's scrollbar, its border box (offsetWidth) and its style (--ny-gutter)
+    const vars = {}, barOn = () => RESERVED || host.scrollHeight > host.clientHeight;
+    Object.assign(host, { offsetWidth: RAIL, clientLeft: 0, style: { setProperty: (k, v) => { vars[k] = String(v); }, getPropertyValue: k => vars[k] || '' },
+      narrowed: () => (barOn() ? BAR : 0) - (GIVE_BACK ? Math.min(Number(GIVE_BACK), parseFloat(vars['--ny-gutter']) || 0) : 0),
+      overflows: () => host.scrollHeight > host.clientHeight });
+    Object.defineProperty(host, 'clientWidth', { get: () => RAIL - (barOn() ? BAR : 0) });
+  }
   doc.getElementById = id => id === 'ws-needs' ? host : null;
   global.document = doc;
   return host;
 }
 // a fresh section (another rail, another room): leaving SESSIONS and coming back makes the next render a full rebuild
-function remount(room) { const host = makeHost(room); App.railView = () => 'projects'; NY.render(); delete App.railView; NY.render(); return host; }
+function remount(room, scroll) { const host = makeHost(room, scroll); App.railView = () => 'projects'; NY.render(); delete App.railView; NY.render(); return host; }
 const click = (host, b) => host.listeners.click({ target: { closest: sel => sel === '[data-ny-act]' ? b : null }, preventDefault() {}, stopPropagation() {} });
 const headerOf = host => Number((/<span class="ny-count">(\d+)<\/span>/.exec(host.innerHTML) || [])[1]);
 const moreOf = host => host.more && !host.more.hidden ? Number((/^(\d+) more$/.exec(host.more.textContent) || [])[1]) : 0;
@@ -147,5 +173,26 @@ const keysOf = (host, k) => (rowOf(host, k) || { labels: [] }).labels.join(' · 
   lineCut = true; host.clientHeight = 1000; clock += 1000; NY.render();
   A.eq(shownKeys(host), ['ask:q2', 'ask:a2'], 'room for both: the heartbeat unfolds the approval');
   A.eq(keysOf(host, 'ask:a2'), 'Review · Deny', '…and reads it in the same beat, before it paints: a line cut while folded never shows Approve once');
+  lineCut = false;
+
+  /* ---- 6. a FIRST row taller than the room settles: its own keys never move its own reading (fix round 10-16) ----
+     A laptop's 200px rail: one approval, so it is row 1 (fitRows never folds it). The room holds it with Review · Deny on one
+     key row (100px), not with Approve once · Deny stacked (140px): Approve once makes the section scroll. */
+  pending = [{ wsId: 'home', p: { promptId: 'a3', tool: 'fs.read', argsSummary: 'notes/a.md', agentId: 'agent', askedAt: NOW - 60000 } }];
+  builds = []; workers = [];
+  await NY.refreshFeeds(true);
+  host = remount(HEAD + 100 + 10, true);
+  const paints = [];   // after every render: the keys the row paints, and whether its line reads cut right then
+  const look = () => { const r = rowOf(host, 'ask:a3'), w = r && r.querySelector('.ny-what'); paints.push({ keys: keysOf(host, 'ask:a3'), cut: !!w && w.scrollHeight > w.clientHeight + 2 }); };
+  look();
+  const settled3 = host.writes;
+  for (let beat = 0; beat < 6; beat++) { clock += 1000; NY.render(); look(); }
+  A.eq(host.writes - settled3, 0, 'six heartbeats with a first row taller than the room rebuild nothing (it rebuilt the panel twice a beat, forever)');
+  A.eq(paints.filter(p => /Approve once/.test(p.keys) && p.cut).length, 0, 'Approve once is never painted over a line read as cut (' + JSON.stringify(paints[paints.length - 1]) + ')');
+  A.ok(host.overflows(), '(the row with Approve once · Deny stacked overflows the room: the section scrolls)');
+  A.eq(paints[paints.length - 1], { keys: 'Approve once · Deny', cut: false }, 'the line keeps the panel\'s full width while the section scrolls (the gutter is reserved and given back), so it reads whole and keeps one-tap Approve once');
+  answered.length = 0;
+  click(host, host.buttons.find(b => b.dataset.nyAct === 'once' && b.dataset.nyKey === 'ask:a3'));
+  A.eq(answered, ['a3:once'], '…and Approve once does what it says: the line it shows is the whole request');
   A.report('needs-you-fold.test');
 })().catch(e => { console.error(e); process.exit(1); });
