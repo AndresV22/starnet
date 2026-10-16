@@ -69,8 +69,9 @@ const NeedsYou = (() => {
   }
 
   /* (org P01) THE OTHER BLOCKING WAITS — each read live from its own source, each keeping its existing action words:
-     STEP-IN → Open (its window, on that handoff) · extensions → Open (ABILITIES › EXTENSIONS) · a build → Open (DELIVERABLES,
-     filtered to NEEDS A DECISION) · a quest an agent says is done → Confirm / Not yet · goal-loop results → Open (GOAL LOOPS).
+     STEP-IN → Open (its window, on that handoff) · extensions → Open (ABILITIES › EXTENSIONS) · a build → Open (its own
+     session, where its keep/discard card is; DELIVERABLES › NEEDS A DECISION only when that session cannot be had) · a quest
+     an agent says is done → Confirm / Not yet · goal-loop results → Open (GOAL LOOPS).
      A background worker's ask is already an approval row through Channels: it is never added twice. */
   const WAIT_KINDS = new Set(['approval', 'question', 'group', 'stepin', 'attest', 'extension', 'build', 'loop', 'asked']);
   // (a stored wait — 'asked' — blocks no running conversation: it sorts with the station's other waits, never above an ask)
@@ -104,8 +105,21 @@ const NeedsYou = (() => {
     if (feeds.extensions > 0) out.push({ key: 'extensions', kind: 'extension', who: 'STATION', what: 'has ' + plural(feeds.extensions, 'extension', 'extensions') + ' awaiting your approval', where: 'EXTENSIONS', since: 0 });
     for (const m of (feeds.builds || [])) {
       out.push({ key: 'build:' + m.runId, kind: 'build', build: m, who: nameOf(m.agentId), aid: m.agentId, what: 'built "' + String(m.title || 'a build') + '": keep or discard it',
-        rail: { verb: 'keep or discard', text: String(m.title || 'a build') }, where: 'DELIVERABLES', since: Number(m.builtAt) || 0 });
+        rail: { verb: 'keep or discard', text: String(m.title || 'a build') }, where: buildPlace(m), since: Number(m.builtAt) || 0 });
     }
+  }
+  /* where a build's row goes, named as the place it lands (Andrew 10-15: "where you are ACTUALLY needed"): its own session,
+     by the name the SESSIONS rail shows (the session's title once it exists, else the one WorkshopStore gives it on the
+     click). DELIVERABLES only when openDoor will fall back to it: no WorkshopStore to adopt the session, or the Commander
+     deleted it (adopt refuses the tombstone). Read only: the session is adopted by the click, never by a render. */
+  function buildPlace(m) {
+    const W = typeof WorkshopStore !== 'undefined' ? WorkshopStore : null;
+    if (!W || typeof W.ensureSession !== 'function' || !has(App, 'openWorkstream')) return 'DELIVERABLES';
+    const sid = W.sessionIdOf ? W.sessionIdOf(m.runId) : 'workshop-' + m.runId;
+    if (Workstreams.isDeleted && Workstreams.isDeleted(sid)) return 'DELIVERABLES';
+    const ws = Workstreams.get ? Workstreams.get(sid) : null;
+    if (ws) return titleOf(ws);
+    return W.sessionTitleOf ? W.sessionTitleOf(m) : String(m.title || 'a build');
   }
   /* (org P01) THE STORED WAITS — what the station filed as waiting on you with no live source behind it (a finished reply's
      question, chat.js 'needs:<conversation>'). Read from the station's own record (StationUI.storedWaits), one row each, in
@@ -529,8 +543,9 @@ const NeedsYou = (() => {
   /* (org P01) for NOTIFICATIONS › NEEDS YOU, which renders this same list: the line it reads, Open / Dismiss by key, and a
      shape that moves only when the list does (the bell repaints on it) */
   const lineOf = i => (KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what;
-  // what it opened: { conversation: true } when the door was a session (NOTIFICATIONS then steps aside with a way back),
-  // { conversation: false } when it was a window (STEP-IN, EXTENSIONS, DELIVERABLES, QUESTS, GOAL LOOPS keep the focus)
+  // what it opened: { conversation: true } when the door was a session (NOTIFICATIONS then steps aside with a way back) —
+  // a build's own session too; { conversation: false } when it was a window (STEP-IN, EXTENSIONS, QUESTS, GOAL LOOPS, and
+  // DELIVERABLES for a build whose session cannot be had, keep the focus)
   function openKey(key) { const i = items().find(x => x.key === key); const r = i ? open(i) : false; if (!r) return false; return { conversation: !!i.wsId || r === 'conversation' }; }
   // Dismiss: failed work (the rail's own per-viewer dismissal), or a stored wait with no conversation to open (it settles,
   // as its bell row's ✕ cleared it). A live wait is never dismissed away.

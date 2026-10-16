@@ -23,7 +23,8 @@ const NOW = 50 * 86400000;
 global.localStorage = { getItem: () => null, setItem() {} };
 global.document = undefined;
 const sessions = new Map([['home', { id: 'home', title: null, agentId: 'agent' }], ['other', { id: 'other', title: 'Launch plan', agentId: 'agent' }]]);
-global.Workstreams = { get: id => sessions.get(id) || null, list: () => [...sessions.values()], unread: () => false, generalId: () => 'home' };
+const deleted = new Set();   // sessions the Commander deleted (Workstreams' tombstones)
+global.Workstreams = { get: id => sessions.get(id) || null, list: () => [...sessions.values()], unread: () => false, generalId: () => 'home', isDeleted: id => deleted.has(id) };
 global.App = { agentName: id => ({ agent: 'NOVA', writer: 'VEX', researcher: 'MIRA', designer: 'ROOK' })[id] || id, openWorkstream: id => opened.push(['ws', id]) };
 global.Chat = { consentPhrase: p => String(p.tool), consentInspect: () => null };
 const opened = [];
@@ -37,7 +38,13 @@ global.QuestLedgerStore = {
 };
 global.LoopsReview = { waiting: () => [{ id: 'L1', name: 'Tidy the docs', agentId: 'agent', count: 2, since: NOW - 20000 }] };
 // the sidecar-backed waits: builds (per agent) and extensions — answered by the station
-global.WorkshopStore = { pendingAll: async () => [{ runId: 'b1', agentId: 'writer', title: 'Pricing page v2', builtAt: NOW - 10000 }], pendingAllOk: () => true };
+// …and the build's own session: ensureSession's contract (adopt it and return its id; null when the Commander deleted it, as
+// Workstreams.adopt refuses a tombstone), with the store's own id and name for it (workshopstore.js, run for real)
+const Shop = require('../frontend/app/workshopstore.js').WorkshopStore;
+const ensured = [];
+global.WorkshopStore = { pendingAll: async () => [{ runId: 'b1', agentId: 'writer', title: 'Pricing page v2', builtAt: NOW - 10000 }], pendingAllOk: () => true,
+  ensureSession: m => { ensured.push(m.runId); const id = 'workshop-' + m.runId; return deleted.has(id) ? null : id; },
+  sessionIdOf: Shop.sessionIdOf, sessionTitleOf: Shop.sessionTitleOf };
 // NOT waits: the optional TO REVIEW pile and PROPOSALS — present on the page, never listed
 global.AutoJobStore = { pendingList: () => [{ id: 'prop1', title: 'A proposed routine' }] };
 const fetched = [];
@@ -66,7 +73,10 @@ const NY = require('../frontend/app/needsyou.js');
   A.eq(att.tip, 'deployed to /landing', 'its evidence rides the row\'s tip');
   A.eq(byKind('loop')[0].what, 'has 2 results waiting on your review from "Tidy the docs"', 'goal-loop results waiting on review (who + a verb)');
   A.eq(byKind('extension')[0].what, 'has 2 extensions awaiting your approval', 'extensions awaiting approval (1 hook + 1 plugin), read as STATION has …');
-  A.eq([byKind('build')[0].who, byKind('build')[0].what, byKind('build')[0].where].join(' | '), 'VEX | built "Pricing page v2": keep or discard it | DELIVERABLES', 'a build that needs a decision');
+  // (two reviews 10-16) a build row said "in DELIVERABLES" while its door opened the build's own session: it names the place
+  // the click lands, by the name the SESSIONS rail gives that session
+  A.eq([byKind('build')[0].who, byKind('build')[0].what, byKind('build')[0].where].join(' | '), 'VEX | built "Pricing page v2": keep or discard it | ⚒ Pricing page v2', 'a build that needs a decision, in its own session (named as the rail names it)');
+  A.ok(!ensured.length, '…read only: naming the place never adopts the session (the click does)');
 
   // each keeps its existing action words
   const k = NY._internals.keysFor;
@@ -92,19 +102,25 @@ const NY = require('../frontend/app/needsyou.js');
   NY.openKey(att.key); A.eq(ui.terms.pop(), ['quests', null], 'a quest attest opens QUESTS');
   NY.openKey('loop:L1'); A.eq(ui.terms.pop(), ['loops', null], 'loop results open GOAL LOOPS');
   A.ok(!opened.length, 'none of them opens a conversation');
-  global.document = { querySelector: sel => sel === '#dl-status' ? { closest: () => ({}) } : null, hidden: false };
   // (Andrew 10-15: "it only takes you to deliverables … instead of where you are ACTUALLY needed") a build opens ITS OWN session,
-  // where its keep/discard card is; only a build whose session cannot be had falls back to DELIVERABLES › NEEDS A DECISION
-  NY.openKey('build:b1'); A.eq(ui.terms.pop(), ['deliverables', null], 'a build whose session cannot be had opens DELIVERABLES…');
-  A.eq(shownStatus, 'pending', '…filtered to NEEDS A DECISION');
-  global.document = undefined;
-  const ensured = [];
-  global.WorkshopStore.ensureSession = m => { ensured.push(m.runId); return 'workshop-' + m.runId; };
+  // where its keep/discard card is
   const termsBefore = ui.terms.length;
   A.eq(NY.openKey('build:b1'), { conversation: true }, 'a build opens its own session (NOTIFICATIONS steps aside for it)');
   A.eq(opened.pop(), ['ws', 'workshop-b1'], '…THAT build session, where its keep/discard card is');
   A.ok(ensured[0] === 'b1' && ui.terms.length === termsBefore, '…adopted through WorkshopStore, and DELIVERABLES is not opened');
-  delete global.WorkshopStore.ensureSession;
+  // only a build whose session cannot be had (the Commander deleted it: ensureSession returns null, adopt refuses the
+  // tombstone) falls back to DELIVERABLES › NEEDS A DECISION, and its row names DELIVERABLES before the click
+  deleted.add('workshop-b1');
+  A.eq(NY.items(NOW).find(i => i.key === 'build:b1').where, 'DELIVERABLES', 'a build whose session was deleted names DELIVERABLES, where its door now goes');
+  global.document = { querySelector: sel => sel === '#dl-status' ? { closest: () => ({}) } : null, hidden: false };
+  ensured.length = 0;
+  A.eq(NY.openKey('build:b1'), { conversation: false }, '…and opens DELIVERABLES, a window (NOTIFICATIONS keeps the focus there)');
+  A.ok(ensured[0] === 'b1', '…after WorkshopStore said its session cannot be had (null)');
+  A.eq(ui.terms.pop(), ['deliverables', null], '…the DELIVERABLES window');
+  A.eq(shownStatus, 'pending', '…filtered to NEEDS A DECISION');
+  A.ok(!opened.length, '…and no conversation');
+  global.document = undefined;
+  deleted.delete('workshop-b1');
   // what a door opened: NOTIFICATIONS steps aside (workConversation) only for a session, never over a window it just opened
   A.eq(NY.openKey('loop:L1'), { conversation: false }, 'a window door reports it opened a window, not a conversation'); ui.terms.pop();
   A.eq(NY.openKey('approval:nope'), false, 'an unknown key opens nothing');
@@ -183,6 +199,7 @@ const NY = require('../frontend/app/needsyou.js');
   A.ok(/<span class="nf-kind">in STEP-IN<\/span>/.test(needsSec) && /<span class="nf-kind">in EXTENSIONS<\/span>/.test(needsSec) && !/<span class="nf-kind">NEEDS YOU</.test(needsSec) && !/Waiting on you/.test(h),
     'each row\'s tag says where it waits (the NEEDS YOU heading above already says what they are; never "Waiting on you")');
   A.ok(/<span class="nf-txt">MIRA needs you to sign in at github\.com<\/span>/.test(needsSec), 'the line is who + what, the place in the tag (never " · in STEP-IN" again)');
+  A.ok(/data-ny-key="build:b1"[^>]*>[\s\S]{0,120}<span class="nf-kind">in ⚒ Pricing page v2<\/span>/.test(needsSec), 'a build\'s row there names its own session too, where its OPEN lands');
   A.eq((needsSec.match(/OPEN ▸/g) || []).length, 7, 'every row is a door');
   A.ok(!/data-ny-dismiss/.test(needsSec), 'no Dismiss on a wait (only failed work, or a stored wait with no conversation left, has one)');
   A.ok(!/ title=/.test(needsSec), 'no native title tooltips on the new rows');
