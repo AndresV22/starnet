@@ -537,8 +537,9 @@ body.glass-demo:not(.hud-mode) #left #workstreams .ws-row[data-runs="older"] { m
 
 /* NEEDS YOU (2026-10-11, needsyou.js): every approval, question and failure on the station, pinned atop SESSIONS — the
    approval-card glass edged in the station's "needs you" gold. One row per item, sized for the narrow rail: WHO · where ·
-   how long (the place drops to its own line rather than being cut), then what exactly (a free-form ask or question three
-   lines at most, every other wait in full: its last word is the claim), then its keys full width. Matte: state is an edge or a fill, never a glow. */
+   how long (on a narrow rail the place leaves the line, and stays the row's door and its tip), then what exactly (a free-form
+   ask, a question or a build two lines at most, every other wait in full: its last word is the claim), then its keys full
+   width. Matte: state is an edge or a fill, never a glow. */
 /* (Andrew 10-15: "ugly and unorganized … in different styles", then on the plain-row pass: "disgusting and cheap … we need
    it premium") NEEDS YOU is the rail's first section, each wait drawn as the CREW panel's own agent card in its "needs your
    OK" frame (portrait well + housed lamp, name in the agent's colour, time, the line); a click on a card opens it. */
@@ -576,10 +577,18 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item {
 }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item + .ny-item { border-top: 1px solid rgba(var(--ph-rgb), .1); }
 #left .ws-needs .ny-item[hidden], #left .ws-needs .ny-more[hidden] { display: none !important; }
-/* the name line on a narrow rail or a large TEXT SIZE: "in <where>" steps aside rather than leave a two-letter stub
-   ("in DELIV…"); the name and the time always show, the place stays on the row's hover tip and its door */
+/* the name line on a narrow rail or a large TEXT SIZE: "in <where>" steps out of sight rather than leave a two-letter stub
+   ("in DELIV…"); the name and the time always show. It is never display:none: it stays the row's door for the keyboard and
+   a screen reader (its name says who, what and where; focus lands on it while an answer is on its way), and the line's
+   hover tip ends "— in <where>". A keyboard focus on the door rings its row, so the focus is seen on every rail (live
+   10-16: put back into the line it was a 0-22px stub on the 200px rail) */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item { container-type: inline-size; }
-@container (max-width: 250px) { body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where { display: none; } }
+@container (max-width: 250px) {
+  body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+}
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:has(> .ny-line > .ny-where:focus-visible) { outline: 2px solid var(--ph-bright); outline-offset: -2px; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) { background: rgba(var(--ph-rgb), .06); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item > :not(.ny-face) { grid-column: 2; min-width: 0; }
 /* the small portrait well (the CREW card's, scaled to a row) with the figure the floor draws and the lamp in its corner */
@@ -595,10 +604,13 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-dot {
 }
 /* something broke (failed work, a failed routine): its lamp and its line say so; the row stays in the panel's voice */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-dot { background: var(--bad); }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-more-n { color: var(--cg-mute); white-space: nowrap; }
 /* line 1: AGENT (the row's headline, in its colour) · in <where> ........ time */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-line { display: flex; align-items: baseline; gap: 0 8px; min-width: 0; line-height: 1.15; }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who { flex: none; font-size: 19px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); text-shadow: var(--pg-glow-soft); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who { flex: 0 1 auto; font-size: 19px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); text-shadow: var(--pg-glow-soft); }
+/* a group chat's headline is its members' names, the SESSIONS row's own line ("ULTRON, CYPHER +3"): it wraps at a space
+   rather than end in "…", and its +N keeps its gap */
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who > .ws-agent-names { white-space: normal; overflow: visible; text-overflow: clip; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who > .ws-agent-more { margin-left: .4em; }
 /* line 2: the ask first, then what it is about; two lines at most (the whole sentence is its hover tip) */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-what {
   font-size: 16px; line-height: 1.25; letter-spacing: .4px; color: color-mix(in srgb, var(--text) 94%, var(--panel2)); overflow-wrap: anywhere; overflow: hidden;
@@ -607,7 +619,8 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-what {
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) .ny-what { color: var(--ph-bright); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-verb { color: var(--gold); }
 /* a station wait whose last words ARE the claim (a quest said done, loop results, STEP-IN, a failure) is shown whole;
-   a build leads with its ask ("keep or discard · …"), so its title may clamp */
+   a build leads with its ask, and an agent's builds with their count ("23 builds to keep or discard · …"), so only the
+   title may clamp */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:not(.approval, .question, .build) .ny-what { display: block; -webkit-line-clamp: none; overflow: visible; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-what { color: var(--bad); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-age { flex: none; margin-left: auto; font-size: 15px; letter-spacing: .4px; font-variant-numeric: tabular-nums; color: var(--cg-mute, var(--text)); }
@@ -616,9 +629,9 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where {
   font: 15px 'VT323', monospace; letter-spacing: .4px; color: var(--cg-mute, var(--text)); background: none; border: 0; box-shadow: none; text-shadow: none;
 }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where:is(:hover, :focus-visible) { color: var(--ph-bright); }
-/* (org g3 D1, final round) a row's two keys sit side by side down to the narrowest rail (200px: Approve once · Deny need ~145px
-   of its 151): 8px sides, a 6px gap, the 15px label kept. A key is never narrower than its label (flex-basis auto), so a rail
-   narrower than its design still stacks them rather than clipping a word */
+/* (org g3 D1, final round) a row's two keys sit side by side wherever both labels fit the text column (Approve once · Deny
+   need ~141px: the 232px rail at STANDARD), with 8px sides, a 6px gap and the 15px label kept. A key is never narrower than
+   its label, so a narrower column (the 200px rail, a larger TEXT SIZE) stacks them, each full width, rather than clip a word */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-keys { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key {
   flex: 1 1 auto; min-width: 0; min-height: 34px; padding: 5px 8px; font: 15px/1.1 'VT323', monospace; letter-spacing: .2px; cursor: pointer; white-space: nowrap;
@@ -634,10 +647,10 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key.quiet { color: var(--text
 /* org P02 (g3 D1, final round): a direct-chat ask is reviewed through its row (needsyou.js reviewRow) — the row lights like a door */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item.ny-review:hover .ny-what { color: var(--ph-bright); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key:disabled { opacity: .55; cursor: default; }
-/* a lone key (Answer, Retry, Dismiss) is its label's size, never a full-width bar */
 /* every key row spans the card's text column edge to edge (Andrew 10-15: "make sure buttons are aligned"): one key fills it,
-   two share it in equal halves, each never narrower than its label (a rail too narrow stacks them) */
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-keys > .ny-key { flex: 1 1 0; min-width: max-content; min-height: 30px; }
+   two share it in equal halves, each never narrower than its label (a rail too narrow stacks them), each the glass key's
+   34px */
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-keys > .ny-key { flex: 1 1 0; min-width: max-content; min-height: 34px; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-more {
   display: inline-flex; align-items: center; gap: 6px; width: auto; min-height: 0; padding: 4px 18px 2px; text-align: left; cursor: pointer;
   font: 15px 'VT323', monospace; letter-spacing: .4px; color: var(--ph); background: none; border: 0; box-shadow: none; text-shadow: none;

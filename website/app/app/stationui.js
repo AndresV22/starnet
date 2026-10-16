@@ -9785,8 +9785,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       store.notifs.forEach(n => { if (!isWaiting(n)) n.read = true; }); save(); rerender('notifs'); badges(); sfx('click');
     });
     body.querySelectorAll('.nf.nf-live.nf-door').forEach(el => {
-      // a session door steps NOTIFICATIONS aside with a way back (as a stored entry's go.ws does); a window door (STEP-IN,
-      // EXTENSIONS, DELIVERABLES, QUESTS, GOAL LOOPS) only opens its window and keeps the focus there (as go.term does)
+      // a session door (a conversation, or a build's own keep/discard session) steps NOTIFICATIONS aside with a way back (as a
+      // stored entry's go.ws does); a window door (STEP-IN, EXTENSIONS, QUESTS, GOAL LOOPS, and DELIVERABLES for a build whose
+      // session cannot be had) only opens its window and keeps the focus there (as go.term does)
       const go = () => { sfx('click'); const did = NY && NY.openKey(el.dataset.nyKey); if (did && did.conversation && open.notifs) workConversation('notifs'); };
       el.addEventListener('click', go);
       el.addEventListener('keydown', ev => { if (ev.target === el && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); go(); } });

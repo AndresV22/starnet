@@ -54,6 +54,10 @@ const NeedsYou = (() => {
     if (!id || !has(App, 'agents')) return '';
     try { const a = (App.agents() || []).find(x => x && x.id === id); return (a && a.color) || ''; } catch (_) { return ''; }
   }
+  // the SESSIONS rail's agent line (App.railAgentLine: HTML its own U.esc escaped) as words, for the bell, NOTIFICATIONS and
+  // the tips: its "+N" is a span of its own, so it gets its space back ("ULTRON, CYPHER +3")
+  const ENT = { lt: '<', gt: '>', quot: '"', '#39': "'", amp: '&' };
+  const textOfLine = h => String(h).replace(/<span class="ws-agent-more">/g, ' ').replace(/<[^>]*>/g, '').replace(/&(lt|gt|quot|#39|amp);/g, (m, e) => ENT[e]);
   function titleOf(ws) { return (ws && (ws.title || (typeof Workstreams !== 'undefined' && Workstreams.generalId && ws.id === Workstreams.generalId() ? 'General' : ''))) || 'a conversation'; }
   function questionOf(p) {
     try { const j = JSON.parse(p.argsSummary || '{}'); if (j && typeof j.question === 'string' && j.question.trim()) return j.question.trim(); } catch (_) { /* a plain-text ask */ }
@@ -69,8 +73,9 @@ const NeedsYou = (() => {
   }
 
   /* (org P01) THE OTHER BLOCKING WAITS — each read live from its own source, each keeping its existing action words:
-     STEP-IN → Open (its window, on that handoff) · extensions → Open (ABILITIES › EXTENSIONS) · a build → Open (DELIVERABLES,
-     filtered to NEEDS A DECISION) · a quest an agent says is done → Confirm / Not yet · goal-loop results → Open (GOAL LOOPS).
+     STEP-IN → Open (its window, on that handoff) · extensions → Open (ABILITIES › EXTENSIONS) · a build → Open (its own
+     session, where its keep/discard card is; DELIVERABLES › NEEDS A DECISION only when that session cannot be had) · a quest
+     an agent says is done → Confirm / Not yet · goal-loop results → Open (GOAL LOOPS).
      A background worker's ask is already an approval row through Channels: it is never added twice. */
   const WAIT_KINDS = new Set(['approval', 'question', 'group', 'stepin', 'attest', 'extension', 'build', 'loop', 'asked']);
   // (a stored wait — 'asked' — blocks no running conversation: it sorts with the station's other waits, never above an ask)
@@ -104,8 +109,21 @@ const NeedsYou = (() => {
     if (feeds.extensions > 0) out.push({ key: 'extensions', kind: 'extension', who: 'STATION', what: 'has ' + plural(feeds.extensions, 'extension', 'extensions') + ' awaiting your approval', where: 'EXTENSIONS', since: 0 });
     for (const m of (feeds.builds || [])) {
       out.push({ key: 'build:' + m.runId, kind: 'build', build: m, who: nameOf(m.agentId), aid: m.agentId, what: 'built "' + String(m.title || 'a build') + '": keep or discard it',
-        rail: { verb: 'keep or discard', text: String(m.title || 'a build') }, where: 'DELIVERABLES', since: Number(m.builtAt) || 0 });
+        rail: { verb: 'keep or discard', text: String(m.title || 'a build') }, where: buildPlace(m), since: Number(m.builtAt) || 0 });
     }
+  }
+  /* where a build's row goes, named as the place it lands (Andrew 10-15: "where you are ACTUALLY needed"): its own session,
+     by the name the SESSIONS rail shows (the session's title once it exists, else the one WorkshopStore gives it on the
+     click). DELIVERABLES only when openDoor will fall back to it: no WorkshopStore to adopt the session, or the Commander
+     deleted it (adopt refuses the tombstone). Read only: the session is adopted by the click, never by a render. */
+  function buildPlace(m) {
+    const W = typeof WorkshopStore !== 'undefined' ? WorkshopStore : null;
+    if (!W || typeof W.ensureSession !== 'function' || !has(App, 'openWorkstream')) return 'DELIVERABLES';
+    const sid = W.sessionIdOf ? W.sessionIdOf(m.runId) : 'workshop-' + m.runId;
+    if (Workstreams.isDeleted && Workstreams.isDeleted(sid)) return 'DELIVERABLES';
+    const ws = Workstreams.get ? Workstreams.get(sid) : null;
+    if (ws) return titleOf(ws);
+    return W.sessionTitleOf ? W.sessionTitleOf(m) : String(m.title || 'a build');
   }
   /* (org P01) THE STORED WAITS — what the station filed as waiting on you with no live source behind it (a finished reply's
      question, chat.js 'needs:<conversation>'). Read from the station's own record (StationUI.storedWaits), one row each, in
@@ -183,7 +201,13 @@ const NeedsYou = (() => {
       for (const id of GroupChat.attentionIds()) {
         const ws = Workstreams.get(id); if (!ws) continue;
         const st = GroupChat.stateOf ? GroupChat.stateOf(id) : null;
-        out.push({ key: 'group:' + id, kind: 'group', wsId: id, who: 'GROUP', what: st && st.approvals ? 'has an approval waiting' : 'has a question waiting', where: titleOf(ws), since: 0 });
+        // a group is told by its members' names, the SESSIONS rail's own line ("ULTRON, CYPHER +3"; Andrew 10-13: never a
+        // GROUP label), and its portrait is the first of them (the lead, when the lead is a member, as that line orders them)
+        const line = has(App, 'railAgentLine') ? String(App.railAgentLine(ws) || '') : '';
+        const members = (GroupChat.membersOf && GroupChat.membersOf(id)) || [];
+        const aid = !members.length || members.includes(ws.agentId) ? ws.agentId : members[0];
+        out.push({ key: 'group:' + id, kind: 'group', wsId: id, who: line ? textOfLine(line) : nameOf(aid), whoHtml: line, aid,
+          what: st && st.approvals ? 'has an approval waiting' : 'has a question waiting', where: titleOf(ws), since: 0 });
       }
     }
     storedRows(out);   // after the live asks: a conversation they already list is never a second row
@@ -241,14 +265,19 @@ const NeedsYou = (() => {
     return !!box && box.clientHeight > 0 && box.clientWidth > 0
       && box.scrollHeight <= box.clientHeight + 2 && box.scrollWidth <= box.clientWidth + 2;
   }
-  // read every approval row the rail shows; true when an answer moved (that row's keys follow)
+  // read every approval row the rail shows; true when an answer moved (that row's keys follow). A row fitRows folded into
+  // "N more" shows nothing to read or press: it keeps its last reading, and is read afresh the moment it shows again (the
+  // heartbeat fits before it reads; an expand redraws, then reads). Reading it as "not whole" flipped its keys, which
+  // changed its height, which unfolded it, which read it whole again: the panel rebuilt twice a second at a fold boundary.
   function measure(host, list) {
     const asks = new Map(list.filter(i => i.kind === 'approval').map(i => [i.key, i]));
     const whole = new Set();
     if (asks.size) {
       for (const li of host.querySelectorAll('li.ny-item[data-ny-key]')) {
         const i = asks.get(li.dataset && li.dataset.nyKey);
-        if (i && shownWhole(li)) whole.add(fitId(i));
+        if (!i) continue;
+        if (li.hidden) { if (wholeLines.has(fitId(i))) whole.add(fitId(i)); continue; }
+        if (shownWhole(li)) whole.add(fitId(i));
       }
     }
     if (whole.size === wholeLines.size && [...whole].every(id => wholeLines.has(id))) return false;
@@ -282,58 +311,69 @@ const NeedsYou = (() => {
     if (i.kind === 'asked' && i.noDoor) return k('dismiss', 'Dismiss', 'quiet');   // no conversation to open: only its Dismiss
     return '';
   }
-  // the row's line, the ask first so a clamp never cuts it: "wants to …", "asks …", "keep or discard · <build>"
+  // the row's line, the ask first so a clamp never cuts it: "wants to …", "asks …", "keep or discard · <build>",
+  // "23 builds to keep or discard · <the oldest build>"
   function lineHtml(i) {
-    if (i.rail) return '<span class="ny-verb">' + esc(i.rail.verb) + '</span> · ' + esc(i.rail.text) + (i.more ? ' <span class="ny-more-n">+' + i.more + ' more</span>' : '');
+    if (i.rail) return '<span class="ny-verb">' + esc(i.rail.verb) + '</span> · ' + esc(i.rail.text);
     return (KIND[i.kind] ? '<span class="ny-verb">' + esc(KIND[i.kind]) + '</span> ' : '') + esc(i.what);
   }
   /* (Andrew 10-15, second pass: "disgusting and cheap … we need it premium") one agent's builds waiting on keep/discard are
-     ONE card ("keep or discard · 23 builds"), never 23 copies of the same line: its door is the same DELIVERABLES › NEEDS A
-     DECISION list every build row opened, its age the oldest build's. Every other wait stays its own card (each has its own
-     action). The count in the header is still every wait. */
+     ONE card, never 23 copies of the same line. It names the build its click opens (the oldest: the next decision) and
+     its door is that build's own session, its age the oldest build's (none when no build has a time). Its count LEADS the
+     line ("23 builds to keep or discard · <oldest>"): the line is clamped to two lines, and a count after a long title was
+     cut on every default rail, so 22 real waits vanished. Every other wait stays its own card (each has its own action).
+     Each card carries how many waits it holds (n): the header counts every wait, and "N more" counts the waits folded. */
   function railRows(list) {
     const out = [], builds = new Map();
     for (const i of list) {
       if (i.kind !== 'build') { out.push(i); continue; }
       const key = String(i.aid || i.who), g = builds.get(key);
-      if (g) { g.n++; g.since = Math.min(g.since || Infinity, i.since || Infinity) || 0; g.newest = i.rail ? i.rail.text : g.newest; continue; }
-      const row = Object.assign({}, i, { n: 1, newest: i.rail ? i.rail.text : '' });
+      if (g) { g.n++; const t = [g.since, i.since].filter(x => Number(x) > 0); g.since = t.length ? Math.min(...t) : 0; continue; }
+      const row = Object.assign({}, i, { n: 1, since: Number(i.since) > 0 ? Number(i.since) : 0 });
       builds.set(key, row); out.push(row);
     }
-    // the card names the build its click opens (the oldest: the next decision), with how many more wait behind it
-    return out.map(r => r.n > 1 ? Object.assign({}, r, { more: r.n - 1, what: r.what + ' (and ' + (r.n - 1) + ' more builds waiting on keep or discard)' }) : r);
+    return out.map(r => r.n > 1 ? Object.assign({}, r, {
+      rail: { verb: plural(r.n, 'build', 'builds') + ' to keep or discard', text: r.rail.text },
+      what: plural(r.n, 'build', 'builds') + ' to keep or discard, the oldest first: "' + r.rail.text + '"' }) : r);
   }
+  const waitsIn = rows => rows.reduce((s, r) => s + (r.n || 1), 0);
   function html(list, now) {
     if (!list.length) return '';
-    const rows = railRows(list), shown = expanded ? rows : rows.slice(0, SHOW);
+    const rows = railRows(list), shown = expanded ? rows : rows.slice(0, SHOW), folded = list.length - waitsIn(shown);
     return '<div class="ny-head"><span class="ny-lamp" aria-hidden="true"></span><span class="ny-title">Needs you</span><span class="ny-count">' + list.length + '</span></div>'
-      + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i), keys = keysFor(i), color = colorOf(i.aid); return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '">'
+      + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i), keys = keysFor(i), color = colorOf(i.aid), place = ' — in ' + i.where; return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '" data-ny-n="' + (i.n || 1) + '">'
         // the CREW card, for a wait (Andrew 10-15: "premium"): the agent's portrait in its well with the gold lamp housed in
         // its corner, then WHO (in the agent's colour) · where · how long, the line (the ask first; two lines at most, the
         // whole of it on hover), then keys only when there is more than Open
         + '<span class="ny-face" aria-hidden="true"' + (i.aid ? ' data-ny-aid="' + esc(i.aid) + '"' : '') + '><img alt="" draggable="false" hidden><span class="ny-dot"></span></span>'
-        + '<div class="ny-line">' + (i.who ? '<span class="ny-who"' + (color ? ' style="color:' + esc(color) + '"' : '') + '>' + esc(i.who) + '</span>' : '') + '<button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
-        + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + lineHtml(i) + '</div>'
+        // "in <where>" is the row's door for the keyboard and a screen reader on every rail (pipglass.css only hides it from
+        // sight where the line has no room): its name says who, what, and where it lands
+        + '<div class="ny-line">' + (i.who ? '<span class="ny-who"' + (color ? ' style="color:' + esc(color) + '"' : '') + '>' + (i.whoHtml || esc(i.who)) + '</span>' : '')
+        + '<button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '" aria-label="' + esc((i.who ? i.who + ' ' : '') + lineOf(i) + place) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
+        + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + place + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + lineHtml(i) + '</div>'
         + (keys ? '<div class="ny-keys">' + keys + '</div>' : '')
         + '</li>'; }).join('') + '</ul>'
-      + (rows.length > 1 ? '<button type="button" class="ny-more" data-ny-act="more" data-ny-rows="' + rows.length + '" aria-expanded="' + expanded + '"'
-        + (rows.length > SHOW || expanded ? '' : ' hidden') + '>' + (expanded ? 'Show fewer' : (rows.length - SHOW) + ' more') + '</button>' : '');
+      + (rows.length > 1 ? '<button type="button" class="ny-more" data-ny-act="more" data-ny-waits="' + list.length + '" aria-expanded="' + expanded + '"'
+        + (folded > 0 || expanded ? '' : ' hidden') + '>' + (expanded ? 'Show fewer' : folded + ' more') + '</button>' : '');
   }
   /* EVERY TEXT SIZE (Andrew 10-15: "many people have it on large or x-large … make sure that left sidebar is able to be seen"):
-     the collapsed list shows only the rows that fit WHOLE in the section's room; the rest fold into "N more", so a row is
-     never cut by the section's own scroll at LARGE / X-LARGE or on a narrow rail. Run after every build and on the 1 s
-     heartbeat (TEXT SIZE and the rail's width change the room without a rebuild). Expanded, the list scrolls as before. */
+     the collapsed list shows only the rows that fit WHOLE in the section's room; the rest fold into "N more", so no row
+     but the first is ever cut by the section's own scroll at LARGE / X-LARGE or on a narrow rail (the first always shows:
+     a row taller than the whole room scrolls inside it). "N more" counts the WAITS folded, so the header is always the
+     waits shown plus N. Run after every build and on the 1 s heartbeat (TEXT SIZE and the rail's width change the room
+     without a rebuild). Expanded, the list scrolls as before. */
   function fitRows(host) {
     if (!host || expanded || typeof host.querySelector !== 'function' || typeof host.querySelectorAll !== 'function') return;
     const lis = Array.from(host.querySelectorAll('li.ny-item[data-ny-key]'));
     const more = host.querySelector('.ny-more');
     if (!lis.length || !more) return;
     lis.forEach(li => { li.hidden = false; });
-    const total = Number(more.dataset.nyRows) || lis.length;
-    let shown = lis.length;
-    const fold = () => { const n = total - shown; more.hidden = n <= 0; const t = n + ' more'; if (more.textContent !== t) more.textContent = t; };
+    const waitsOf = li => Number(li.dataset && li.dataset.nyN) || 1;
+    const total = Number(more.dataset && more.dataset.nyWaits) || 0;
+    let shown = lis.length, shownWaits = lis.reduce((s, li) => s + waitsOf(li), 0);
+    const fold = () => { const n = Math.max(0, total - shownWaits); more.hidden = n <= 0; const t = n + ' more'; if (more.textContent !== t) more.textContent = t; };
     fold();
-    while (shown > 1 && host.scrollHeight > host.clientHeight + 1) { lis[--shown].hidden = true; fold(); }
+    while (shown > 1 && host.scrollHeight > host.clientHeight + 1) { const li = lis[--shown]; li.hidden = true; shownWaits -= waitsOf(li); fold(); }
   }
   // each card's portrait: the same figure the CREW card paints (AgentPortraits), from the agent the wait names
   function paintFaces(host) {
@@ -368,8 +408,8 @@ const NeedsYou = (() => {
         const el = li.querySelector('.ny-age'), text = age(since.get(li.dataset.nyKey), now);
         if (el && el.textContent !== text) el.textContent = text;
       });
-      remeasure(host, list);   // …and re-read each line: TEXT SIZE or the rail's width may have moved under it
-      fitRows(host);           // …and how many rows fit whole in the room
+      fitRows(host);           // …and how many rows fit whole in the room (TEXT SIZE or the rail's width may have moved)
+      remeasure(host, list);   // …then re-read each line the rail now shows (a row just unfolded is read before it paints)
       return;
     }
     lastShape = shape;
@@ -516,8 +556,9 @@ const NeedsYou = (() => {
   /* (org P01) for NOTIFICATIONS › NEEDS YOU, which renders this same list: the line it reads, Open / Dismiss by key, and a
      shape that moves only when the list does (the bell repaints on it) */
   const lineOf = i => (KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what;
-  // what it opened: { conversation: true } when the door was a session (NOTIFICATIONS then steps aside with a way back),
-  // { conversation: false } when it was a window (STEP-IN, EXTENSIONS, DELIVERABLES, QUESTS, GOAL LOOPS keep the focus)
+  // what it opened: { conversation: true } when the door was a session (NOTIFICATIONS then steps aside with a way back) —
+  // a build's own session too; { conversation: false } when it was a window (STEP-IN, EXTENSIONS, QUESTS, GOAL LOOPS, and
+  // DELIVERABLES for a build whose session cannot be had, keep the focus)
   function openKey(key) { const i = items().find(x => x.key === key); const r = i ? open(i) : false; if (!r) return false; return { conversation: !!i.wsId || r === 'conversation' }; }
   // Dismiss: failed work (the rail's own per-viewer dismissal), or a stored wait with no conversation to open (it settles,
   // as its bell row's ✕ cleared it). A live wait is never dismissed away.
@@ -528,6 +569,6 @@ const NeedsYou = (() => {
   }
   function canDismiss(i) { return !!i && (i.kind === 'failed' || (i.kind === 'asked' && !!i.noDoor)); }
   const listShape = list => (list || items()).map(i => i.key + '\u0001' + i.what + '\u0001' + i.where).join('\u0002');
-  return { items, render, openKey, dismissKey, canDismiss, lineOf, listShape, refreshFeeds, _internals: { html, age, keysFor, measure, dismissed, feeds: () => feeds } };
+  return { items, render, openKey, dismissKey, canDismiss, lineOf, listShape, refreshFeeds, _internals: { html, age, keysFor, measure, fitRows, railRows, dismissed, feeds: () => feeds } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NeedsYou;
