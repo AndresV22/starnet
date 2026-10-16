@@ -953,6 +953,8 @@ test/release-bump.test.js
 test/release-cut.test.js
 test/release-preflight.test.js
 test/release-ritual.test.js
+test/release-notes-security-wording.test.js
+test/release-notes-dossier-tabs.test.js
 test/release-installer-selection.test.mjs
 test/opensource-readiness.test.js
 test/source-release-mirror.test.js
