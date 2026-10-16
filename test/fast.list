@@ -76,6 +76,7 @@ test/run-journal-disk-boundary.test.js
 test/todo.durability.test.js
 test/halt.test.js
 test/readbody.test.js
+test/set-key-body.test.js
 test/file-response.test.js
 test/test-list-runner.test.js
 test/runroute.test.js
@@ -916,6 +917,7 @@ test/agent-threads-rail.test.js
 test/delegated-threads.test.js
 test/overseer-batch.test.js
 test/needs-you.test.js
+test/needs-you-rail-fit.test.js
 test/crew-cards.test.js
 test/front-doors-tabs.test.js
 test/brand-wordmark-mask.test.js
@@ -1018,6 +1020,7 @@ test/discovery-documents.test.js
 test/value-loop-replay.test.mjs
 test/platform-handoff.test.js
 test/ease-of-use.test.js
+test/rail-routine-head.test.js
 test/dossier-voice-label.test.js
 test/workflow-takeover.test.js
 test/workflow-takeover-ui.test.js

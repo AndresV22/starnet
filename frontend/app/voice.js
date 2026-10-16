@@ -2042,6 +2042,10 @@ const Voice = (() => {
     },
     restoreSpeak: () => {
       if (!forcedSpeak) return false;          // the Commander's own choice — never undo it
+      // a muted speaker is SILENT: stop what is playing or queued first, as every other speaker-off path does. A failed
+      // Local Live start (mic permission denied) restores the mute with no stop of its own, and the reply already speaking
+      // went on with the speaker key OFF (delta review 10-15).
+      muteStopSpeaking();
       forcedSpeak = false; speakReplies = false; savePref(LS_SPEAK, false); speakerOffClearsNote(); reflectToggle();
       return true;
     },

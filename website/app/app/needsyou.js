@@ -217,28 +217,57 @@ const NeedsYou = (() => {
     return s < 60 ? 'now' : s < 3600 ? Math.floor(s / 60) + 'm' : s < DAY / 1000 ? Math.floor(s / 3600) + 'h' : Math.floor(s / 86400) + 'd';
   }
   const KIND = { approval: 'wants to', question: 'asks', group: '', failed: '', routine: '' };
-  const RAIL_CHARS = 48;   // within what the rail's three clamped ask lines show (pipglass.css .ny-what: line-clamp 3)
   // the rail shows one glance line. Approve from here only when that line IS the whole request; when the approval card
   // holds more (INSPECT: a long command's tail, a file change, every argument; a station ask's own sentence: a build's
-  // plan, the job a line runs, what its runs spend, that it runs unattended), or the line is longer than the rail
-  // shows, Review lands on that card instead. Deny stays one tap: refusing without the detail is safe.
+  // plan, the job a line runs, what its runs spend, that it runs unattended), Review lands on that card instead. Deny
+  // stays one tap: refusing without the detail is safe. (Whether the rail shows that line whole is measured: below.)
   function hiddenDetail(p) {
     if (/^station[._]/.test(String((p && p.tool) || ''))) return true;
     if (typeof Chat === 'undefined' || !Chat.consentInspect || !Chat.consentPhrase) return true;   // no way to tell: never approve blind
-    return !!Chat.consentInspect(p) || (KIND.approval + ' ' + Chat.consentPhrase(p)).length > RAIL_CHARS;
+    return !!Chat.consentInspect(p);
   }
+  /* WHOLE ON THE RAIL, MEASURED, NEVER COUNTED (polish fix round 10-15). The line is .ny-what, clamped to two lines
+     (pipglass.css) in a column that moves with the rail (168/200/232px defaults, a dragged seam) while its type moves
+     with TEXT SIZE (a body zoom, 90% to 150%, that the counter-zoomed rail does not follow). No character count holds
+     across those: 48 let a 40-character ask be cut to "…", and 23 still cut "wants to use fs rm: a" at 145% while it
+     hid Approve once from a 28-character line that sat whole on a 232px rail at 100%. So the rail reads the box it drew,
+     chat.js fitWhole's own test: the line is whole when the clamped box holds all of it. Every render and every 1s
+     heartbeat re-reads it (a TEXT SIZE change or a dragged rail moves no list state), and the click reads it again.
+     Until a row's line has been read whole — and for one that cannot be read (hidden, not laid out) — it offers Review. */
+  const wholeLines = new Set();          // fitId of each approval row last read showing its whole line
+  const fitId = i => i.key + '\u0001' + i.what;
+  function shownWhole(li) {
+    const box = li && typeof li.querySelector === 'function' ? li.querySelector('.ny-what') : null;
+    return !!box && box.clientHeight > 0 && box.clientWidth > 0
+      && box.scrollHeight <= box.clientHeight + 2 && box.scrollWidth <= box.clientWidth + 2;
+  }
+  // read every approval row the rail shows; true when an answer moved (that row's keys follow)
+  function measure(host, list) {
+    const asks = new Map(list.filter(i => i.kind === 'approval').map(i => [i.key, i]));
+    const whole = new Set();
+    if (asks.size) {
+      for (const li of host.querySelectorAll('li.ny-item[data-ny-key]')) {
+        const i = asks.get(li.dataset && li.dataset.nyKey);
+        if (i && shownWhole(li)) whole.add(fitId(i));
+      }
+    }
+    if (whole.size === wholeLines.size && [...whole].every(id => wholeLines.has(id))) return false;
+    wholeLines.clear(); whole.forEach(id => wholeLines.add(id));
+    return true;
+  }
+  const railApproves = i => !hiddenDetail(i.p) && wholeLines.has(fitId(i));
   /* (org P02; g3 D1, final round) a direct-chat ask the rail can approve is REVIEWED through the row itself: the row, its
      "in <where>" door and its ask line land on the COMMS card (the whole request, and its Always / Full access keys, which the
      rail never grants). Three keys never fit the rail on one row at a readable size — they stacked into three full-width
      keys — so its keys are Approve once · Deny, side by side. A worker's ask (background ones too) reviews on its Delegated
      row's INSPECT instead. */
-  const reviewRow = i => !!(i && i.kind === 'approval' && !hiddenDetail(i.p) && !(i.p && (i.p.workerStreamId || i.p.workerRunId || i.p.background === true)));
+  const reviewRow = i => !!(i && i.kind === 'approval' && railApproves(i) && !(i.p && (i.p.workerStreamId || i.p.workerRunId || i.p.background === true)));
   const REVIEW_TIP = 'Review it on its card: the whole request, and its Always and Full access keys';
   function keysFor(i) {
     const k = (act, label, cls, off) => '<button type="button" class="ny-key' + (cls ? ' ' + cls : '') + '" data-ny-act="' + act + '" data-ny-key="' + esc(i.key) + '"' + (off ? ' disabled' : '') + '>' + label + '</button>';
     const sending = !!(i.p && answering.has(String(i.p.promptId))) || answering.has(i.key);
     if (i.kind === 'approval') {
-      if (hiddenDetail(i.p)) return k('open', 'Review', 'primary') + k('deny', 'Deny', 'deny', sending);
+      if (!railApproves(i)) return k('open', 'Review', 'primary') + k('deny', 'Deny', 'deny', sending);
       // (a direct-chat ask's Review is its row's own open action: reviewRow above)
       return k('once', 'Approve once', 'primary', sending) + k('deny', 'Deny', 'deny', sending);
     }
@@ -276,6 +305,7 @@ const NeedsYou = (() => {
   const shapeOf = list => list.map(i => [i.key, i.who, i.what, i.tip || '', i.where, keysFor(i)].join('\u0001')).join('\u0002') + '#' + expanded;
 
   const inSessionsView = () => typeof App === 'undefined' || !App || typeof App.railView !== 'function' || App.railView() === 'sessions';
+  let remeasured = false;               // a render the measurement asked for: it redraws once, never in a loop
   function render() {
     const host = typeof document !== 'undefined' && document.getElementById('ws-needs');
     if (!host) return;
@@ -294,6 +324,7 @@ const NeedsYou = (() => {
         const el = li.querySelector('.ny-age'), text = age(since.get(li.dataset.nyKey), now);
         if (el && el.textContent !== text) el.textContent = text;
       });
+      remeasure(host, list);   // …and re-read each line: TEXT SIZE or the rail's width may have moved under it
       return;
     }
     lastShape = shape;
@@ -317,6 +348,15 @@ const NeedsYou = (() => {
       if (live && again && live !== again) parked = { act: fAct, cls: fCls, key: fKey };
       if (live && live.focus) live.focus({ preventScroll: true });
     }
+    remeasure(host, list);   // the rows are drawn: read which lines show whole, and give those (only) Approve once
+  }
+  // a line that now reads whole (or no longer does) redraws the list at once, in the same task, before anything paints
+  // or takes a click. Once per render: a borderline row (its keys moving a scrollbar in or out) never loops, the next
+  // heartbeat reads it afresh, and a stale Approve once meanwhile still meets the click's own reading in act().
+  function remeasure(host, list) {
+    if (!measure(host, list) || remeasured) return;
+    remeasured = true;
+    try { lastShape = ''; render(); } finally { remeasured = false; }
   }
   // (org P01) the waits that live in a window, not a conversation: Open goes through that window's own door
   function openDoor(i) {
@@ -355,7 +395,10 @@ const NeedsYou = (() => {
     const i = items().find(x => x.key === key);
     if (kind === 'more') { expanded = !expanded; lastShape = ''; render(); return; }
     if (!i) { lastShape = ''; render(); return; }
-    if (kind === 'open' || (kind === 'once' && hiddenDetail(i.p))) return open(i);   // never approve what the rail cannot show
+    // never approve what the rail cannot show: the line read whole at the last render AND in the row clicked, read now
+    // (a TEXT SIZE change or a dragged rail since the last heartbeat cuts it before the keys follow)
+    const clicked = btn && typeof btn.closest === 'function' ? btn.closest('li.ny-item') : undefined;
+    if (kind === 'open' || (kind === 'once' && !(railApproves(i) && (clicked === undefined || shownWhole(clicked))))) return open(i);
     if (kind === 'dismiss') { if (i.kind === 'failed') dismiss(key); else if (canDismiss(i)) settleStored(i); lastShape = ''; render(); return; }
     if ((kind === 'attest-yes' || kind === 'attest-no') && i.kind === 'attest' && typeof QuestLedgerStore !== 'undefined' && QuestLedgerStore.confirm) {
       if (answering.has(key)) return;
@@ -433,6 +476,6 @@ const NeedsYou = (() => {
   }
   function canDismiss(i) { return !!i && (i.kind === 'failed' || (i.kind === 'asked' && !!i.noDoor)); }
   const listShape = list => (list || items()).map(i => i.key + '\u0001' + i.what + '\u0001' + i.where).join('\u0002');
-  return { items, render, openKey, dismissKey, canDismiss, lineOf, listShape, refreshFeeds, _internals: { html, age, keysFor, dismissed, feeds: () => feeds } };
+  return { items, render, openKey, dismissKey, canDismiss, lineOf, listShape, refreshFeeds, _internals: { html, age, keysFor, measure, dismissed, feeds: () => feeds } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NeedsYou;

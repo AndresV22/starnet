@@ -4307,6 +4307,13 @@ const App = (() => {
       + (full ? ' · last run on ' + full : '')
       + (project ? ' — open this session' : ' — Shift+F10 or right-click for actions');
   }
+  /* a routine's rows on the rail, head first: its NEWEST run carries the runs key, the rest list under it as older.
+     Workstreams.list sorts pinned rows first, so a pinned OLDER run arrived first, took the head and the key, and the
+     newest run was drawn set in under it as "older" (delta review 10-15). Equal times keep the order they came in. */
+  function railRunRows(visible) {
+    const head = visible.reduce((a, b) => (+b.lastActiveAt || 0) > (+a.lastActiveAt || 0) ? b : a);
+    return [head].concat(visible.filter(w => w !== head));
+  }
   function rowClass(w, st, activeId) {
     return 'ws-row' + (w.id === activeId ? ' sel' : '') + (st.busy ? ' busy' : '') + (st.attn ? ' attn' : '')
       + (w.pinned ? ' pinned' : '') + (w.archived ? ' archived' : '')
@@ -4342,9 +4349,10 @@ const App = (() => {
     const olderRuns = new Set();   // a routine's runs listed under its newest one, while its history is open
     const rows = grouped.flatMap(item => {
       if (item.type === 'session') return [item.w];
-      headers.set(item.visible[0].id, item);
-      item.visible.slice(1).forEach(w => olderRuns.add(w.id));
-      return item.visible;
+      const runs = railRunRows(item.visible);
+      headers.set(runs[0].id, item);
+      runs.slice(1).forEach(w => olderRuns.add(w.id));
+      return runs;
     });
     const filters = el('ws-kind-filter');
     if (filters) filters.querySelectorAll('[data-ws-kind]').forEach(button => {

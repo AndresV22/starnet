@@ -789,6 +789,8 @@ async function opensWithin(t, ms) {
     };
     const paths = {
       'Local Live ends (restoreSpeak)': t => { t.Voice.stopSpeaking(); t.Voice.restoreSpeak(); },
+      // delta review 10-15: a Local Live start that fails (mic permission denied) restores the mute with NO stop first
+      'a failed Local Live start (restoreSpeak alone)': t => t.Voice.restoreSpeak(),
       'hands-free ends (stopConvo)': t => t.Voice.stopConvo(),
       '/voice off (stopConvo, then setSpeakReplies off)': t => { t.Voice.stopConvo(); t.Voice.setSpeakReplies(false); },
       'the speaker key': t => t.nodes['voice-toggle'].onclick()
@@ -799,11 +801,46 @@ async function opensWithin(t, ms) {
       mute(t);
       A.eq(t.Voice.isOn(), false, 'note: ' + name + ' leaves the speaker off');
       A.ok(!noted(t), 'note: ' + name + ' puts the speech note away');
+      A.ok(!t.Voice.isSpeaking() && !t.Voice.isReplyPending(), 'note: ' + name + ' leaves nothing speaking or queued');
       // the agent keeps talking while muted — nothing may bring the note back
       t.Voice.speakChunk('More words while muted.', 'agent', {replyToken:t.Voice.replyToken()}); t.Voice.endReply();
       await tick(30);
       A.ok(!noted(t), 'note: ' + name + ' — a muted reply never re-raises the note');
     }
+  }
+
+  // --- a speaker restored to its mute goes SILENT, even with a sentence mid-play ---------------
+  // delta review 10-15: a failed Local Live start (mic permission denied) re-mutes through Voice.restoreSpeak() with no
+  // stopSpeaking() of its own, so the sentence already playing — and every one queued behind it — went on with the
+  // speaker key OFF. The audio here plays until something stops it (the playback watchdog is held off), so the outcome
+  // never depends on timing.
+  {
+    const played = [], paused = [];
+    class HeldAudio extends MockAudio {
+      play() { played.push(this.src); queueMicrotask(() => { if (this.onplay) this.onplay(); }); return Promise.resolve(); }
+      pause() { paused.push(this.src); }
+    }
+    const t = boot({ Audio: HeldAudio, fetch: (url, o) => String(url).includes('/api/tts')
+      ? Promise.resolve({ ok: true, headers: { get: () => 'audio/wav' }, blob: async () => ({ size: 128, text: JSON.parse(o.body).text }) })
+      : Promise.resolve({ ok: true, json: async () => ({}) }) });
+    t.sandbox.URL.createObjectURL = blob => blob.text;
+    const compressed = t.sandbox.setTimeout;   // the rig compresses long timers; keep the 2-minute playback watchdog real
+    t.sandbox.setTimeout = (fn, ms, ...a) => ms >= 100000 ? setTimeout(fn, ms, ...a).unref() : compressed(fn, ms, ...a);
+    t.Voice.setSpeakReplies(false);
+    A.ok(t.Voice.forceSpeakOn(), 'held: Local Live lifts the hand-set mute as it starts');
+    const token = t.Voice.replyToken();
+    t.Voice.speakChunk('The first sentence is playing.', 'agent', { replyToken: token });
+    t.Voice.speakChunk('The second sentence waits its turn.', 'agent', { replyToken: token });
+    t.Voice.endReply();
+    await until(() => t.Voice.isSpeaking(), 1000);
+    A.ok(t.Voice.isSpeaking() && played.length === 1, 'held: the first sentence is playing, the second queued behind it');
+    t.Voice.restoreSpeak();   // the failed start's catch: nothing stopped the voice before it
+    A.eq(t.Voice.isOn(), false, 'held: the restore leaves the speaker off');
+    A.ok(!t.Voice.isSpeaking(), 'held: the sentence that was playing stops with it');
+    A.ok(paused.length > 0 && paused.every(src => src === 'The first sentence is playing.'), 'held: its audio is paused: ' + paused.join('|'));
+    A.ok(!t.Voice.isReplyPending(), 'held: nothing is left queued');
+    await tick(30);
+    A.eq(played.join('|'), 'The first sentence is playing.', 'held: the queued sentence never plays on a muted speaker');
   }
 
   // --- Local Live pins one voice AND one serving engine for the whole conversation ------------
