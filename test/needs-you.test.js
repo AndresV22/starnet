@@ -161,7 +161,7 @@ const shown = i => readAs(i, WHOLE), cut = i => readAs(i, CUT);
   // app-shell-ui-04 / seams-04: bounded in every mode (glass, plain, hud) — an expanded "N more" scrolls inside its card,
   // so the lower asks' keys and "Show fewer" stay reachable, with a themed scrollbar (never a white native one)
   const glass = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'css', 'pipglass.css'), 'utf8');
-  A.ok(/\n#left \.ws-needs \{[^}]*max-height: min\(45%, 360px\);[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain;/.test(glass), 'NEEDS YOU has a height bound and scrolls inside its card, unscoped so every rail mode gets it');
+  A.ok(/\n#left \.ws-needs \{[^}]*max-height: min\(55%, 460px\);[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain;/.test(glass), 'NEEDS YOU has a height bound and scrolls inside its card, unscoped so every rail mode gets it');
   A.ok(/\n#left \.ws-needs::-webkit-scrollbar-thumb \{[^}]*background: var\(--ph-dim\)/.test(glass) && /\n#left \.ws-needs \{[^}]*scrollbar-color: var\(--ph-dim\) transparent/.test(glass), 'its scrollbar is themed like COMMS');
   A.ok(/if \(railView !== 'sessions'\) \{ host\.hidden = true; return; \}\s*\n\s*if \(typeof NeedsYou !== 'undefined' && NeedsYou\.render\) NeedsYou\.render\(\);/.test(app), 'the rail renders it (SESSIONS view only)');
   A.ok(/NeedsYou\.render\(\);   \/\/ ages tick, failures arrive/.test(app), 'and the 1s rail heartbeat keeps it current');
