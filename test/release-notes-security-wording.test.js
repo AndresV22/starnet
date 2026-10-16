@@ -25,7 +25,7 @@ if (gapOpen) {
   const named = /\bTypeScript\b[^.\n]*\b(?:language server|server)\b|typescript-language-server|tsserver/i.exec(notes);
   A.ok(!named, 'RELEASE_NOTES.md names the TypeScript language server while lsp-manager.js records an open item for it: "' + (named ? named[0] : '') + '"');
 }
-// the general wording stays: the notes still say there is more hardening, without naming the mechanism
-A.ok(/plus more local hardening/.test(notes) || !/^## Security/m.test(notes), 'the Security section keeps its general "plus more local hardening" wording');
+// No wording pin beyond that: each release writes its own Security paragraph (release-bump starts the file over),
+// so a phrase this one happens to use is never required of the next.
 
 A.report();
