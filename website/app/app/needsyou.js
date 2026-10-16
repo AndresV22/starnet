@@ -199,7 +199,7 @@ const NeedsYou = (() => {
     for (const ws of Workstreams.list()) {
       if (!/^cron-/.test(String(ws.id)) || ws.lastRunOk !== false || !(Workstreams.unread && Workstreams.unread(ws))) continue;
       out.push({ key: 'routine:' + ws.id, kind: 'routine', wsId: ws.id, who: nameOf(ws.agentId), aid: ws.agentId, what: 'routine "' + ((ws.automation && ws.automation.name) || ws.title || 'routine') + '" failed',
-        where: 'routines', since: Number(ws.lastActiveAt) || 0, routineId: (ws.automation && ws.automation.id) || '' });
+        where: 'ROUTINES', since: Number(ws.lastActiveAt) || 0, routineId: (ws.automation && ws.automation.id) || '' });
     }
     blockingWaits(out, now);
     // the asks a running conversation is stopped on (they auto-deny on a timer) lead, oldest first as ever (a group with no
