@@ -331,13 +331,16 @@ const NeedsYou = (() => {
     if (!list.length) return '';
     const rows = railRows(list), shown = expanded ? rows : rows.slice(0, SHOW), folded = list.length - waitsIn(shown);
     return '<div class="ny-head"><span class="ny-lamp" aria-hidden="true"></span><span class="ny-title">Needs you</span><span class="ny-count">' + list.length + '</span></div>'
-      + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i), keys = keysFor(i), color = colorOf(i.aid); return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '" data-ny-n="' + (i.n || 1) + '">'
+      + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i), keys = keysFor(i), color = colorOf(i.aid), place = ' — in ' + i.where; return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '" data-ny-n="' + (i.n || 1) + '">'
         // the CREW card, for a wait (Andrew 10-15: "premium"): the agent's portrait in its well with the gold lamp housed in
         // its corner, then WHO (in the agent's colour) · where · how long, the line (the ask first; two lines at most, the
         // whole of it on hover), then keys only when there is more than Open
         + '<span class="ny-face" aria-hidden="true"' + (i.aid ? ' data-ny-aid="' + esc(i.aid) + '"' : '') + '><img alt="" draggable="false" hidden><span class="ny-dot"></span></span>'
-        + '<div class="ny-line">' + (i.who ? '<span class="ny-who"' + (color ? ' style="color:' + esc(color) + '"' : '') + '>' + esc(i.who) + '</span>' : '') + '<button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
-        + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + lineHtml(i) + '</div>'
+        // "in <where>" is the row's door for the keyboard and a screen reader on every rail (pipglass.css only hides it from
+        // sight where the line has no room): its name says who, what, and where it lands
+        + '<div class="ny-line">' + (i.who ? '<span class="ny-who"' + (color ? ' style="color:' + esc(color) + '"' : '') + '>' + esc(i.who) + '</span>' : '')
+        + '<button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '" aria-label="' + esc((i.who ? i.who + ' ' : '') + lineOf(i) + place) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
+        + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + place + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + lineHtml(i) + '</div>'
         + (keys ? '<div class="ny-keys">' + keys + '</div>' : '')
         + '</li>'; }).join('') + '</ul>'
       + (rows.length > 1 ? '<button type="button" class="ny-more" data-ny-act="more" data-ny-waits="' + list.length + '" aria-expanded="' + expanded + '"'

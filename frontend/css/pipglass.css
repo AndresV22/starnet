@@ -537,8 +537,9 @@ body.glass-demo:not(.hud-mode) #left #workstreams .ws-row[data-runs="older"] { m
 
 /* NEEDS YOU (2026-10-11, needsyou.js): every approval, question and failure on the station, pinned atop SESSIONS — the
    approval-card glass edged in the station's "needs you" gold. One row per item, sized for the narrow rail: WHO · where ·
-   how long (the place drops to its own line rather than being cut), then what exactly (a free-form ask or question three
-   lines at most, every other wait in full: its last word is the claim), then its keys full width. Matte: state is an edge or a fill, never a glow. */
+   how long (on a narrow rail the place leaves the line, and stays the row's door and its tip), then what exactly (a free-form
+   ask, a question or a build two lines at most, every other wait in full: its last word is the claim), then its keys full
+   width. Matte: state is an edge or a fill, never a glow. */
 /* (Andrew 10-15: "ugly and unorganized … in different styles", then on the plain-row pass: "disgusting and cheap … we need
    it premium") NEEDS YOU is the rail's first section, each wait drawn as the CREW panel's own agent card in its "needs your
    OK" frame (portrait well + housed lamp, name in the agent's colour, time, the line); a click on a card opens it. */
@@ -576,10 +577,16 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item {
 }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item + .ny-item { border-top: 1px solid rgba(var(--ph-rgb), .1); }
 #left .ws-needs .ny-item[hidden], #left .ws-needs .ny-more[hidden] { display: none !important; }
-/* the name line on a narrow rail or a large TEXT SIZE: "in <where>" steps aside rather than leave a two-letter stub
-   ("in DELIV…"); the name and the time always show, the place stays on the row's hover tip and its door */
+/* the name line on a narrow rail or a large TEXT SIZE: "in <where>" steps out of sight rather than leave a two-letter stub
+   ("in DELIV…"); the name and the time always show. It is never display:none: it stays the row's door for the keyboard and
+   a screen reader (its name says who, what and where; focus lands on it while an answer is on its way), it comes back into
+   the line while it holds keyboard focus, and the line's hover tip ends "— in <where>" */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item { container-type: inline-size; }
-@container (max-width: 250px) { body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where { display: none; } }
+@container (max-width: 250px) {
+  body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where:not(:focus-visible) {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+}
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) { background: rgba(var(--ph-rgb), .06); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item > :not(.ny-face) { grid-column: 2; min-width: 0; }
 /* the small portrait well (the CREW card's, scaled to a row) with the figure the floor draws and the lamp in its corner */

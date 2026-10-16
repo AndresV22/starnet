@@ -98,7 +98,7 @@ const shown = i => readAs(i, WHOLE), cut = i => readAs(i, CUT);
   A.eq(list.find(i => i.key === 'worker:wr7').what, 'stopped when the station restarted', 'a worker a restart cut off still says so');
   const capped = list.find(i => i.key === 'worker:wr8');
   A.eq(capped.what, 'failed: couldn\'t start (too many running, or a sign-in is needed)', 'a refused worker says what stopped it');
-  A.ok(NY._internals.html([capped], NOW).includes('title="failed: couldn\'t start (too many running, or a sign-in is needed) — subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once."'), 'and its row\'s tip carries the sidecar\'s own sentence');
+  A.ok(NY._internals.html([capped], NOW).includes('title="failed: couldn\'t start (too many running, or a sign-in is needed) — subagent could not start — the concurrency cap (STARNET_MAX_CONCURRENT_AGENTS) is full or a sign-in is needed. Try fewer at once. — in General"'), 'and its row\'s tip carries the sidecar\'s own sentence, then where it waits');
   global.Overseer = ledger;
 }
 {
@@ -141,7 +141,7 @@ const shown = i => readAs(i, WHOLE), cut = i => readAs(i, CUT);
   A.eq((direct.match(/data-ny-act="[a-z]+"[^>]*>[^<]+</g) || []).map(x => x.replace(/^data-ny-act="([a-z]+)"[^>]*>([^<]+)<$/, '$1:$2')).join(' | '), 'once:Approve once | deny:Deny', 'a direct-chat row\'s keys: Approve once · Deny');
   const rowHtml = NY._internals.html([shown(Object.assign(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }), { who: 'NOVA', where: 'General', what: 'fs read: notes.md', since: Date.now() }))], Date.now());
   A.ok(/<li class="ny-item approval ny-review" data-ny-key="ask:p30"[^>]*>/.test(rowHtml), 'its row is the Review door (the row click opens its card)');
-  A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p30" data-tip="Review it on its card: the whole request, and its Always and Full access keys">in General<\/button>/.test(rowHtml), '…and its "in <where>" door says so: ' + rowHtml.slice(0, 400));
+  A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p30"[^>]* data-tip="Review it on its card: the whole request, and its Always and Full access keys">in General<\/button>/.test(rowHtml), '…and its "in <where>" door says so: ' + rowHtml.slice(0, 400));
   for (const w of [{ workerStreamId: 'thread_vex' }, { workerRunId: 'wr9' }, { background: true }]) {
     const wa = Object.assign(ask(Object.assign({ promptId: 'p31', tool: 'fs.read', argsSummary: 'notes.md' }, w)), { who: 'VEX', where: 'General', what: 'fs read: notes.md', since: Date.now() }), wk = k(wa);
     A.ok(/>Approve once</.test(wk) && />Deny</.test(wk) && !/>Review</.test(wk), 'a worker ask keeps Approve once · Deny (its review is the Delegated INSPECT): ' + Object.keys(w)[0]);
@@ -151,6 +151,15 @@ const shown = i => readAs(i, WHOLE), cut = i => readAs(i, CUT);
   A.ok(/\.ny-keys \{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; \}/.test(glassCss) && /\.ny-key \{\s*flex: 1 1 auto; min-width: 0; min-height: 34px; padding: 5px 8px; font: 15px\/1\.1 'VT323'/.test(glassCss) && !/\.ny-key\.ny-review \{ flex: 1 1 100%; \}/.test(glassCss)
     && /\.ny-keys > \.ny-key \{ flex: 1 1 0; min-width: max-content; min-height: 34px; \}/.test(glassCss),
     'a row has two keys, never three: they share its text column where both labels fit (the 232px rail at STANDARD) and stack, whole and 34px tall, where they do not (the 200px rail; test/needs-you-rail-fit.test.js lays both out)');
+  // (two reviews 10-16) "in <where>" was display:none on every default rail (a 250px container query): approval rows never
+  // said which conversation asks, keyboard focus fell to the page while an answer was on its way (the focus assertions below
+  // run on a host with no CSS, so they never saw it), and build / STEP-IN / extension / loop / group rows had nothing to focus
+  A.ok(!/\.ny-where[^{}]*\{[^}]*display:\s*none/.test(glassCss), 'no rule takes "in <where>" out with display:none: it stays a focusable door on every rail');
+  A.ok(/@container \(max-width: \d+px\) \{\s*body\.glass-demo:not\(\.hud-mode\) #left \.ws-needs \.ny-where:not\(:focus-visible\) \{[^}]*position: absolute;[^}]*clip-path: inset\(50%\);/.test(glassCss),
+    'on a narrow rail it is only hidden from sight (clipped, still focusable and read), and it shows again while it holds keyboard focus');
+  const doorRow = NY._internals.html([shown(Object.assign(ask({ promptId: 'p33', tool: 'fs.read', argsSummary: 'notes.md' }), { who: 'NOVA', where: 'Launch prep', what: 'use fs read: notes.md', since: Date.now() }))], Date.now());
+  A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p33" aria-label="NOVA wants to use fs read: notes\.md — in Launch prep"/.test(doorRow), 'the door\'s name says who, what, and where it lands: ' + doorRow.slice(0, 600));
+  A.ok(/<div class="ny-what" title="use fs read: notes\.md — in Launch prep — Review it on its card/.test(doorRow), 'the line\'s hover tip says where it waits (the place the narrow rail hides from the line)');
   A.eq((NY._internals.keysFor(cut(longPath)).match(/>Review</g) || []).length, 1, 'a cut line still shows exactly one Review, never a blind Approve');
   A.eq((k(longCmd).match(/>Review</g) || []).length, 1, 'a hidden-detail ask read whole still shows exactly one Review, never a blind Approve');
   global.Chat.consentPhrase = phrase;
