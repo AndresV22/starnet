@@ -579,14 +579,16 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item + .ny-item { border-top:
 #left .ws-needs .ny-item[hidden], #left .ws-needs .ny-more[hidden] { display: none !important; }
 /* the name line on a narrow rail or a large TEXT SIZE: "in <where>" steps out of sight rather than leave a two-letter stub
    ("in DELIV…"); the name and the time always show. It is never display:none: it stays the row's door for the keyboard and
-   a screen reader (its name says who, what and where; focus lands on it while an answer is on its way), it comes back into
-   the line while it holds keyboard focus, and the line's hover tip ends "— in <where>" */
+   a screen reader (its name says who, what and where; focus lands on it while an answer is on its way), and the line's
+   hover tip ends "— in <where>". A keyboard focus on the door rings its row, so the focus is seen on every rail (live
+   10-16: put back into the line it was a 0-22px stub on the 200px rail) */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item { container-type: inline-size; }
 @container (max-width: 250px) {
-  body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where:not(:focus-visible) {
+  body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where {
     position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
   }
 }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:has(> .ny-line > .ny-where:focus-visible) { outline: 2px solid var(--ph-bright); outline-offset: -2px; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) { background: rgba(var(--ph-rgb), .06); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item > :not(.ny-face) { grid-column: 2; min-width: 0; }
 /* the small portrait well (the CREW card's, scaled to a row) with the figure the floor draws and the lamp in its corner */

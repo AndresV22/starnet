@@ -175,8 +175,11 @@ const shown = i => readAs(i, WHOLE), cut = i => readAs(i, CUT);
   // said which conversation asks, keyboard focus fell to the page while an answer was on its way (the focus assertions below
   // run on a host with no CSS, so they never saw it), and build / STEP-IN / extension / loop / group rows had nothing to focus
   A.ok(!/\.ny-where[^{}]*\{[^}]*display:\s*none/.test(glassCss), 'no rule takes "in <where>" out with display:none: it stays a focusable door on every rail');
-  A.ok(/@container \(max-width: \d+px\) \{\s*body\.glass-demo:not\(\.hud-mode\) #left \.ws-needs \.ny-where:not\(:focus-visible\) \{[^}]*position: absolute;[^}]*clip-path: inset\(50%\);/.test(glassCss),
-    'on a narrow rail it is only hidden from sight (clipped, still focusable and read), and it shows again while it holds keyboard focus');
+  A.ok(/@container \(max-width: \d+px\) \{\s*body\.glass-demo:not\(\.hud-mode\) #left \.ws-needs \.ny-where \{[^}]*position: absolute;[^}]*clip-path: inset\(50%\);/.test(glassCss),
+    'on a narrow rail it is only hidden from sight (clipped, still focusable and read)');
+  // live 10-16: put back into the line on keyboard focus it was a 0-22px stub on the 200px rail, so the focus showed nowhere
+  A.ok(/\.ny-item:has\(> \.ny-line > \.ny-where:focus-visible\) \{ outline: 2px solid var\(--ph-bright\); outline-offset: -2px; \}/.test(glassCss),
+    'a keyboard focus on a row\'s door rings the whole row (an edge, on every rail), so it is seen where the door is out of sight');
   const doorRow = NY._internals.html([shown(Object.assign(ask({ promptId: 'p33', tool: 'fs.read', argsSummary: 'notes.md' }), { who: 'NOVA', where: 'Launch prep', what: 'use fs read: notes.md', since: Date.now() }))], Date.now());
   A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p33" aria-label="NOVA wants to use fs read: notes\.md — in Launch prep"/.test(doorRow), 'the door\'s name says who, what, and where it lands: ' + doorRow.slice(0, 600));
   A.ok(/<div class="ny-what" title="use fs read: notes\.md — in Launch prep — Review it on its card/.test(doorRow), 'the line\'s hover tip says where it waits (the place the narrow rail hides from the line)');
