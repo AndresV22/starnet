@@ -539,13 +539,12 @@ body.glass-demo:not(.hud-mode) #left #workstreams .ws-row[data-runs="older"] { m
    approval-card glass edged in the station's "needs you" gold. One row per item, sized for the narrow rail: WHO · where ·
    how long (the place drops to its own line rather than being cut), then what exactly (a free-form ask or question three
    lines at most, every other wait in full: its last word is the claim), then its keys full width. Matte: state is an edge or a fill, never a glow. */
-/* (Andrew 10-15: "ugly and unorganized … they are all disconnected, in different styles") NEEDS YOU is no longer a card of
-   its own: it is the rail's first section, its waits drawn as the SAME rows as the sessions under it (lamp · agent in its
-   colour · time, then the line), a click on a row opens it, and one hairline ends the section. Gold says whose turn it is:
-   the section's lamp, each row's lamp and its ask word — never a frame. */
+/* (Andrew 10-15: "ugly and unorganized … in different styles", then on the plain-row pass: "disgusting and cheap … we need
+   it premium") NEEDS YOU is the rail's first section, each wait drawn as the CREW panel's own agent card in its "needs your
+   OK" frame (portrait well + housed lamp, name in the agent's colour, time, the line); a click on a card opens it. */
 body.glass-demo:not(.hud-mode) #left .ws-needs {
-  flex: 0 0 auto; margin: 4px 4px 2px; padding: 0 0 6px; font-family: 'VT323', monospace; color: var(--text); text-shadow: none;
-  border: 0; border-bottom: 1px solid rgba(var(--ph-rgb), .14); border-radius: 0; background: none; box-shadow: none;
+  flex: 0 0 auto; margin: 2px 0 4px; padding: 0 0 2px; font-family: 'VT323', monospace; color: var(--text); text-shadow: none;
+  border: 0; border-radius: 0; background: none; box-shadow: none;
 }
 #left .ws-needs[hidden] { display: none !important; }
 /* bounded in every rail mode (glass, plain, hud): an expanded "N more" scrolls inside its card, so the lower asks' keys
@@ -554,39 +553,48 @@ body.glass-demo:not(.hud-mode) #left .ws-needs {
 #left .ws-needs::-webkit-scrollbar { width: 8px; }
 #left .ws-needs::-webkit-scrollbar-track { background: transparent; }
 #left .ws-needs::-webkit-scrollbar-thumb { background: var(--ph-dim); border-radius: 4px; }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-head { display: flex; align-items: center; gap: 8px; padding: 6px 16px 4px; font-size: 14px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--gold); }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-lamp { width: 9px; height: 9px; border-radius: 2px; background: var(--gold); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .3); }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-count { margin-left: auto; font-size: 15px; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-list { margin: 0; padding: 0; list-style: none; }
-/* one wait = one INBOX session row (the #workstreams .ws-row metrics below, restated): lamp · line 1 · line 2, hairlines
-   between resting rows, a quiet wash on hover */
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-head { display: flex; align-items: center; gap: 9px; padding: 8px 18px 6px; font-size: 15px; letter-spacing: 2.2px; text-transform: uppercase; color: var(--gold); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-lamp { width: 9px; height: 9px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .3); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-count { margin-left: auto; font-size: 16px; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 2px 8px 4px; list-style: none; }
+/* one wait = one CREW card (crew-glass.css .crew-row, its "needs your OK" frame): the portrait well with its housed lamp,
+   the agent's name in its colour with the time, the line under it. Always framed: every card here is your turn */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item {
-  position: relative; display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 8px; row-gap: 1px; align-items: center;
-  margin: 0 6px; padding: 7px 10px 8px; border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+  position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 11px; row-gap: 3px; align-items: start;
+  margin: 0; padding: 8px 10px 9px 8px; border: 1px solid rgba(var(--gold-rgb), .42); border-radius: 10px; cursor: pointer;
+  background: linear-gradient(165deg, rgba(var(--gold-rgb), .09), transparent 50%), color-mix(in srgb, var(--panel2) 70%, transparent);
+  box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .06), 0 2px 8px rgba(0, 0, 0, .2);
+  transition: border-color var(--t-fast, .12s) ease, background var(--t-fast, .12s) ease;
 }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item > :not(.ny-dot) { grid-column: 2; min-width: 0; }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item + .ny-item::before {
-  content: ''; position: absolute; left: 10px; right: 10px; top: -1px; height: 1px; background: rgba(var(--ph-rgb), .1); pointer-events: none;
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) {
+  border-color: rgba(var(--gold-rgb), .7);
+  background: linear-gradient(165deg, rgba(var(--gold-rgb), .14), transparent 55%), color-mix(in srgb, var(--panel2) 76%, transparent);
 }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) { background: rgba(var(--ph-rgb), .05); }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within)::before,
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) + .ny-item::before { opacity: 0; }
-/* the lamp: the rail's own square glass lamp, lit gold (= an unseen session's), because this one is your turn */
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item > :not(.ny-face) { grid-column: 2; min-width: 0; }
+/* the portrait well (the CREW card's, a size down) with the figure the floor draws and the gold lamp in its corner */
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-face {
+  grid-column: 1; grid-row: 1 / span 3; position: relative; box-sizing: border-box; width: 44px; height: 50px;
+  display: flex; align-items: flex-end; justify-content: center; overflow: hidden;
+  border-radius: 8px; border: 1px solid var(--cg-hair, rgba(var(--ph-rgb), .12)); background: rgba(0, 0, 0, .3); box-shadow: inset 0 2px 6px rgba(0, 0, 0, .45);
+}
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-face img { width: 38px; height: 46px; object-fit: contain; object-position: 50% 100%; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-dot {
-  grid-column: 1; grid-row: 1; position: relative; box-sizing: border-box; width: 12px; height: 12px;
-  border: 1px solid color-mix(in srgb, var(--gold) 65%, transparent); border-radius: 2px; box-shadow: inset 0 1px 0 var(--gd-light, transparent);
+  position: absolute; right: 4px; top: 4px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--gold); box-shadow: var(--cg-lamp, 0 0 0 1px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .3));
 }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-dot::before {
-  content: ''; position: absolute; inset: 2px; border-radius: 1px; background: var(--gold); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3);
+/* something broke (failed work, a failed routine): the same card, framed and lit in the fault colour */
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) {
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--bad) 10%, transparent), transparent 50%), color-mix(in srgb, var(--panel2) 70%, transparent);
 }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-dot { border-color: color-mix(in srgb, var(--bad) 65%, transparent); }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-dot::before { background: var(--bad); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-dot { background: var(--bad); }
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-key.primary { color: var(--text); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: color-mix(in srgb, var(--bad) 8%, transparent); }
 /* line 1: AGENT (the row's headline, in its colour) · in <where> ........ time */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-line { display: flex; align-items: baseline; gap: 0 8px; min-width: 0; line-height: 1.15; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who { flex: none; font-size: 19px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); text-shadow: var(--pg-glow-soft); }
 /* line 2: the ask first, then what it is about; two lines at most (the whole sentence is its hover tip) */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-what {
-  font-size: 17px; line-height: 1.2; letter-spacing: .3px; color: color-mix(in srgb, var(--text) 86%, var(--panel2)); overflow-wrap: anywhere; overflow: hidden;
+  font-size: 16px; line-height: 1.25; letter-spacing: .4px; color: color-mix(in srgb, var(--text) 88%, var(--panel2)); overflow-wrap: anywhere; overflow: hidden;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) .ny-what { color: var(--ph-bright); }
@@ -622,7 +630,7 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key:disabled { opacity: .55; 
 /* a lone key (Answer, Retry, Dismiss) is its label's size, never a full-width bar */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-keys > .ny-key:only-child { flex: 0 0 auto; padding: 5px 16px; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-more {
-  display: inline-flex; align-items: center; gap: 6px; width: auto; min-height: 0; padding: 6px 16px 2px; text-align: left; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; width: auto; min-height: 0; padding: 4px 18px 2px; text-align: left; cursor: pointer;
   font: 15px 'VT323', monospace; letter-spacing: .4px; color: var(--ph); background: none; border: 0; box-shadow: none; text-shadow: none;
 }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-more::before {

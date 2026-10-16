@@ -287,19 +287,45 @@ const NeedsYou = (() => {
     if (i.rail) return '<span class="ny-verb">' + esc(i.rail.verb) + '</span> · ' + esc(i.rail.text);
     return (KIND[i.kind] ? '<span class="ny-verb">' + esc(KIND[i.kind]) + '</span> ' : '') + esc(i.what);
   }
+  /* (Andrew 10-15, second pass: "disgusting and cheap … we need it premium") one agent's builds waiting on keep/discard are
+     ONE card ("keep or discard · 23 builds"), never 23 copies of the same line: its door is the same DELIVERABLES › NEEDS A
+     DECISION list every build row opened, its age the oldest build's. Every other wait stays its own card (each has its own
+     action). The count in the header is still every wait. */
+  function railRows(list) {
+    const out = [], builds = new Map();
+    for (const i of list) {
+      if (i.kind !== 'build') { out.push(i); continue; }
+      const key = String(i.aid || i.who), g = builds.get(key);
+      if (g) { g.n++; g.since = Math.min(g.since || Infinity, i.since || Infinity) || 0; g.newest = i.rail ? i.rail.text : g.newest; continue; }
+      const row = Object.assign({}, i, { n: 1, newest: i.rail ? i.rail.text : '' });
+      builds.set(key, row); out.push(row);
+    }
+    return out.map(r => r.n > 1 ? Object.assign({}, r, { rail: { verb: 'keep or discard', text: r.n + ' builds' }, what: r.n + ' builds waiting on keep or discard, newest "' + r.newest + '"' }) : r);
+  }
   function html(list, now) {
     if (!list.length) return '';
-    const shown = expanded ? list : list.slice(0, SHOW);
+    const rows = railRows(list), shown = expanded ? rows : rows.slice(0, SHOW);
     return '<div class="ny-head"><span class="ny-lamp" aria-hidden="true"></span><span class="ny-title">Needs you</span><span class="ny-count">' + list.length + '</span></div>'
       + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i), keys = keysFor(i), color = colorOf(i.aid); return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '">'
-        // (Andrew 10-15) the SAME row as a session's: the lamp, then WHO (in the agent's colour) · where · how long, then
-        // the line (the ask first; two lines at most, the whole of it on hover), then keys only when there is more than Open
-        + '<span class="ny-dot" aria-hidden="true"></span>'
+        // the CREW card, for a wait (Andrew 10-15: "premium"): the agent's portrait in its well with the gold lamp housed in
+        // its corner, then WHO (in the agent's colour) · where · how long, the line (the ask first; two lines at most, the
+        // whole of it on hover), then keys only when there is more than Open
+        + '<span class="ny-face" aria-hidden="true"' + (i.aid ? ' data-ny-aid="' + esc(i.aid) + '"' : '') + '><img alt="" draggable="false" hidden><span class="ny-dot"></span></span>'
         + '<div class="ny-line">' + (i.who ? '<span class="ny-who"' + (color ? ' style="color:' + esc(color) + '"' : '') + '>' + esc(i.who) + '</span>' : '') + '<button type="button" class="ny-where" data-ny-act="open" data-ny-key="' + esc(i.key) + '"' + (rv ? ' data-tip="' + esc(REVIEW_TIP) + '"' : '') + '>in ' + esc(i.where) + '</button><span class="ny-age">' + esc(age(i.since, now)) + '</span></div>'
         + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + lineHtml(i) + '</div>'
         + (keys ? '<div class="ny-keys">' + keys + '</div>' : '')
         + '</li>'; }).join('') + '</ul>'
-      + (list.length > SHOW ? '<button type="button" class="ny-more" data-ny-act="more" aria-expanded="' + expanded + '">' + (expanded ? 'Show fewer' : (list.length - SHOW) + ' more') + '</button>' : '');
+      + (rows.length > SHOW ? '<button type="button" class="ny-more" data-ny-act="more" aria-expanded="' + expanded + '">' + (expanded ? 'Show fewer' : (rows.length - SHOW) + ' more') + '</button>' : '');
+  }
+  // each card's portrait: the same figure the CREW card paints (AgentPortraits), from the agent the wait names
+  function paintFaces(host) {
+    if (typeof AgentPortraits === 'undefined' || !AgentPortraits.paint || !has(App, 'agents')) return;
+    let roster = [];
+    try { roster = App.agents() || []; } catch (_) { return; }
+    host.querySelectorAll('.ny-face[data-ny-aid]').forEach(face => {
+      const a = roster.find(x => x && x.id === face.dataset.nyAid);
+      if (a) AgentPortraits.paint(face.querySelector('img'), a);
+    });
   }
   // what the list shows apart from its ages: the rail's 1s heartbeat rebuilds the list only when this moves
   const shapeOf = list => list.map(i => [i.key, i.who, i.what, i.tip || '', i.where, keysFor(i)].join('\u0001')).join('\u0002') + '#' + expanded;
@@ -336,6 +362,7 @@ const NeedsYou = (() => {
     if (f && parked && parked.key === fKey) { fAct = parked.act; fCls = parked.cls; }
     parked = null;
     host.innerHTML = html(list, now);
+    paintFaces(host);
     if (fAct) {
       // "in <where>" and Review/Open share an action: the class tells them apart
       const keys = Array.from(host.querySelectorAll('[data-ny-act]'));
