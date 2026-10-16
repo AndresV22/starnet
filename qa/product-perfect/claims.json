@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "f032adc747d8d0287851afb2ea41ca9276fee69c",
+    "sourceCommit": "71a821b93cc132df208e6a605356cecdb6ecff23",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -38,8 +38,8 @@
       },
       {
         "path": "RELEASE_NOTES.md",
-        "bytes": 19670,
-        "sha256": "01a389816a3afb222bc5af8c0f6fd2086590d933002450d8ab88c6a10ff595e7"
+        "bytes": 23583,
+        "sha256": "379f18fef1c42c3914d56050d315cffd6d8ff37385805222a5b376712fb5b5c9"
       },
       {
         "path": "TERMS.md",
@@ -173,8 +173,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 450904,
-        "sha256": "4b77877c04bd5f8de5d3a6cadbfd1a373ab0a98077ebb69d997682a5df688b02"
+        "bytes": 451815,
+        "sha256": "41880b1e992d010a3d9eba0f6ebef580c8e6a33538c6d0a1f7aed51a3be9eb9b"
       },
       {
         "path": "frontend/app/approved-sheet-effects.js",
@@ -708,8 +708,8 @@
       },
       {
         "path": "frontend/app/needsyou.js",
-        "bytes": 35392,
-        "sha256": "b7c1a9d0685d6217c5dabecf793fd50934dc70e6b6d3bddd3055c50ec2542c7c"
+        "bytes": 38565,
+        "sha256": "f77b1d894360e87279ec0931d74c9c54ec7961d24ca5ef44a1f91a08cdc8f3a5"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -1183,8 +1183,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 927822,
-        "sha256": "3fbb669bed4ced9ead6b000c53f2336de082944412cab5314db3686827dc0349"
+        "bytes": 927866,
+        "sha256": "52576f016a8ba40ff2bb740b12ecf8b00c9af981409594dba4b4bf148c036144"
       },
       {
         "path": "frontend/app/stepin.js",
@@ -1318,8 +1318,8 @@
       },
       {
         "path": "frontend/app/voice.js",
-        "bytes": 132898,
-        "sha256": "099b5092894e57b76cbcc8de0b72ada4947576e71e1432bba4954aaf88db24b6"
+        "bytes": 133233,
+        "sha256": "68086efa617306da8fc8b7b12f46307aca5c3bba49feeaa0776cd7ba177586ab"
       },
       {
         "path": "frontend/app/waitanchor.js",
