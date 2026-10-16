@@ -103,7 +103,7 @@ const NeedsYou = (() => {
     // no time: the sidecar's pending lists carry none, so the row shows no age rather than a guessed one
     if (feeds.extensions > 0) out.push({ key: 'extensions', kind: 'extension', who: 'STATION', what: 'has ' + plural(feeds.extensions, 'extension', 'extensions') + ' awaiting your approval', where: 'EXTENSIONS', since: 0 });
     for (const m of (feeds.builds || [])) {
-      out.push({ key: 'build:' + m.runId, kind: 'build', who: nameOf(m.agentId), aid: m.agentId, what: 'built "' + String(m.title || 'a build') + '": keep or discard it',
+      out.push({ key: 'build:' + m.runId, kind: 'build', build: m, who: nameOf(m.agentId), aid: m.agentId, what: 'built "' + String(m.title || 'a build') + '": keep or discard it',
         rail: { verb: 'keep or discard', text: String(m.title || 'a build') }, where: 'DELIVERABLES', since: Number(m.builtAt) || 0 });
     }
   }
@@ -284,7 +284,7 @@ const NeedsYou = (() => {
   }
   // the row's line, the ask first so a clamp never cuts it: "wants to …", "asks …", "keep or discard · <build>"
   function lineHtml(i) {
-    if (i.rail) return '<span class="ny-verb">' + esc(i.rail.verb) + '</span> · ' + esc(i.rail.text);
+    if (i.rail) return '<span class="ny-verb">' + esc(i.rail.verb) + '</span> · ' + esc(i.rail.text) + (i.more ? ' <span class="ny-more-n">+' + i.more + ' more</span>' : '');
     return (KIND[i.kind] ? '<span class="ny-verb">' + esc(KIND[i.kind]) + '</span> ' : '') + esc(i.what);
   }
   /* (Andrew 10-15, second pass: "disgusting and cheap … we need it premium") one agent's builds waiting on keep/discard are
@@ -300,7 +300,8 @@ const NeedsYou = (() => {
       const row = Object.assign({}, i, { n: 1, newest: i.rail ? i.rail.text : '' });
       builds.set(key, row); out.push(row);
     }
-    return out.map(r => r.n > 1 ? Object.assign({}, r, { rail: { verb: 'keep or discard', text: r.n + ' builds' }, what: r.n + ' builds waiting on keep or discard, newest "' + r.newest + '"' }) : r);
+    // the card names the build its click opens (the oldest: the next decision), with how many more wait behind it
+    return out.map(r => r.n > 1 ? Object.assign({}, r, { more: r.n - 1, what: r.what + ' (and ' + (r.n - 1) + ' more builds waiting on keep or discard)' }) : r);
   }
   function html(list, now) {
     if (!list.length) return '';
@@ -395,6 +396,11 @@ const NeedsYou = (() => {
     else if (i.kind === 'loop') ui.openTerm('loops');
     else if (i.kind === 'asked') ui.openTerm('notifs');   // a stored wait with no conversation: where it was filed (Dismiss settles it)
     else if (i.kind === 'build') {
+      // (Andrew 10-15: "it only takes you to deliverables … instead of where you are ACTUALLY needed") a build opens ITS OWN
+      // session (workshop-<runId>), where WorkshopStore.presentFor puts its keep/discard card in COMMS. Only a build whose
+      // session cannot be had (deleted: adopt refuses the tombstone) falls back to DELIVERABLES › NEEDS A DECISION.
+      const sid = i.build && typeof WorkshopStore !== 'undefined' && WorkshopStore.ensureSession ? WorkshopStore.ensureSession(i.build) : null;
+      if (sid && has(App, 'openWorkstream')) { App.openWorkstream(sid); refreshFeeds(true); return 'conversation'; }
       ui.openTerm('deliverables');
       // lands on NEEDS A DECISION: the library's own status filter (the summary's "N need a decision" route)
       const lib = typeof document !== 'undefined' && document.querySelector ? document.querySelector('#dl-status') : null;
@@ -493,7 +499,7 @@ const NeedsYou = (() => {
   const lineOf = i => (KIND[i.kind] ? KIND[i.kind] + ' ' : '') + i.what;
   // what it opened: { conversation: true } when the door was a session (NOTIFICATIONS then steps aside with a way back),
   // { conversation: false } when it was a window (STEP-IN, EXTENSIONS, DELIVERABLES, QUESTS, GOAL LOOPS keep the focus)
-  function openKey(key) { const i = items().find(x => x.key === key); if (!i || !open(i)) return false; return { conversation: !!i.wsId }; }
+  function openKey(key) { const i = items().find(x => x.key === key); const r = i ? open(i) : false; if (!r) return false; return { conversation: !!i.wsId || r === 'conversation' }; }
   // Dismiss: failed work (the rail's own per-viewer dismissal), or a stored wait with no conversation to open (it settles,
   // as its bell row's ✕ cleared it). A live wait is never dismissed away.
   function dismissKey(key) {
