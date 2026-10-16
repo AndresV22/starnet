@@ -101,7 +101,7 @@ The big one. 0.13.3 was security only; this is the feature update that was promi
 - **Local models:** Ollama models with strict chat templates, such as Qwen, no longer fail with "System message must be at the beginning" (#102). An Ollama model that runs out of memory stops retrying and can hand the turn to a fallback you set up on another server, and an Ollama server on another machine is named by its host.
 - **CUSTOM connections take their endpoint URL** when you add them (#113), and clicking a provider that isn't set up opens its setup instead of switching your agents to it.
 - **Switching to the Gemini connection keeps working** when a model is still saved in OpenRouter spelling (google/gemini-…, including :free and :thinking): it reaches the right Gemini model instead of failing (#98).
-- **browser.upload picks the right file** (#104): the one in your current project, never a same-named private file. It refuses ambiguous inputs and says the file was selected, not that the site received it.
+- **browser.upload picks the right file** (#104): the one in your current project. It refuses ambiguous inputs and says the file was selected, not that the site received it.
 - **A file patch that doesn't match the file is refused** before anything is written, instead of overwriting the wrong code. Windows line endings are kept.
 - **Checkpoint cleanup no longer gets skipped** (#107), and old checkpoints are kept until their replacement is saved.
 - **ERASE EVERYTHING stays erased** (#101). Automatic recovery no longer brings an old station back after you erase or start fresh.
@@ -116,4 +116,4 @@ The big one. 0.13.3 was security only; this is the feature update that was promi
 
 ## Security
 
-Everything from 0.13.3 is included, plus more local hardening. Group chats and people messaging your bots can no longer make an agent search or quote your other conversations. The TypeScript language server, like Rust's, only starts for a project run you're watching. Update to get these fixes.
+Everything from 0.13.3 is included, plus more local hardening. When an agent answers a group on a chat app, or someone other than you messaging your bots, it searches only that conversation. Update to get these fixes.
