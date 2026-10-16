@@ -708,6 +708,30 @@ const StationCommands = (() => {
     finally { if (timer != null) clearTimeout(timer); }
   }
 
+  /* #121: a build is SAVED only when the station file holds it. The floor on screen proves nothing about a restart (the
+     browser cache can be full), so, like station.update_agent: queue the live save, flush it, read the station file
+     back and compare the floor. Bounded so the receipt stays inside the bridge's six-second deadline (it runs beside
+     builderPublication); any doubt answers durable:false, and the build itself is never undone. */
+  const DURABLE_WAIT_MS = 3000;
+  async function builderDurability(st) {
+    const unproven = { durable: false, durability: 'The floor is built on screen, but the station file has not confirmed it yet, so it could revert after a restart. Do not tell the Commander it is saved.' };
+    if (typeof App === 'undefined' || !App.persist || typeof CloudSave === 'undefined' || !CloudSave.flush || !CloudSave.pull || typeof StationBuilder === 'undefined' || !StationBuilder.sigOf) return unproven;
+    let timer = null;
+    try {
+      // the floor as JSON carries it (a key holding undefined is dropped on the wire, so compare like with like)
+      const want = StationBuilder.sigOf(JSON.parse(JSON.stringify(st.serialize())));
+      App.persist();
+      const proof = (async () => {
+        if (await CloudSave.flush({ force: true }) !== true) return false;
+        const saved = await CloudSave.pull();
+        return !!(saved && saved.station && StationBuilder.sigOf(saved.station) === want);
+      })().catch(() => false);
+      const ok = await Promise.race([proof, new Promise(resolve => { timer = setTimeout(() => resolve(false), DURABLE_WAIT_MS); })]);
+      return ok === true ? { durable: true } : unproven;
+    } catch (_) { return unproven; }
+    finally { if (timer != null) clearTimeout(timer); }
+  }
+
   const VERBS = {
     /* A crew-written plugin DRAFT's window, previewed (plugin.preview tool): sandboxed, a throwaway store, no backend.
        The sidecar names the draft, its digest and its screens; PluginHost opens (or reloads) the DRAFT window. */
@@ -853,7 +877,10 @@ const StationCommands = (() => {
         + ((r.recruited || []).length ? '; the recruited agents stay on the crew (DELETE AGENT in a Dossier removes one)' : '') + '.';
       // the receipt's body is the builder's own (StationBuilder.receipt): every line it laid or touched, with the floor's readiness
       const result = Object.assign({ built: true, undo }, StationBuilder.receipt(r, e.plan));
-      result.routing = await builderPublication();
+      // publication and the station-file proof run side by side, so together they stay inside the bridge deadline
+      const [routing, durability] = await Promise.all([builderPublication(), builderDurability(st)]);
+      result.routing = routing;
+      Object.assign(result, durability);
       if (!result.routing.published) {
         result.ready = false;
         result.blocking = (result.blocking || []).concat(result.routing.reason);

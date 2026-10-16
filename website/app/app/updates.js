@@ -229,13 +229,21 @@ const Updates = (() => {
   async function preInstallDrain(ms) {
     const budget = Math.max(250, +ms || 3000);
     const failed = { ok: false, timeout: true };
+    // #121: queue the LIVE station first. persist() always hands its envelope to the station file, even when the browser
+    // cache is full, so the flush below proves the newest state — not merely the last one the cache could hold. A persist
+    // that throws leaves the newest state unqueued: that is an unproven save and blocks the install.
+    let queued = true;
+    if (typeof App !== 'undefined' && App && typeof App.persist === 'function') {
+      try { App.persist(); } catch (_) { queued = false; }
+    }
     // flushForUpdate distinguishes "nothing pending" from "pending write failed"; only the latter blocks.
     const save = (typeof CloudSave !== 'undefined' && CloudSave && typeof CloudSave.flushForUpdate === 'function')
       ? await withTimeout(CloudSave.flushForUpdate(), budget, failed) : failed;
+    const saveConfirmed = queued && !!(save && save.ok === true);
     // App.pushRoster() returns true only after the sidecar accepts and parses the full roster replacement.
     const roster = (typeof App !== 'undefined' && App && typeof App.pushRoster === 'function')
       ? await withTimeout(App.pushRoster(), budget, false) : false;
-    return { ok: !!(save && save.ok === true && roster === true), save, roster: roster === true };
+    return { ok: !!(saveConfirmed && roster === true), save, saveConfirmed, roster: roster === true };
   }
 
   function browserStoreSnapshot() {
@@ -327,9 +335,12 @@ const Updates = (() => {
     const drained = await preInstallDrain();
     if (!drained.ok) {
       state.phase = 'available';
-      state.error = 'State could not be verified on disk. The update was not installed; your current StarNet remains open.';
+      // #121: name the save when it is the save that was not proven — the user's newest edits are the thing at risk
+      state.error = drained.saveConfirmed === false
+        ? 'Your latest station changes are not confirmed in the station file yet, so the update was not installed. StarNet stays open; try again in a moment.'
+        : 'State could not be verified on disk. The update was not installed; your current StarNet remains open.';
       busy = false;
-      notify('Update paused - state verification failed', 'warn');
+      notify(drained.saveConfirmed === false ? 'Update paused - latest station changes are not confirmed in the station file' : 'Update paused - state verification failed', 'warn');
       emit();
       return snapshot();
     }

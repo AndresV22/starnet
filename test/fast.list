@@ -183,6 +183,7 @@ test/desktop-installed-cdp-forwarding.test.js
 test/cloudsavecore.test.js
 test/cloudsave-refusal.test.js
 test/cloudsave-unknown.test.js
+test/save-quota-writethrough.test.js
 test/freshstart.test.js
 test/unreachable-browser-mode.test.js
 test/harness.cancel-truth.test.js
@@ -335,6 +336,7 @@ test/update-continuity.test.js
 test/update-preparation.test.js
 test/update-drain-wiring.test.js
 test/updates-install.test.js
+test/update-drain-newest-save.test.js
 test/update-center-truth.test.js
 test/future-gate-update-door.test.js
 test/roster-clause.test.js

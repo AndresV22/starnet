@@ -1612,11 +1612,19 @@ const App = (() => {
     const worksignal = (typeof WorkSignalStore !== 'undefined') ? WorkSignalStore.serialize() : undefined;   // the capability-usage histogram (adaptive recruitment)
     const roster = liveAgents();
     const dossier = (typeof DossierStore !== 'undefined') ? DossierStore.serialize() : undefined;   // the station-wide Commander model
-    const doc = Save.write(Object.assign({ _saveDirty: true, _saveRevision: typeof CloudSave !== 'undefined' && CloudSave.revision ? CloudSave.revision() : 0, agent: hero, agents: roster.length > 1 ? roster.map(serializeAgentLite) : undefined, usage: Harness.totals(), prov, reasoningEffort, reasoningMigrated: '0125' /* = REASONING_MIGRATION; a literal so persist() also runs when lifted alone */, station: station ? station.serialize() : undefined, stationStats, profile, worksignal, dossier }, Workstreams.serialize()));
-    if (doc && typeof CloudSave !== 'undefined') CloudSave.push(doc);   // durable write-through to the sidecar (debounced, best-effort)
+    const saveState = Object.assign({ _saveDirty: true, _saveRevision: typeof CloudSave !== 'undefined' && CloudSave.revision ? CloudSave.revision() : 0, agent: hero, agents: roster.length > 1 ? roster.map(serializeAgentLite) : undefined, usage: Harness.totals(), prov, reasoningEffort, reasoningMigrated: '0125' /* = REASONING_MIGRATION; a literal so persist() also runs when lifted alone */, station: station ? station.serialize() : undefined, stationStats, profile, worksignal, dossier }, Workstreams.serialize());
+    // #121 WRITE-THROUGH: build the envelope ONCE and always queue it for the station file. The browser cache holds the
+    // whole save under one key and refuses it past the browser's per-site cap; gating the station file on that write
+    // froze BOTH copies at the first failure, so every restart reverted the station.
+    const envelope = Save.envelope ? Save.envelope(saveState) : saveState;
+    const doc = Save.write(envelope);
+    if (typeof CloudSave !== 'undefined') CloudSave.push(doc || envelope, { cacheFailed: !doc, cacheError: doc ? null : (Save.writeError ? Save.writeError() : null) });   // durable write-through to the sidecar (debounced, best-effort)
     if (rosterPushFailed) pushRoster();   // a prior roster POST failed — retry it opportunistically on this persist
     if (!doc) {
-      if (!saveFailureNotified && typeof StationUI !== 'undefined') StationUI.notify('Could not save station changes. Keep this window open and free storage before trying again.', 'warn', undefined, { kind: 'alert', key: 'save-failed' });
+      // #121: the cache refused this save (the browser's per-site cap). It was queued for the station file above; the save
+      // light tracks the station file's confirmation. Freeing disk space never helps, so the notice no longer asks for it.
+      const why = (!Save.writeQuotaFull || Save.writeQuotaFull()) ? 'Browser storage for this window is full (a browser limit — freeing disk space will not help).' : 'Browser storage refused this window’s save.';
+      if (!saveFailureNotified && typeof StationUI !== 'undefined') StationUI.notify(why + ' Station changes now go to the station file only; the ● save light in the top bar says whether your latest change is confirmed there.', 'warn', undefined, { kind: 'alert', key: 'save-failed' });
       saveFailureNotified = true;
       return false;
     }
@@ -2996,7 +3004,7 @@ const App = (() => {
   // fresh first run it's a no-op beyond dropping any in-flight codex poll (the create screen is the root).
   async function onConnectBack() {
     SFX.click(); stopCodexPoll();
-    const saved = Save.has() ? Save.load() : null;
+    const saved = resumableSave().doc;   // #121: the in-memory save when the browser cache could not hold it
     if (saved && saved.agent) {
       // RETRY must re-ask, not re-read. A StarNet station's "configured" flag is read ONCE at boot; when the
       // account service was down then (issue #76), retry kept consulting that stale false and bounced straight
@@ -3015,12 +3023,23 @@ const App = (() => {
   // (disconnect, recovery, back). Preserves the agent ALWAYS: if creds are in hand it resumes straight into the
   // station; otherwise it shows the connect screen in RESUME mode. Only a genuine no-save state falls through
   // to a fresh creation.
+  // #121: the save a re-entry resumes. Normally the browser cache. When the cache could not hold this station (the
+  // browser's per-site storage cap), the cache is stale or already removed and the newest save lives in memory:
+  // the envelope this page last queued for the station file, or the station file's copy that boot resumed.
+  // Never read the cache then — it would revert the station, or (removed) open a brand-new creation over it.
+  function resumableSave() {
+    const mem = (typeof CloudSave !== 'undefined' && CloudSave.memorySave) ? CloudSave.memorySave() : null;
+    if (mem && mem.agent) return { doc: mem, memory: true };
+    return { doc: Save.has() ? Save.load() : null, memory: false };
+  }
+
   function reentry() {
+    const resumable = resumableSave();
     // FORWARD-VERSION GATE (P0.3): a re-entry (disconnect / back / recovery) must not fall through to a fresh
     // create when the stored save is from a NEWER build — Save.load() returns null for it, which would look like
     // "no save" and clobber it on first persist(). Stop at the honest update gate; the save stays untouched.
-    if (Save.isFuture && Save.isFuture()) { showFutureSaveGate(Save.loadStatus().version); return; }
-    const saved = Save.has() ? Save.load() : null;
+    if (!resumable.memory && Save.isFuture && Save.isFuture()) { showFutureSaveGate(Save.loadStatus().version); return; }
+    const saved = resumable.doc;
     if (saved && saved.agent) {
       migrateLegacyReasoning(saved);   // before any saved effort reaches the wire (0.12.5 reasoning migration)
       if (savedStationProv(saved) && Harness.setProv) Harness.setProv(savedStationProv(saved));
@@ -5340,8 +5359,11 @@ const App = (() => {
   // But if a resume is mid-flight (resumingSaved set, e.g. recovery), do NOT clear it from here — the connect
   // screen must keep its RESUME binding so a key re-entry continues the saved agent rather than re-speccing one.
   function startCreation() {
+    // #121: a station this page holds only in memory (resumed from the station file because the browser cache could not
+    // take it) is never replaced by a new creation: re-enter it. reentry() resumes that save and never comes back here.
+    if (typeof CloudSave !== 'undefined' && CloudSave.memorySave && CloudSave.memorySave()) { reentry(); return; }
     SFX.boot(); SFX.open();
-    const hasSave = Save.has() && !!Save.load();
+    const hasSave = !!resumableSave().doc;
     if (!resumingSaved || !hasSave) resumingSaved = null;
     show('screen-connect'); initConnect();
   }
