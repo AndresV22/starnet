@@ -63,15 +63,19 @@ const block = sel => {
   return glass.slice(at, glass.indexOf('}', at));
 };
 const px = (src, re, what) => { const m = re.exec(src); A.ok(!!m, what + ' (update the layout below if this moved)'); return m ? m.slice(1).map(Number) : [NaN]; };
+// (10-15 premium pass) each wait is a CREW agent card: the section has no side margin, the card list is padded, and the card
+// has its own padding (left and right differ), a framed 1px edge and a portrait column in place of the lamp column
 const needs = block('body.glass-demo:not(.hud-mode) #left .ws-needs');
+const list = block('body.glass-demo:not(.hud-mode) #left .ws-needs .ny-list');
 const item = block('body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item');
 const what = block('body.glass-demo:not(.hud-mode) #left .ws-needs .ny-what');
-const [needsMx] = px(needs, /margin: \d+px (\d+)px \d+px;/, 'the section keeps its side margins');
-const [itemMx] = px(item, /margin: 0 (\d+)px;/, 'a row keeps its side margins');
-const [itemPx] = px(item, /padding: \d+px (\d+)px \d+px;/, 'a row keeps its side padding');
-const [itemBorder] = px(item, /border: (\d+)px solid transparent;/, 'a row keeps its 1px edge');
-const [lampCol] = px(item, /grid-template-columns: (\d+)px minmax\(0, 1fr\);/, 'a row keeps its lamp column');
-const [colGap] = px(item, /column-gap: (\d+)px;/, 'a row keeps its column gap');
+const [needsMx] = px(needs, /margin: \d+px (\d+)(?:px)? \d+px;/, 'the section keeps its side margins');
+const [listPx] = px(list, /padding: \d+px (\d+)px \d+px;/, 'the card list keeps its side padding');
+const [itemMx] = px(item, /margin: (\d+)(?:px)?;/, 'a card keeps its margins');
+const [, itemPr, , itemPl] = px(item, /padding: (\d+)px (\d+)px (\d+)px (\d+)px;/, 'a card keeps its padding');
+const [itemBorder] = px(item, /border: (\d+)px solid /, 'a card keeps its 1px edge');
+const [lampCol] = px(item, /grid-template-columns: (\d+)px minmax\(0, 1fr\);/, 'a card keeps its portrait column');
+const [colGap] = px(item, /column-gap: (\d+)px;/, 'a card keeps its column gap');
 const [fontPx] = px(what, /font-size: (\d+)px;/, 'the ask line keeps its type size');
 const [lineH] = px(what, /line-height: (\d*\.?\d+);/, 'the ask line keeps its line height');
 const [spacing] = px(what, /letter-spacing: (\.?\d*\.?\d+)px;/, 'the ask line keeps its letter-spacing');
@@ -81,7 +85,7 @@ A.ok(/overflow: hidden;/.test(what) && /display: -webkit-box;/.test(what) && /-w
   'the clamp is on .ny-what itself (overflow hidden, a vertical -webkit-box): the box the rail reads is the box that cuts');
 A.ok(/overflow-wrap: anywhere;/.test(what), 'a word too long for a line breaks anywhere (the layout below wraps the same way)');
 const [railEdge] = px(read('frontend/css/glass-demo.css'), /\.glass-demo :is\(#left,#chat-panel,#topbar,#bottombar\) \{\s*background: var\(--gd-face\); border: (\d+)px solid/, 'the rail keeps its 1px edge');
-const inset = 2 * (railEdge + needsMx + itemMx + itemBorder + itemPx) + lampCol + colGap;
+const inset = 2 * (railEdge + needsMx + listPx + itemMx + itemBorder) + itemPl + itemPr + lampCol + colGap;
 
 /* ---- the rails (px, and whether TEXT SIZE's zoom is counter-zoomed out of their width) ---- */
 const [desk] = px(appCss, /grid-template-columns: calc\(var\(--crew-w, (\d+)px\) \* var\(--cz\)\) 1fr/, 'a desktop window keeps its counter-zoomed default rail');
