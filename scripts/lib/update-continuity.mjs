@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 export const RECEIPT_SCHEMA = 'starnet.update-canary-receipt.v1';
 
 // Legacy ordinary conversations gain these exact neutral defaults during hydration (frontend/app/workstreams.js make()):
-// parentStreamId/projectHome since 0.13, and projectRootAt/worker/lastRunReason/pendingJoin since 0.13.5 (a 0.13.3 save
+// parentStreamId/projectHome since 0.12.4, and projectRootAt/worker/lastRunReason/pendingJoin since 0.13.5 (a 0.13.3 save
 // has none of the four). Only the exact neutral value is dropped; keep non-default values and every other field, so
 // lost relationships/content still fail.
 const NEUTRAL_WORKSTREAM_DEFAULTS = Object.freeze([
