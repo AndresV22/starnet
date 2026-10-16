@@ -375,6 +375,20 @@ const NeedsYou = (() => {
     fold();
     while (shown > 1 && host.scrollHeight > host.clientHeight + 1) { const li = lis[--shown]; li.hidden = true; shownWaits -= waitsOf(li); fold(); }
   }
+  /* THE TEXT COLUMN NEVER MOVES WITH THE SECTION'S OWN SCROLL (review 10-16). The section reserves its scrollbar's gutter
+     (pipglass.css: scrollbar-gutter: stable), and the gutter's width, measured here into --ny-gutter, is taken back out of
+     the panel's right margin: the panel keeps the rail's edges and its rows one width, scrolling or not. Before, a first row
+     whose Approve once · Deny overflowed the room brought the scrollbar in, the scrollbar narrowed the ask line to a third
+     line, the reading went to Review, Review fit, the scrollbar left, the line read whole… and the 1 s heartbeat redrew the
+     panel twice a beat, forever, painting Approve once over a line it had just read as cut. Read before the rows are fitted
+     and again after them (where no gutter is reserved, the scrollbar comes with the overflow fitRows settles), so measure()
+     always reads the one width. A hidden section (no box) keeps its last reading. */
+  function fitGutter(host) {
+    if (!host || !host.style || typeof host.style.setProperty !== 'function' || !(host.offsetWidth > 0)) return;
+    const g = Math.max(0, host.offsetWidth - host.clientWidth - 2 * (Number(host.clientLeft) || 0)) + 'px';
+    if (host.style.getPropertyValue('--ny-gutter') !== g) host.style.setProperty('--ny-gutter', g);
+  }
+  const fit = host => { fitGutter(host); fitRows(host); fitGutter(host); };
   // each card's portrait: the same figure the CREW card paints (AgentPortraits), from the agent the wait names
   function paintFaces(host) {
     if (typeof AgentPortraits === 'undefined' || !AgentPortraits.paint || !has(App, 'agents')) return;
@@ -408,7 +422,7 @@ const NeedsYou = (() => {
         const el = li.querySelector('.ny-age'), text = age(since.get(li.dataset.nyKey), now);
         if (el && el.textContent !== text) el.textContent = text;
       });
-      fitRows(host);           // …and how many rows fit whole in the room (TEXT SIZE or the rail's width may have moved)
+      fit(host);               // …and how many rows fit whole in the room (TEXT SIZE or the rail's width may have moved)
       remeasure(host, list);   // …then re-read each line the rail now shows (a row just unfolded is read before it paints)
       return;
     }
@@ -422,7 +436,7 @@ const NeedsYou = (() => {
     parked = null;
     host.innerHTML = html(list, now);
     paintFaces(host);
-    fitRows(host);
+    fit(host);
     if (fAct) {
       // "in <where>" and Review/Open share an action: the class tells them apart
       const keys = Array.from(host.querySelectorAll('[data-ny-act]'));
@@ -438,8 +452,11 @@ const NeedsYou = (() => {
     remeasure(host, list);   // the rows are drawn: read which lines show whole, and give those (only) Approve once
   }
   // a line that now reads whole (or no longer does) redraws the list at once, in the same task, before anything paints
-  // or takes a click. Once per render: a borderline row (its keys moving a scrollbar in or out) never loops, the next
-  // heartbeat reads it afresh, and a stale Approve once meanwhile still meets the click's own reading in act().
+  // or takes a click. Once per render, and that bounds only the one task: a reading that moved again in the redraw would
+  // move again on the next heartbeat (a row's own keys used to move the section's scrollbar, and with it the line's width:
+  // two rebuilds a beat, forever). What keeps it settled is that a row's keys cannot move its own reading — the line's
+  // width never follows the section's scroll (fitGutter), and a row fitRows folds keeps its last reading (measure). A
+  // stale Approve once meanwhile still meets the click's own reading in act().
   function remeasure(host, list) {
     if (!measure(host, list) || remeasured) return;
     remeasured = true;

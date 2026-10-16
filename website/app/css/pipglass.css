@@ -549,23 +549,29 @@ body.glass-demo:not(.hud-mode) #left .ws-needs {
 }
 #left .ws-needs[hidden] { display: none !important; }
 /* bounded in every rail mode (glass, plain, hud): an expanded "N more" scrolls inside its card, so the lower asks' keys
-   and "Show fewer" stay reachable and SESSIONS keeps its rows. The scrollbar is themed like COMMS', never a white native one */
-#left .ws-needs { max-height: min(48%, 440px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; }
+   and "Show fewer" stay reachable and SESSIONS keeps its rows. The scrollbar is themed like COMMS', never a white native one.
+   Its gutter is reserved (review 10-16): a scrollbar that comes and goes never narrows the rows, so an ask line reads the
+   same with or without it (needsyou.js measures that line to offer Approve once; a first row whose own keys brought the
+   scrollbar in flipped its reading on every heartbeat). The glass panel gives the gutter's width back (--ny-gutter, below) */
+#left .ws-needs { max-height: min(48%, 440px); overflow-y: auto; scrollbar-gutter: stable; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; }
 #left .ws-needs::-webkit-scrollbar { width: 8px; }
 #left .ws-needs::-webkit-scrollbar-track { background: transparent; }
 #left .ws-needs::-webkit-scrollbar-thumb { background: var(--ph-dim); border-radius: 4px; }
 /* (Andrew 10-15, his pick of three rendered options: "B · ONE PANEL") the section head on the rail's 10px gutter, then
    every wait as a row inside ONE quiet glass panel: hairlines between rows, a small portrait well with its housed lamp,
    the agent's name in its colour with the time, the line under it, keys only when there is more than opening it.
-   The panel shares the CREW cards', rail keys' and search field's edges (x 21 to 401 at the 400px rail). */
+   The panel shares the CREW cards', rail keys' and search field's edges (x 21 to 401 at the 400px rail). The section's
+   reserved scrollbar gutter (above) is taken back out of the right margins: needsyou.js measures it into --ny-gutter, so
+   the panel and the count keep those edges whether or not the section scrolls (up to the margin's own width; 0 where
+   scrollbars overlay the content). */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-head {
-  display: flex; align-items: center; gap: 10px; padding: 10px 21px 7px 19px;
+  display: flex; align-items: center; gap: 10px; padding: 10px 21px 7px 19px; padding-right: max(0px, 21px - var(--ny-gutter, 0px));
   font-size: 16px; letter-spacing: 2.4px; line-height: 1; text-transform: uppercase; color: var(--ph-bright);
 }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-lamp { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 1px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .3); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-count { margin-left: auto; font-size: 16px; letter-spacing: .4px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--cg-mute); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-list {
-  display: flex; flex-direction: column; gap: 0; margin: 0 10px 6px; padding: 0; list-style: none;
+  display: flex; flex-direction: column; gap: 0; margin: 0 10px 6px; margin-right: max(0px, 10px - var(--ny-gutter, 0px)); padding: 0; list-style: none;
   border: 1px solid rgba(var(--ph-rgb), .2); border-radius: 8px; overflow: hidden;
   background: linear-gradient(165deg, rgba(var(--ph-rgb), .06), transparent 46%), color-mix(in srgb, var(--panel2) 70%, transparent);
   box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .05);
@@ -604,7 +610,10 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-dot {
 }
 /* something broke (failed work, a failed routine): its lamp and its line say so; the row stays in the panel's voice */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-dot { background: var(--bad); }
-/* line 1: AGENT (the row's headline, in its colour) · in <where> ........ time */
+/* line 1: AGENT (the row's headline, in its colour) · in <where> ........ time. The place gives up its room first (review
+   10-16): it starts from nothing and takes only what the name and the time leave (flex-basis 0, then "…"), so a two-word
+   name (MISS FORTUNE) or a group's names stay on one line beside a long place; a name wraps only where it and its time
+   alone overflow the line, and the time is never pushed out of the row */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-line { display: flex; align-items: baseline; gap: 0 8px; min-width: 0; line-height: 1.15; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who { flex: 0 1 auto; font-size: 19px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); text-shadow: var(--pg-glow-soft); }
 /* a group chat's headline is its members' names, the SESSIONS row's own line ("ULTRON, CYPHER +3"): it wraps at a space
@@ -625,7 +634,7 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:not(.approval, .question
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-what { color: var(--bad); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-age { flex: none; margin-left: auto; font-size: 15px; letter-spacing: .4px; font-variant-numeric: tabular-nums; color: var(--cg-mute, var(--text)); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where {
-  flex: 0 1 auto; min-width: 0; padding: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+  flex: 1 1 0; min-width: 0; padding: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
   font: 15px 'VT323', monospace; letter-spacing: .4px; color: var(--cg-mute, var(--text)); background: none; border: 0; box-shadow: none; text-shadow: none;
 }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where:is(:hover, :focus-visible) { color: var(--ph-bright); }
