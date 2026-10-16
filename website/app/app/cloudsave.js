@@ -40,6 +40,10 @@ const CloudSave = (() => {
   let cacheFailedConfirmed = false;    // ...and the station file has confirmed exactly that save (nothing newer queued)
   let memoryDoc = null;                // that newest save, while cacheFailed
   let cacheFailedReason = null;        // the browser's error name for that failure ('QuotaExceededError' = the cap)
+  // push order, so a confirmation knows whether the cache entry is older than the save it confirms. Two saves can carry
+  // the same millisecond updatedAt, so the stamp alone cannot tell a superseded entry from a newer queued one.
+  let pushSeq = 0, pendingSeq = 0;     // the newest push, and the push that put `pending` there
+  let cacheOkSeq = 0;                  // the newest push whose doc the browser cache DID hold
   let health = Core ? Core.freshHealth() : { lastPushOkAt: 0, lastPushFailAt: 0, consecutiveFailures: 0, nextRetryAt: 0 };
   let warnedStale = false;             // ONE console warn per failing↔healthy transition, never per attempt
   // EL-11 FIX 1: the sidecar REFUSES writes when the workspace was stamped by a NEWER StarNet — as an HTTP 200
@@ -138,7 +142,7 @@ const CloudSave = (() => {
     // honor the backoff window — if a failure streak is live and the next attempt isn't due yet, hold the
     // doc in `pending` and re-arm rather than hammering the sidecar every debounce. `force` skips this hold.
     if (!force && Core && isSave(pending) && !Core.retryDue(health, now())) { scheduleRetry(); return Promise.resolve(false); }
-    const doc = pending, docCacheFailed = pendingCacheFailed; pending = null; pendingCacheFailed = false;
+    const doc = pending, docCacheFailed = pendingCacheFailed, docSeq = pendingSeq; pending = null; pendingCacheFailed = false;
     if (!isSave(doc)) return Promise.resolve(false);
     const attempt = postNow(doc)
       .then(({ response: r, body }) => {
@@ -165,11 +169,13 @@ const CloudSave = (() => {
                 cached._saveRevision = revision; cached._saveDirty = false;
                 if (Number.isFinite(body.updatedAt)) cached.updatedAt = body.updatedAt;
                 localStorage.setItem('starnet.save', JSON.stringify(cached));
-              } else if (!pending && docCacheFailed && cached && num(cached.updatedAt) <= num(doc.updatedAt)) {
+              } else if (docCacheFailed && cacheOkSeq < docSeq && cached && num(cached.updatedAt) <= num(doc.updatedAt)) {
                 // #121: the station file now holds a save NEWER than anything the cache could take. The cached copy is
                 // a superseded ancestor; left in place, the next boot (or a re-entry) would resume it and revert the
-                // station. removeItem cannot hit the storage cap. (A cache entry newer than this doc came from another
-                // window and is not ours to drop.)
+                // station. removeItem cannot hit the storage cap. This holds even with a newer save queued: a queued
+                // save the cache DID hold is itself the entry (cacheOkSeq), never dropped here; a queued save it could
+                // not hold lives in memory meanwhile. (A cache entry newer than this doc came from another window and
+                // is not ours to drop.)
                 localStorage.removeItem('starnet.save');
               }
             } catch (_) {}
@@ -186,7 +192,7 @@ const CloudSave = (() => {
         markFail();
         // re-queue the newest doc (newest-wins: a fresher push during the attempt already replaced it) and
         // arm the backoff retry. Fail soft — the cache is still authoritative locally, nothing throws out.
-        if (!isSave(pending)) { pending = doc; pendingCacheFailed = docCacheFailed; }
+        if (!isSave(pending)) { pending = doc; pendingCacheFailed = docCacheFailed; pendingSeq = docSeq; }
         scheduleRetry();
         return false;
       });
@@ -231,6 +237,8 @@ const CloudSave = (() => {
     latestLocal = doc;
     pending = doc;                     // keep only the newest
     pendingCacheFailed = !!(opts && opts.cacheFailed);
+    pendingSeq = ++pushSeq;
+    if (!pendingCacheFailed) cacheOkSeq = pendingSeq;   // callers push without cacheFailed only for a doc the cache holds
     cacheFailed = pendingCacheFailed; cacheFailedConfirmed = false;
     memoryDoc = cacheFailed ? doc : null;
     cacheFailedReason = cacheFailed ? (String((opts && opts.cacheError) || '') || null) : null;

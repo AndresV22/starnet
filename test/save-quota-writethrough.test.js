@@ -68,6 +68,7 @@ function makeFetch(store, gate) {
     if (method === 'POST' && u.startsWith('/api/save')) {
       const body = JSON.parse(opts.body);
       const result = store.save('agent', body, { compareRevision: true });
+      if (gate && gate.hold) await gate.hold;             // the station file wrote it; the acknowledgement is still in transit
       return { ok: true, status: 200, json: async () => result };
     }
     if (method === 'GET' && u.startsWith('/api/save?')) return { ok: true, status: 200, json: async () => ({ save: store.load('agent') || null }) };
@@ -297,11 +298,86 @@ async function bootFromStationFile() {
   A.eq(reentrySave(reload.c).memory, false, 'B5: with the newest save cached, re-entry reads the cache again');
 }
 
+async function queuedAcknowledgement() {
+  // Q: the station file confirms the first cache-failed save while another autosave is already queued (an agent run
+  // keeps autosaves coming). The superseded cache entry is DIRTY (a cache-ok edit replaced within the debounce never
+  // gets its own flush). Left in place, every boot resumed that older edit, pushed it on its stale revision and showed
+  // "Another window saved newer station changes" until the user pressed Reload current station.
+  const store = makeStore();
+  const limitRef = { limit: 0 };
+  const ls = quotaStorage(limitRef);
+  const gate = { hold: null };
+  const fetch = makeFetch(store, gate);
+  const station = M.create();
+  const room = station.spawnRoomId();
+  const ws = { slice: { workstreams: [{ id: 'general', history: [{ role: 'user', content: 'hello' }] }], activeId: 'general', generalId: 'general' } };
+  const page = livePage(ls, fetch, station, ws);
+  station.setFloor(room, 'amber'); await tick();
+  await vm.runInContext('CloudSave.flush({ force: true })', page.c);
+  limitRef.limit = Array.from(ls._map).reduce((n, [k, v]) => n + k.length + v.length, 0) + 4000;
+  station.setFloor(room, 'teal'); await tick();                          // fits in the cache, superseded before its flush
+  A.ok(cachedFloor(ls, room) === 'teal' && JSON.parse(ls.getItem('starnet.save'))._saveDirty === true, 'Q precondition: the cache holds a dirty teal edit');
+  ws.slice = { workstreams: [{ id: 'general', history: [{ role: 'user', content: 'x'.repeat(20000) }] }], activeId: 'general', generalId: 'general' };
+  station.setFloor(room, 'verdant'); await tick();                       // the cache write fails
+  let release;
+  gate.hold = new Promise(r => { release = r; });
+  const inFlight = vm.runInContext('CloudSave.flush({ force: true })', page.c);
+  station.setFloor(room, 'cobalt'); await tick();                        // another autosave lands during the flight
+  A.ok(floorOf(reentrySave(page.c).doc, room) === 'cobalt' && cachedFloor(ls, room) === 'teal', 'Q precondition: cobalt is queued (in memory) while the verdant acknowledgement is in transit');
+  gate.hold = null; release();
+  A.eq(await inFlight, true, 'Q precondition: the station file confirms verdant');
+  A.eq(floorOf(store.load('agent'), room), 'verdant', 'Q precondition: the station file holds verdant');
+  A.eq(ls.getItem('starnet.save'), null, 'Q1: the confirmation removes the superseded cache entry even with a newer autosave queued');
+  A.eq(floorOf(reentrySave(page.c).doc, room), 'cobalt', 'Q1: re-entry resumes the queued newest station from memory');
+
+  // the page dies before the queued cobalt save is flushed
+  for (let boot = 1; boot <= 2; boot++) {
+    const reload = await reloadPage(ls, fetch);
+    await vm.runInContext('CloudSave.flush({ force: true })', reload.c);   // whatever the boot queued, settle it now
+    A.eq(floorOf(reload.doc, room), 'verdant', 'Q2 boot ' + boot + ': the reload resumes the confirmed station file, not the older cache');
+    A.ok(!healthOf(reload.c).conflict, 'Q2 boot ' + boot + ': no false "another window saved newer changes" conflict');
+    A.eq(floorOf(store.load('agent'), room), 'verdant', 'Q2 boot ' + boot + ': the station file still holds verdant');
+  }
+
+  // Q3 guard: a cache-ok save queued during the flight IS the cache entry, newer than the confirmed one. It is never
+  // removed, even when both saves carry the same millisecond stamp.
+  const store3 = makeStore();
+  const limit3 = { limit: 0 };
+  const ls3 = quotaStorage(limit3);
+  const gate3 = { hold: null };
+  const fetch3 = makeFetch(store3, gate3);
+  const station3 = M.create();
+  const room3 = station3.spawnRoomId();
+  const ws3 = { slice: { workstreams: [{ id: 'general', history: [{ role: 'user', content: 'hello' }] }], activeId: 'general', generalId: 'general' } };
+  const page3 = livePage(ls3, fetch3, station3, ws3);
+  station3.setFloor(room3, 'amber'); await tick();
+  await vm.runInContext('CloudSave.flush({ force: true })', page3.c);
+  limit3.limit = Array.from(ls3._map).reduce((n, [k, v]) => n + k.length + v.length, 0) + 4000;
+  ws3.slice = { workstreams: [{ id: 'general', history: [{ role: 'user', content: 'x'.repeat(20000) }] }], activeId: 'general', generalId: 'general' };
+  const stamp = vm.runInContext('Date.now = (t => () => t)(Date.now()); Date.now()', page3.c);   // both saves below carry ONE stamp
+  station3.setFloor(room3, 'verdant'); await tick();                      // the cache write fails
+  let release3;
+  gate3.hold = new Promise(r => { release3 = r; });
+  const flight3 = vm.runInContext('CloudSave.flush({ force: true })', page3.c);
+  ws3.slice = { workstreams: [{ id: 'general', history: [{ role: 'user', content: 'hello' }] }], activeId: 'general', generalId: 'general' };
+  station3.setFloor(room3, 'crimson'); await tick();                      // the history shrank: this save fits the cache
+  A.ok(cachedFloor(ls3, room3) === 'crimson' && JSON.parse(ls3.getItem('starnet.save')).updatedAt === stamp && store3.load('agent').updatedAt === stamp,
+    'Q3 precondition: the queued crimson save is in the cache with the same stamp as the verdant save in transit');
+  gate3.hold = null; release3();
+  A.eq(await flight3, true, 'Q3 precondition: the station file confirms verdant');
+  A.eq(cachedFloor(ls3, room3), 'crimson', 'Q3: confirming the older cache-failed save never removes the newer cached one');
+  A.eq(reentrySave(page3.c).memory, false, 'Q3: re-entry reads the cache, which holds the newest station');
+  await vm.runInContext('CloudSave.flush({ force: true })', page3.c);
+  const reload3 = await reloadPage(ls3, fetch3);
+  A.ok(floorOf(reload3.doc, room3) === 'crimson' && !healthOf(reload3.c).conflict, 'Q3: the reload resumes crimson with no conflict');
+}
+
 (async () => {
   await scenario('S1 clean stale cache', { dirtyCache: false });
   await scenario('S2 dirty stale cache', { dirtyCache: true });
   await controlOfflineEdit();
   await bootFromStationFile();
+  await queuedAcknowledgement();
   await truthfulStatus();
   A.report('save-quota-writethrough');
 })().catch(e => { console.log('FAIL: unhandled ' + (e && e.stack || e)); process.exit(1); });
