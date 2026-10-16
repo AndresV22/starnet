@@ -15,6 +15,9 @@
    C1 control: an offline-only edit in the cache still wins over an older durable copy (no regression).
    G guards: re-entry and startCreation never read the stale/removed cache after the cache failed.
    B boot: a stale CLEAN cache plus a newer station file the cache cannot hold resumes the station file in memory.
+   Q queued acknowledgement: a confirmation that lands while another autosave is queued still removes the older (dirty)
+     cache entry, so no boot resumes it into a false conflict; a queued save the cache DID hold is never removed.
+   E export: EXPORT AGENT (backup.js) carries the in-memory station, never the stale or removed cache entry.
    T truthful status: the notice and the shipped save light (stationui.js) say where the latest change really is —
      NOT saved yet / NOT saved (red) / confirmed in the station file — and say "full" only for the browser's quota. */
 'use strict';
@@ -372,12 +375,84 @@ async function queuedAcknowledgement() {
   A.ok(floorOf(reload3.doc, room3) === 'crimson' && !healthOf(reload3.c).conflict, 'Q3: the reload resumes crimson with no conflict');
 }
 
+// EXPORT AGENT (backup.js) is the backup tool the RESUME screen offers. It must carry the station the user sees.
+function loadBackup(c) { if (vm.runInContext('typeof Backup', c) === 'undefined') vm.runInContext(src('frontend/app/backup.js'), c); }
+async function exported(c) {
+  loadBackup(c);
+  const bundle = await vm.runInContext('Backup.build()', c);
+  let save = null;
+  try { save = JSON.parse(bundle.store['starnet.save'] || 'null'); } catch (_) { save = null; }
+  return { bundle, save, verdict: vm.runInContext('Backup.validate', c)(bundle) };
+}
+const exportSays = (e, room) => (e.verdict || 'valid') + ', floor ' + floorOf(e.save, room) + ', name ' + e.bundle.agentName;
+
+async function exportCarriesTheStation() {
+  // E: once the cache cannot hold the save, the station lives in this window's memory and the station file; the cache
+  // entry is stale, then removed. EXPORT AGENT read only the cache: it saved the older station, then a file with no
+  // save at all ("backup has no agent" on restore) while its status line still said it was saved.
+  const store = makeStore();
+  const limitRef = { limit: 0 };
+  const ls = quotaStorage(limitRef);
+  const gate = { down: false };
+  const fetch = makeFetch(store, gate);
+  const station = M.create();
+  const room = station.spawnRoomId();
+  const ws = { slice: { workstreams: [{ id: 'general', history: [{ role: 'user', content: 'hello' }] }], activeId: 'general', generalId: 'general' } };
+  const page = livePage(ls, fetch, station, ws);
+  ls.setItem('starnet.theme', 'green');
+  station.setFloor(room, 'amber'); await tick();
+  await vm.runInContext('CloudSave.flush({ force: true })', page.c);
+  limitRef.limit = Array.from(ls._map).reduce((n, [k, v]) => n + k.length + v.length, 0) + 4000;
+  ws.slice = { workstreams: [{ id: 'general', history: [{ role: 'user', content: 'x'.repeat(20000) }] }], activeId: 'general', generalId: 'general' };
+  gate.down = true;                                                      // the station file has not confirmed it yet
+  station.setFloor(room, 'verdant'); await tick();
+  A.eq(cachedFloor(ls, room), 'amber', 'E precondition: the cache still holds the older amber station');
+
+  let e = await exported(page.c);
+  A.ok(e.verdict === null && floorOf(e.save, room) === 'verdant' && e.bundle.agentName === 'NOVA', 'E1: before the station file confirms, the export carries the live verdant station, not the stale cache (got ' + exportSays(e, room) + ')');
+  A.ok(!!e.save && !Object.prototype.hasOwnProperty.call(e.save, '_saveClient'), 'E1: the exported save carries no window transport id');
+  A.eq(e.bundle.store['starnet.theme'], 'green', 'E1: other settings still ride along');
+
+  gate.down = false;
+  await vm.runInContext('CloudSave.flush({ force: true })', page.c);
+  A.eq(ls.getItem('starnet.save'), null, 'E precondition: the confirmed save removed the cache entry');
+  e = await exported(page.c);
+  A.ok(e.verdict === null && floorOf(e.save, room) === 'verdant' && e.bundle.agentName === 'NOVA', 'E2: after the cache entry is removed, the export still carries the station (got ' + exportSays(e, room) + ')');
+
+  const reload = await reloadPage(ls, fetch);
+  A.eq(floorOf(reload.doc, room), 'verdant', 'E precondition: the reload resumed the station file from memory');
+  e = await exported(reload.c);
+  A.ok(e.verdict === null && floorOf(e.save, room) === 'verdant' && e.bundle.agentName === 'NOVA', 'E3: after a station-file resume (the RESUME screen), the export carries the station (got ' + exportSays(e, room) + ')');
+  Object.assign(reload.c, {
+    Blob: function Blob() {}, URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
+    document: { createElement: () => ({ click() {} }), body: { appendChild() {}, removeChild() {} } }
+  });
+  const r = await vm.runInContext('Backup.exportAll()', reload.c);
+  A.ok(r.ok && /^starnet-nova-/.test(r.file), 'E3: the saved file is named for the agent (got ' + r.file + ')');
+
+  // the file restores the station on a browser with room for it
+  const roomy = quotaStorage({ limit: 0 });
+  const restore = pageContext(roomy, makeFetch(makeStore()));
+  loadBackup(restore);
+  const applied = vm.runInContext('Backup.applyBundle', restore)(JSON.parse(JSON.stringify(e.bundle)));
+  A.ok(applied.ok && floorOf(vm.runInContext('Save.load()', restore), room) === 'verdant', 'E4: RESTORE BACKUP of that file brings back the verdant station');
+
+  // control: with a healthy cache the export is the cache entry, byte for byte, as before
+  const ls5 = quotaStorage({ limit: 0 });
+  const station5 = M.create();
+  const page5 = livePage(ls5, makeFetch(makeStore()), station5, { slice: { workstreams: [], activeId: null, generalId: null } });
+  station5.setFloor(station5.spawnRoomId(), 'teal'); await tick();
+  e = await exported(page5.c);
+  A.ok(e.verdict === null && e.bundle.store['starnet.save'] === ls5.getItem('starnet.save'), 'E5 control: a healthy cache is exported exactly as stored');
+}
+
 (async () => {
   await scenario('S1 clean stale cache', { dirtyCache: false });
   await scenario('S2 dirty stale cache', { dirtyCache: true });
   await controlOfflineEdit();
   await bootFromStationFile();
   await queuedAcknowledgement();
+  await exportCarriesTheStation();
   await truthfulStatus();
   A.report('save-quota-writethrough');
 })().catch(e => { console.log('FAIL: unhandled ' + (e && e.stack || e)); process.exit(1); });
