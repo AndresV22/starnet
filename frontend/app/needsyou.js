@@ -282,32 +282,37 @@ const NeedsYou = (() => {
     if (i.kind === 'asked' && i.noDoor) return k('dismiss', 'Dismiss', 'quiet');   // no conversation to open: only its Dismiss
     return '';
   }
-  // the row's line, the ask first so a clamp never cuts it: "wants to …", "asks …", "keep or discard · <build>"
+  // the row's line, the ask first so a clamp never cuts it: "wants to …", "asks …", "keep or discard · <build>",
+  // "23 builds to keep or discard · <the oldest build>"
   function lineHtml(i) {
-    if (i.rail) return '<span class="ny-verb">' + esc(i.rail.verb) + '</span> · ' + esc(i.rail.text) + (i.more ? ' <span class="ny-more-n">+' + i.more + ' more</span>' : '');
+    if (i.rail) return '<span class="ny-verb">' + esc(i.rail.verb) + '</span> · ' + esc(i.rail.text);
     return (KIND[i.kind] ? '<span class="ny-verb">' + esc(KIND[i.kind]) + '</span> ' : '') + esc(i.what);
   }
   /* (Andrew 10-15, second pass: "disgusting and cheap … we need it premium") one agent's builds waiting on keep/discard are
-     ONE card ("keep or discard · 23 builds"), never 23 copies of the same line: its door is the same DELIVERABLES › NEEDS A
-     DECISION list every build row opened, its age the oldest build's. Every other wait stays its own card (each has its own
-     action). The count in the header is still every wait. */
+     ONE card, never 23 copies of the same line. It names the build its click opens (the oldest: the next decision) and
+     its door is that build's own session, its age the oldest build's (none when no build has a time). Its count LEADS the
+     line ("23 builds to keep or discard · <oldest>"): the line is clamped to two lines, and a count after a long title was
+     cut on every default rail, so 22 real waits vanished. Every other wait stays its own card (each has its own action).
+     Each card carries how many waits it holds (n): the header counts every wait, and "N more" counts the waits folded. */
   function railRows(list) {
     const out = [], builds = new Map();
     for (const i of list) {
       if (i.kind !== 'build') { out.push(i); continue; }
       const key = String(i.aid || i.who), g = builds.get(key);
-      if (g) { g.n++; g.since = Math.min(g.since || Infinity, i.since || Infinity) || 0; g.newest = i.rail ? i.rail.text : g.newest; continue; }
-      const row = Object.assign({}, i, { n: 1, newest: i.rail ? i.rail.text : '' });
+      if (g) { g.n++; const t = [g.since, i.since].filter(x => Number(x) > 0); g.since = t.length ? Math.min(...t) : 0; continue; }
+      const row = Object.assign({}, i, { n: 1, since: Number(i.since) > 0 ? Number(i.since) : 0 });
       builds.set(key, row); out.push(row);
     }
-    // the card names the build its click opens (the oldest: the next decision), with how many more wait behind it
-    return out.map(r => r.n > 1 ? Object.assign({}, r, { more: r.n - 1, what: r.what + ' (and ' + (r.n - 1) + ' more builds waiting on keep or discard)' }) : r);
+    return out.map(r => r.n > 1 ? Object.assign({}, r, {
+      rail: { verb: plural(r.n, 'build', 'builds') + ' to keep or discard', text: r.rail.text },
+      what: plural(r.n, 'build', 'builds') + ' to keep or discard, the oldest first: "' + r.rail.text + '"' }) : r);
   }
+  const waitsIn = rows => rows.reduce((s, r) => s + (r.n || 1), 0);
   function html(list, now) {
     if (!list.length) return '';
-    const rows = railRows(list), shown = expanded ? rows : rows.slice(0, SHOW);
+    const rows = railRows(list), shown = expanded ? rows : rows.slice(0, SHOW), folded = list.length - waitsIn(shown);
     return '<div class="ny-head"><span class="ny-lamp" aria-hidden="true"></span><span class="ny-title">Needs you</span><span class="ny-count">' + list.length + '</span></div>'
-      + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i), keys = keysFor(i), color = colorOf(i.aid); return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '">'
+      + '<ul class="ny-list">' + shown.map(i => { const rv = reviewRow(i), keys = keysFor(i), color = colorOf(i.aid); return '<li class="ny-item ' + i.kind + (rv ? ' ny-review' : '') + '" data-ny-key="' + esc(i.key) + '" data-ny-n="' + (i.n || 1) + '">'
         // the CREW card, for a wait (Andrew 10-15: "premium"): the agent's portrait in its well with the gold lamp housed in
         // its corner, then WHO (in the agent's colour) · where · how long, the line (the ask first; two lines at most, the
         // whole of it on hover), then keys only when there is more than Open
@@ -316,24 +321,27 @@ const NeedsYou = (() => {
         + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + lineHtml(i) + '</div>'
         + (keys ? '<div class="ny-keys">' + keys + '</div>' : '')
         + '</li>'; }).join('') + '</ul>'
-      + (rows.length > 1 ? '<button type="button" class="ny-more" data-ny-act="more" data-ny-rows="' + rows.length + '" aria-expanded="' + expanded + '"'
-        + (rows.length > SHOW || expanded ? '' : ' hidden') + '>' + (expanded ? 'Show fewer' : (rows.length - SHOW) + ' more') + '</button>' : '');
+      + (rows.length > 1 ? '<button type="button" class="ny-more" data-ny-act="more" data-ny-waits="' + list.length + '" aria-expanded="' + expanded + '"'
+        + (folded > 0 || expanded ? '' : ' hidden') + '>' + (expanded ? 'Show fewer' : folded + ' more') + '</button>' : '');
   }
   /* EVERY TEXT SIZE (Andrew 10-15: "many people have it on large or x-large … make sure that left sidebar is able to be seen"):
-     the collapsed list shows only the rows that fit WHOLE in the section's room; the rest fold into "N more", so a row is
-     never cut by the section's own scroll at LARGE / X-LARGE or on a narrow rail. Run after every build and on the 1 s
-     heartbeat (TEXT SIZE and the rail's width change the room without a rebuild). Expanded, the list scrolls as before. */
+     the collapsed list shows only the rows that fit WHOLE in the section's room; the rest fold into "N more", so no row
+     but the first is ever cut by the section's own scroll at LARGE / X-LARGE or on a narrow rail (the first always shows:
+     a row taller than the whole room scrolls inside it). "N more" counts the WAITS folded, so the header is always the
+     waits shown plus N. Run after every build and on the 1 s heartbeat (TEXT SIZE and the rail's width change the room
+     without a rebuild). Expanded, the list scrolls as before. */
   function fitRows(host) {
     if (!host || expanded || typeof host.querySelector !== 'function' || typeof host.querySelectorAll !== 'function') return;
     const lis = Array.from(host.querySelectorAll('li.ny-item[data-ny-key]'));
     const more = host.querySelector('.ny-more');
     if (!lis.length || !more) return;
     lis.forEach(li => { li.hidden = false; });
-    const total = Number(more.dataset.nyRows) || lis.length;
-    let shown = lis.length;
-    const fold = () => { const n = total - shown; more.hidden = n <= 0; const t = n + ' more'; if (more.textContent !== t) more.textContent = t; };
+    const waitsOf = li => Number(li.dataset && li.dataset.nyN) || 1;
+    const total = Number(more.dataset && more.dataset.nyWaits) || 0;
+    let shown = lis.length, shownWaits = lis.reduce((s, li) => s + waitsOf(li), 0);
+    const fold = () => { const n = Math.max(0, total - shownWaits); more.hidden = n <= 0; const t = n + ' more'; if (more.textContent !== t) more.textContent = t; };
     fold();
-    while (shown > 1 && host.scrollHeight > host.clientHeight + 1) { lis[--shown].hidden = true; fold(); }
+    while (shown > 1 && host.scrollHeight > host.clientHeight + 1) { const li = lis[--shown]; li.hidden = true; shownWaits -= waitsOf(li); fold(); }
   }
   // each card's portrait: the same figure the CREW card paints (AgentPortraits), from the agent the wait names
   function paintFaces(host) {
@@ -528,6 +536,6 @@ const NeedsYou = (() => {
   }
   function canDismiss(i) { return !!i && (i.kind === 'failed' || (i.kind === 'asked' && !!i.noDoor)); }
   const listShape = list => (list || items()).map(i => i.key + '\u0001' + i.what + '\u0001' + i.where).join('\u0002');
-  return { items, render, openKey, dismissKey, canDismiss, lineOf, listShape, refreshFeeds, _internals: { html, age, keysFor, measure, dismissed, feeds: () => feeds } };
+  return { items, render, openKey, dismissKey, canDismiss, lineOf, listShape, refreshFeeds, _internals: { html, age, keysFor, measure, fitRows, railRows, dismissed, feeds: () => feeds } };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NeedsYou;

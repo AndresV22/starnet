@@ -918,6 +918,7 @@ test/delegated-threads.test.js
 test/overseer-batch.test.js
 test/needs-you.test.js
 test/needs-you-rail-fit.test.js
+test/needs-you-fold.test.js
 test/crew-cards.test.js
 test/front-doors-tabs.test.js
 test/brand-wordmark-mask.test.js

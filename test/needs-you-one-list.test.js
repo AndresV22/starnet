@@ -82,8 +82,8 @@ const NY = require('../frontend/app/needsyou.js');
   // (Andrew 10-15, premium pass) one agent's builds are ONE card, never the same line repeated per build
   const b0 = byKind('build')[0], twoBuilds = NY._internals.html([b0, Object.assign({}, b0, { key: 'build:b2', since: (b0.since || NOW) + 1000, rail: { verb: 'keep or discard', text: 'Pricing page v3' } })], NOW);
   A.eq((twoBuilds.match(/class="ny-item /g) || []).length, 1, 'two builds from one agent are one card');
-  A.ok(/<span class="ny-verb">keep or discard<\/span> · Pricing page v2 <span class="ny-more-n">\+1 more<\/span>/.test(twoBuilds) && /<span class="ny-count">2<\/span>/.test(twoBuilds),
-    '…that names the build its click opens (the oldest) and how many more wait, while the header still counts every wait');
+  A.ok(/<span class="ny-verb">2 builds to keep or discard<\/span> · Pricing page v2<\/div>/.test(twoBuilds) && /<span class="ny-count">2<\/span>/.test(twoBuilds) && /data-ny-n="2"/.test(twoBuilds),
+    '…that leads with how many wait (where the two-line clamp cannot cut it), names the build its click opens (the oldest), and holds both waits');
   A.ok(/class="ny-face"[^>]*data-ny-aid=/.test(twoBuilds), 'each card carries the agent\'s portrait well');
 
   // the doors

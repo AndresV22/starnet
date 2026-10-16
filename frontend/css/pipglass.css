@@ -595,7 +595,6 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-dot {
 }
 /* something broke (failed work, a failed routine): its lamp and its line say so; the row stays in the panel's voice */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-dot { background: var(--bad); }
-body.glass-demo:not(.hud-mode) #left .ws-needs .ny-more-n { color: var(--cg-mute); white-space: nowrap; }
 /* line 1: AGENT (the row's headline, in its colour) · in <where> ........ time */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-line { display: flex; align-items: baseline; gap: 0 8px; min-width: 0; line-height: 1.15; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-who { flex: none; font-size: 19px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ph); text-shadow: var(--pg-glow-soft); }
@@ -607,7 +606,8 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-what {
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) .ny-what { color: var(--ph-bright); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-verb { color: var(--gold); }
 /* a station wait whose last words ARE the claim (a quest said done, loop results, STEP-IN, a failure) is shown whole;
-   a build leads with its ask ("keep or discard · …"), so its title may clamp */
+   a build leads with its ask, and an agent's builds with their count ("23 builds to keep or discard · …"), so only the
+   title may clamp */
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:not(.approval, .question, .build) .ny-what { display: block; -webkit-line-clamp: none; overflow: visible; }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(.failed, .routine) .ny-what { color: var(--bad); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-age { flex: none; margin-left: auto; font-size: 15px; letter-spacing: .4px; font-variant-numeric: tabular-nums; color: var(--cg-mute, var(--text)); }

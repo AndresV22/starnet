@@ -125,13 +125,14 @@ function linesOf(text) {
 }
 const unesc = s => s.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
 // the box needsyou.js reads: live getters, so a TEXT SIZE change moves it with no redraw (as the browser's does)
-function box(text) {
-  const h = n => Math.round(n * fontPx * lineH);
+// (a row the section folded away — hidden — is not laid out either: its box reads 0, as the browser's does)
+function box(text, gone) {
+  const h = n => Math.round(n * fontPx * lineH), laid = () => layout.laid && !(gone && gone());
   return {
-    get clientHeight() { return layout.laid ? h(Math.min(linesOf(text), clamp)) : 0; },
-    get scrollHeight() { return layout.laid ? h(linesOf(text)) : 0; },
-    get clientWidth() { return layout.laid ? Math.floor(lineWidth()) : 0; },
-    get scrollWidth() { return layout.laid ? Math.floor(lineWidth()) : 0; }   // overflow-wrap: anywhere never overflows sideways
+    get clientHeight() { return laid() ? h(Math.min(linesOf(text), clamp)) : 0; },
+    get scrollHeight() { return laid() ? h(linesOf(text)) : 0; },
+    get clientWidth() { return laid() ? Math.floor(lineWidth()) : 0; },
+    get scrollWidth() { return laid() ? Math.floor(lineWidth()) : 0; }   // overflow-wrap: anywhere never overflows sideways
   };
 }
 
@@ -148,17 +149,49 @@ global.Workstreams = { get: id => id === 'home' ? { id: 'home', title: null, age
 global.Channels = { allPending: () => pending };
 global.App = { agentName: id => ({ agent: 'NOVA' })[id] || id, openWorkstream: id => opened.push(id) };
 global.Chat = { consentPhrase: card.actionPhrase, consentInspect: card.consentInspect, revealAsk: () => true, answerConsent: async (p, ws, d) => { answered.push(p.promptId + ':' + d); } };
+/* ---- a row's keys: side by side while every label fits the text column, else stacked, each full width (pipglass.css) ---- */
+const keyRule = block('body.glass-demo:not(.hud-mode) #left .ws-needs .ny-key'), keysRule = block('body.glass-demo:not(.hud-mode) #left .ws-needs .ny-keys');
+const keyEach = block('body.glass-demo:not(.hud-mode) #left .ws-needs .ny-keys > .ny-key');
+const [, keyPx] = px(keyRule, /padding: (\d+)px (\d+)px;/, 'a key keeps its side padding');
+const [keyFont] = px(keyRule, /font: (\d+)px\/[\d.]+ 'VT323'/, 'a key keeps its 15px label');
+const [keySpacing] = px(keyRule, /letter-spacing: (\.?\d*\.?\d+)px;/, 'a key keeps its letter-spacing');
+const [keyEdge] = px(keyRule, /border: (\d+)px solid /, 'a key keeps its 1px edge');
+const [keyGap] = px(keysRule, /gap: (\d+)px;/, 'the keys keep their gap');
+const [keyH] = px(keyEach, /min-height: (\d+)px;/, 'a key in a row keeps its height');
+const [keyBaseH] = px(keyRule, /min-height: (\d+)px;/, 'a key keeps its height');
+A.ok(keyH >= 34 && keyBaseH >= 34, 'every NEEDS YOU key is the glass key\'s 34px or taller, in a key row too (got ' + keyBaseH + ', ' + keyH + ')');
+A.ok(/min-width: max-content;/.test(keyEach) && /flex-wrap: wrap;/.test(keysRule), 'a key is never narrower than its label: a column too narrow for both wraps them, never clips one');
+const keyWidth = label => label.length * (keyFont * EM + keySpacing) + 2 * keyPx + 2 * keyEdge;
+const keysSideBySide = labels => labels.reduce((s, l) => s + keyWidth(l), 0) + keyGap * (labels.length - 1) <= lineWidth();
+const keyRowsHeight = labels => keysSideBySide(labels) ? keyH : labels.length * keyH + (labels.length - 1) * keyGap;
+
 const doc = { activeElement: null, hidden: false };
-const host = { hidden: false, rows: [], buttons: [], listeners: {}, _h: '',
+/* the section, laid out as the browser stacks it, so the REAL fitRows runs on every render (its fold key, each row's hidden
+   flag, the section's scrollHeight against its room): a row is its name line, its ask line (the layout above) and its keys */
+const dataset = attrs => Object.fromEntries([...attrs.matchAll(/data-([a-z-]+)="([^"]*)"/g)].map(m => [m[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase()), m[2]]));
+const ROOM = 440;                      // the section's cap at a tall rail: min(48%, 440px)
+let fitRuns = 0;                       // how many times fitRows set a row's hidden flag (it sets every row's, every run)
+const host = { hidden: false, rows: [], buttons: [], more: null, listeners: {}, _h: '', clientHeight: ROOM,
   setAttribute() {}, addEventListener(t, fn) { this.listeners[t] = fn; }, contains: () => false,
   querySelectorAll: sel => sel === 'li.ny-item[data-ny-key]' ? host.rows : sel === '[data-ny-act]' ? host.buttons : [],
+  querySelector: sel => sel === '.ny-more' ? host.more : null,
+  get scrollHeight() { return 33 + host.rows.filter(r => !r.hidden).reduce((s, r) => s + r.height(), 0) + (host.more && !host.more.hidden ? 25 : 0); },
   get innerHTML() { return this._h; },
   set innerHTML(h) {
     this._h = h;
-    this.rows = [...h.matchAll(/<li class="ny-item [^"]*" data-ny-key="([^"]*)">[\s\S]*?<span class="ny-age">([^<]*)<\/span>[\s\S]*?<div class="ny-what"[^>]*>([\s\S]*?)<\/div>/g)].map(m => {
-      const ageEl = { textContent: m[2] }, whatEl = box(unesc(m[3]));
-      return { dataset: { nyKey: m[1] }, text: unesc(m[3]), querySelector: sel => sel === '.ny-age' ? ageEl : sel === '.ny-what' ? whatEl : null };
+    this.rows = [...h.matchAll(/<li class="ny-item [^"]*"([^>]*)>([\s\S]*?)<\/li>/g)].map(m => {
+      const inner = m[2];
+      const ageEl = { textContent: (/<span class="ny-age">([^<]*)<\/span>/.exec(inner) || [])[1] };
+      const text = unesc((/<div class="ny-what"[^>]*>([\s\S]*?)<\/div>/.exec(inner) || [])[1] || '');
+      let hidden = false;
+      const whatEl = box(text, () => hidden), labels = [...inner.matchAll(/class="ny-key\b[^"]*"[^>]*>([^<]*)</g)].map(k => k[1]);
+      return { dataset: dataset(m[1]), text, querySelector: sel => sel === '.ny-age' ? ageEl : sel === '.ny-what' ? whatEl : null,
+        get hidden() { return hidden; }, set hidden(v) { fitRuns++; hidden = !!v; },
+        // 8px padding, the 22px name line, the ask line, and (when it has keys) a 6px gap and its key rows (keyRows, below)
+        height: () => 16 + 22 + 3 + Math.min(linesOf(text), clamp) * Math.round(fontPx * lineH) + (labels.length ? 6 + keyRowsHeight(labels) : 0) };
     });
+    const mm = /<button type="button" class="ny-more"([^>]*)>([^<]*)<\/button>/.exec(h);
+    this.more = mm ? { dataset: dataset(mm[1]), hidden: / hidden/.test(mm[1]), textContent: mm[2] } : null;
     this.buttons = [...h.matchAll(/<button type="button" class="([^"]*)" data-ny-act="([^"]*)" data-ny-key="([^"]*)"[^>]*>([^<]*)</g)].map(m =>
       ({ className: m[1], dataset: { nyAct: m[2], nyKey: m[3] }, label: m[4], closest: sel => sel === 'li.ny-item' ? host.rows.find(r => r.dataset.nyKey === m[3]) || null : null }));
   } };
@@ -172,9 +205,11 @@ const click = (act, k) => host.listeners.click({ target: { closest: sel => sel =
 const ASKS = [['mcp__fs__rm', 'a'], ['mcp__fs__rm', 'a.md'], ['fs.list', 'src'], ['mcp__fs__rm', 'notes.md'], ['fs.read', 'notes.md'],
   ['mcp__filesystem__read_file', 'notes.md'], ['fs.read', 'notes/launch-prep/pricing.md'], ['mcp__git__push', '{}']];
 let n = 0;
+// an older question waits above each ask, so the section has two rows and a fold key: the real fitRows runs every render
+const QUESTION = { promptId: 'fit-q', tool: 'brief.ask', argsSummary: JSON.stringify({ question: 'Which tier should lead?' }), agentId: 'agent', askedAt: Date.now() - 600000 };
 function show(tool, argsSummary) {
   const p = { promptId: 'fit' + (++n), tool, argsSummary, agentId: 'agent', askedAt: Date.now() - 1000 };
-  pending = [{ wsId: 'home', p }];
+  pending = [{ wsId: 'home', p: QUESTION }, { wsId: 'home', p }];
   NY.render();
   return 'ask:' + p.promptId;
 }
@@ -228,4 +263,42 @@ A.eq(answered, [c.k.slice(4) + ':once'], 'and a click on a line read whole appro
 c = at(desk, 100, 'fs.read', 'a.md'); layout.laid = false; NY.render();
 A.eq(keysOf(c.k), 'Review · Deny', 'a row with no layout to read offers Review');
 
-A.report('needs-you-rail-fit');
+/* ---- 5. the real fitRows ran on every render above, with the ask's own row never folded (the room holds both rows) ---- */
+fitRuns = 0;
+c = at(narrow, hi, 'fs.read', 'notes.md');
+A.ok(fitRuns > 0, 'fitRows runs on the rail\'s render (this host has the fold key, the rows\' hidden flags and the section\'s room)');
+A.ok(host.rows.every(r => !r.hidden) && host.more && host.more.hidden, 'at the narrowest rail and the largest TEXT SIZE both rows fit the room: nothing folds, "N more" stays hidden');
+
+/* ---- 6. the two keys: side by side where both labels fit, stacked (each full width, 34px) where they do not ---- */
+layout = { rail: RAILS.find(r => r.px === desk), zoom: 100, bar: 0, laid: true };
+A.ok(keysSideBySide(['Approve once', 'Deny']), 'Approve once · Deny share one row on the 232px rail at STANDARD (' + Math.round(keyWidth('Approve once') + keyGap + keyWidth('Deny')) + 'px of ' + Math.floor(lineWidth()) + ')');
+layout = { rail: RAILS.find(r => r.px === laptop), zoom: 100, bar: 0, laid: true };
+A.ok(!keysSideBySide(['Approve once', 'Deny']), '…and stack on the 200px rail at STANDARD (' + Math.floor(lineWidth()) + 'px): each key stays whole, the row grows by a key');
+
+/* ---- 7. an agent's builds are one row whose COUNT is never cut (two reviews 10-16, P1) ----
+   "+22 more" after the oldest build's title sat on line 3+ of the two-line clamp on every default rail: 22 real waits
+   vanished from the rail while the header counted them. The count leads the line, so it ends on line 1 or 2 on every
+   rail, at every TEXT SIZE, with and without the section's own scrollbar (its real width, from the stylesheet). */
+const [barPx] = px(glass, /#left \.ws-needs::-webkit-scrollbar \{ width: (\d+)px; \}/, 'the section keeps its themed scrollbar width');
+(async () => {
+  const builds = Array.from({ length: 23 }, (_, i) => ({ runId: 'b' + i, agentId: 'agent', title: i ? 'Ghost replay recorder v' + i : 'Speedrun timer with checkpoint splits + test course', builtAt: Date.now() - (30 - i) * 60000 }));
+  global.WorkshopStore = { pendingAll: async () => builds, pendingAllOk: () => true, ensureSession: m => 'workshop-' + m.runId, sessionIdOf: r => 'workshop-' + r, sessionTitleOf: m => '⚒ ' + m.title };
+  global.fetch = async url => ({ ok: true, json: async () => url === '/api/hooks' ? { hooks: [], pending: [] } : { plugins: [] } });
+  await NY.refreshFeeds(true);
+  pending = [];
+  layout = { rail: RAILS[1], zoom: 100, bar: 0, laid: true };
+  NY.render();
+  const row = host.rows.find(r => /^build:/.test(r.dataset.nyKey));
+  A.ok(!!row && host.rows.length === 1, 'the 23 builds are ONE row (' + host.rows.length + ' rows)');
+  A.eq((/<span class="ny-count">(\d+)<\/span>/.exec(host.innerHTML) || [])[1], '23', 'the header counts every one of them');
+  const line = row ? row.text : '', count = /\+\d+ more|\b\d+ builds?\b/.exec(line);
+  A.ok(!!count && /23/.test(count[0]), 'the row says how many builds wait: "' + line + '"');
+  const cutAt = [];
+  for (const rail of RAILS) for (const zoom of ZOOMS) for (const bar of [0, barPx]) {
+    layout = { rail, zoom, bar, laid: true };
+    const upTo = count ? linesOf(line.slice(0, count.index + count[0].length)) : Infinity;
+    if (upTo > clamp) cutAt.push(rail.name + ' @' + zoom + '%' + (bar ? ' +bar' : '') + ': the count ends on line ' + upTo);
+  }
+  A.eq(cutAt.slice(0, 6), [], 'the count of builds sits on line 1 or 2 of the clamped line on every rail at every TEXT SIZE (' + cutAt.length + ' cut)');
+  A.report('needs-you-rail-fit');
+})().catch(e => { console.error(e); process.exit(1); });

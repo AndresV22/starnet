@@ -140,7 +140,7 @@ const shown = i => readAs(i, WHOLE), cut = i => readAs(i, CUT);
   const direct = k(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }));
   A.eq((direct.match(/data-ny-act="[a-z]+"[^>]*>[^<]+</g) || []).map(x => x.replace(/^data-ny-act="([a-z]+)"[^>]*>([^<]+)<$/, '$1:$2')).join(' | '), 'once:Approve once | deny:Deny', 'a direct-chat row\'s keys: Approve once · Deny');
   const rowHtml = NY._internals.html([shown(Object.assign(ask({ promptId: 'p30', tool: 'fs.read', argsSummary: 'notes.md' }), { who: 'NOVA', where: 'General', what: 'fs read: notes.md', since: Date.now() }))], Date.now());
-  A.ok(/<li class="ny-item approval ny-review" data-ny-key="ask:p30">/.test(rowHtml), 'its row is the Review door (the row click opens its card)');
+  A.ok(/<li class="ny-item approval ny-review" data-ny-key="ask:p30"[^>]*>/.test(rowHtml), 'its row is the Review door (the row click opens its card)');
   A.ok(/<button type="button" class="ny-where" data-ny-act="open" data-ny-key="ask:p30" data-tip="Review it on its card: the whole request, and its Always and Full access keys">in General<\/button>/.test(rowHtml), '…and its "in <where>" door says so: ' + rowHtml.slice(0, 400));
   for (const w of [{ workerStreamId: 'thread_vex' }, { workerRunId: 'wr9' }, { background: true }]) {
     const wa = Object.assign(ask(Object.assign({ promptId: 'p31', tool: 'fs.read', argsSummary: 'notes.md' }, w)), { who: 'VEX', where: 'General', what: 'fs read: notes.md', since: Date.now() }), wk = k(wa);
@@ -189,7 +189,7 @@ function fakeRail() {
         const b = { className: m[1], dataset: { nyAct: m[2], nyKey: key ? key[1] : undefined }, disabled: / disabled/.test(m[3]), focus() { if (!b.disabled) doc.activeElement = b; } };   // a disabled key cannot take focus
         return b;
       });
-      this.rows = [...h.matchAll(/<li class="ny-item [^"]*" data-ny-key="([^"]*)">[\s\S]*?<span class="ny-age">([^<]*)<\/span>/g)].map(m => {
+      this.rows = [...h.matchAll(/<li class="ny-item [^"]*" data-ny-key="([^"]*)"[^>]*>[\s\S]*?<span class="ny-age">([^<]*)<\/span>/g)].map(m => {
         const ageEl = { textContent: m[2] };
         return { dataset: { nyKey: m[1] }, ageEl, querySelector: sel => sel === '.ny-age' ? ageEl : sel === '.ny-what' ? WHOLE : null };   // each line fits its row
       });
