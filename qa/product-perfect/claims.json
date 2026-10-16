@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "0b07f429d4ed4995c24c082e70c12bab297f277f",
+    "sourceCommit": "c592e7144d944aadc84e0d50ec3d8b5e89539821",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -38,8 +38,8 @@
       },
       {
         "path": "RELEASE_NOTES.md",
-        "bytes": 23770,
-        "sha256": "23c6dbd334203c3e4ede87e0d24b09a967bc1cc2f4a206de1acbb088889a7d63"
+        "bytes": 23871,
+        "sha256": "bcdf15f3b38fbe21ff366de293f88e15111e50aa9133f2c6a6e8b9a8d04816c6"
       },
       {
         "path": "TERMS.md",
@@ -173,8 +173,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 451815,
-        "sha256": "41880b1e992d010a3d9eba0f6ebef580c8e6a33538c6d0a1f7aed51a3be9eb9b"
+        "bytes": 451949,
+        "sha256": "5c3461f042ea4edef36820013f324a5e70f6b383e259cfd24a68a2b4b52035d2"
       },
       {
         "path": "frontend/app/approved-sheet-effects.js",
@@ -708,8 +708,8 @@
       },
       {
         "path": "frontend/app/needsyou.js",
-        "bytes": 42748,
-        "sha256": "fb410f1a685b2a7b04b39ca648c5010e3dd22024794d782fa0e23f82ed56d186"
+        "bytes": 46676,
+        "sha256": "0f939e74fa2b34400b9d5cd37b8458145f8a8641476db74b13af6c2bf230d73a"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -1183,8 +1183,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 927866,
-        "sha256": "52576f016a8ba40ff2bb740b12ecf8b00c9af981409594dba4b4bf148c036144"
+        "bytes": 927975,
+        "sha256": "b02c085e585c2db2bb76b5f7604601312049cb6817ae4ee07bae2f0c952d5513"
       },
       {
         "path": "frontend/app/stepin.js",
@@ -1423,8 +1423,8 @@
       },
       {
         "path": "frontend/app/workshopstore.js",
-        "bytes": 40543,
-        "sha256": "5758e6af74592058714fd4ae0ee01af87ff41b828e54cdc949f5ee0aeb4660a3"
+        "bytes": 40749,
+        "sha256": "f57eb94a8862d01a1d1f19ce8df2f76d22331dda74c4531e9fdcd29bfe7b6d56"
       },
       {
         "path": "frontend/app/worksignal.js",
@@ -1643,8 +1643,8 @@
       },
       {
         "path": "frontend/css/pipglass.css",
-        "bytes": 74958,
-        "sha256": "c575247bed0802b5541a957f0e9c12913d61dd957bdcee253a149b4a1499a165"
+        "bytes": 75983,
+        "sha256": "0889ed413f3bdd480ec80a508989484767d43877eb1af66df7f22d13a23f7544"
       },
       {
         "path": "frontend/css/plugins.css",
