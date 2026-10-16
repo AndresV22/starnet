@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "751c0bb42f2dda28d4255c636cf8974929be0b58",
+    "sourceCommit": "77a053c01d96bcc9fb399779feedbc3f5a3d18f0",
     "pathSetSha256": "213a4211bc1a66001a9f827b197c1b7aff1194373527f28d43c7ea6f2ebd706c",
     "files": [
       {
@@ -708,8 +708,8 @@
       },
       {
         "path": "frontend/app/needsyou.js",
-        "bytes": 40497,
-        "sha256": "c1f5cd5d6c64bf20ef10dc029fb0f44240fe01d1ddd32ac8955a0cd68cf7c6f7"
+        "bytes": 41332,
+        "sha256": "660349c3b6d3f7da286981dcf0bc3ef9492cdfe5f7933a373d10d76476f4de91"
       },
       {
         "path": "frontend/app/nightnudge.js",
@@ -1643,8 +1643,8 @@
       },
       {
         "path": "frontend/css/pipglass.css",
-        "bytes": 75128,
-        "sha256": "d5457cb7b017326e38c00c126c06ea53d9cd4d7e0f1bfa6f1b4e5d8ae1f91352"
+        "bytes": 74435,
+        "sha256": "3b5399b1cd8d3a938af091a05c5c3b8c150e0a509029457aab2b0dafb72e2ee1"
       },
       {
         "path": "frontend/css/plugins.css",
