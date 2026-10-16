@@ -4,24 +4,14 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**21** open (open+claimed) of 284 total — 0 P0 · 10 P1 · 11 P2
+**18** open (open+claimed) of 285 total — 0 P0 · 0 P1 · 18 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
-User/owner reports: **114** · source fixed: **94** · installer verified: **6** · customer confirmed: **1** · still reported failing: **5** · recovery unconfirmed: **108**.
+User/owner reports: **115** · source fixed: **98** · installer verified: **6** · customer confirmed: **1** · still reported failing: **5** · recovery unconfirmed: **109**.
 
 | Report | Family | Source | Installer | Customer |
 | --- | --- | --- | --- | --- |
-| [Google Drive authorization is hard blocked for a fresh personal account](bugs/f2ac6356-google-drive-authorization-is-hard-blocked-for-a.md) | google-drive-oauth-block | open | unverified | unconfirmed |
-| [Connector sign-in is lost after credential-store recovery](bugs/e7b2ffcd-connector-sign-in-is-lost-after-credential-store.md) | connector-credential-persistence | open | unverified | persists |
-| [Funded account runs fail again after a credit-limit workaround](bugs/a5060cc3-funded-account-runs-fail-again-after-a-credit-li.md) | funded-account-run-refusal | open | unverified | persists |
-| [Reported macOS web fetch TLS decode and socket failures](bugs/1d3ac09a-reported-macos-web-fetch-tls-decode-and-socket-f.md) | outbound-transport | open | unverified | unconfirmed |
-| [Unavailable spend history blocks work without usable recovery](bugs/d688ea20-unavailable-spend-history-blocks-work-without-us.md) | spend-history-blocking | open | unverified | persists |
-| [Windows 0.13.2 startup fails loading a packaged backend module](bugs/85f602c4-windows-0132-packaged-backend-startup.md) | packaged-backend-integrity | open | unverified | unconfirmed |
-| [Shell approvals and history hide full command arguments](bugs/082ee8e5-shell-approvals-and-history-hide-full-command-ar.md) | shell-consent-history-visibility | open | unverified | unconfirmed |
-| [Saved station opening is blocked despite a reachable engine](bugs/4c0efd8c-saved-station-opening-is-blocked-despite-a-reach.md) | saved-station-load | open | unverified | unconfirmed |
-| [Approved skill is withheld from autonomous workers](bugs/f702f2f6-approved-skill-is-withheld-from-autonomous-worke.md) | skill-approval-worker | open | unverified | persists |
-| [GPU loss replaces authored props with legacy art and disables floor recovery](bugs/0db3e69c-gpu-loss-replaces-authored-props-with-legacy-art.md) | local-memory-graphics-recovery | open | unverified | unconfirmed |
 | [Checkpoint maintenance bypass and orphan Git pack processes](bugs/8bdf73bb-checkpoint-maintenance-bypass-and-orphan-git-pac.md) | checkpoint-maintenance | fixed | unverified | unconfirmed |
 | [Delegated specialist lacks connected MCP tools](bugs/acd9ecb4-delegated-specialist-lacks-connected-mcp-tools.md) | delegated-capabilities | fixed | verified | unconfirmed |
 | [Customer reports an ONCE routine absent from Active Routines](bugs/c2a6c3c8-once-routine-reported-missing.md) | durability-and-visibility | fixed | unverified | unconfirmed |
@@ -57,8 +47,10 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | [Saved equipment omitted from interactive tool projection and toolset diagnostics](bugs/432df352-saved-equipment-omitted-from-interactive-tool-pr.md) | capability-projection | fixed | unverified | unconfirmed |
 | [Saved fallback changes model without switching provider](bugs/8b22d414-saved-fallback-changes-model-without-switching-p.md) | provider-fallback | fixed | verified | unconfirmed |
 | [Tier picker reports available managed models missing](bugs/ddea3c5d-tiers-ignore-managed-catalog.md) | catalog-truth | fixed | unverified | unconfirmed |
+| [Unavailable spend history blocks work without usable recovery](bugs/d688ea20-unavailable-spend-history-blocks-work-without-us.md) | spend-history-blocking | fixed | unverified | persists |
 | [Desktop bundle drops required calibration texture and disables graphical refresh](bugs/4a108286-desktop-bundle-drops-required-calibration-textur.md) | packaged-runtime-asset-closure | fixed | unverified | unconfirmed |
 | [File approval hides the proposed edit and patch payload](bugs/48c51661-file-approval-omits-mutation.md) | informed-approval | fixed | unverified | unconfirmed |
+| [Shell approvals and history hide full command arguments](bugs/082ee8e5-shell-approvals-and-history-hide-full-command-ar.md) | shell-consent-history-visibility | fixed | unverified | unconfirmed |
 | [Add agents silently fails when group backend is unavailable](bugs/0245a284-add-agents-silently-fails-when-group-backend-is.md) | group-chat-picker | fixed | unverified | unconfirmed |
 | [Agent session focus commands can unexpectedly retarget the composer](bugs/774641dc-agent-session-focus-commands-can-unexpectedly-re.md) | session-focus | fixed | unverified | unconfirmed |
 | [Feedback cards do not identify the run being rated](bugs/c7fa86fc-feedback-run-reference-ambiguous.md) | feedback-attribution | fixed | unverified | unconfirmed |
@@ -68,6 +60,7 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | [Reopened conversations send before history is restored and hide late messages](bugs/2426399e-reopened-conversations-send-before-history-is-re.md) | session-continuity | fixed | unverified | unconfirmed |
 | [Saved file links disappear when conversation history is restored](bugs/253e5a8e-saved-file-links-disappear-when-conversation-his.md) | deliverable-history-replay | fixed | unverified | unconfirmed |
 | [Sent group attachments appear only in the shared shelf](bugs/de0bb232-sent-group-attachments-appear-only-in-the-shared.md) | message-attachments | fixed | unverified | unconfirmed |
+| [Approved skill is withheld from autonomous workers](bugs/f702f2f6-approved-skill-is-withheld-from-autonomous-worke.md) | skill-approval-worker | fixed | unverified | persists |
 | [Campaign cards missing from browser element discovery](bugs/305a9e3d-campaign-cards-missing-from-browser-element-disc.md) | browser-card-discovery | fixed | unverified | unconfirmed |
 | [Live spoken replies stall after the output audio context closes](bugs/3364dfb0-live-spoken-replies-stall-after-the-output-audio.md) | speech-device-recovery | fixed | unverified | unconfirmed |
 | [Mac desktop microphone blocked while browser mirror works](bugs/8a553481-mac-desktop-microphone-blocked-while-browser-mir.md) | desktop-microphone | fixed | unverified | unconfirmed |
@@ -75,6 +68,7 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | [Agents cross walls beside hallway openings](bugs/49192a68-agents-cross-walls-beside-hallway-openings.md) | doorway-movement | fixed | unverified | unconfirmed |
 | [Approved agent sprites remain behind preview switch in normal desktop](bugs/84e26970-approved-agent-sprites-remain-behind-preview-swi.md) | production-skin-activation | fixed | unverified | unconfirmed |
 | [Bay names are unreadable at normal station zoom](bugs/0ff9dfc6-bay-names-are-unreadable-at-normal-station-zoom.md) | bay-labels | fixed | verified | confirmed |
+| [GPU loss replaces authored props with legacy art and disables floor recovery](bugs/0db3e69c-gpu-loss-replaces-authored-props-with-legacy-art.md) | local-memory-graphics-recovery | fixed | unverified | unconfirmed |
 | [New backdrops stall switching and zoomed-out terrain rendering](bugs/04ca4207-new-backdrops-stall-switching-and-zoomed-out-ter.md) | backdrop-performance | fixed | verified | unconfirmed |
 | [Refit entry freezes the installed remastered station for roughly ten seconds](bugs/bf3be27e-refit-entry-freezes-the-installed-remastered-sta.md) | refit-entry-rendering | fixed | unverified | unconfirmed |
 | [Station design edits disappear when Build is interrupted](bugs/996e399b-station-design-edits-disappear-when-build-is-int.md) | station-design-persistence | fixed | unverified | unconfirmed |
@@ -85,10 +79,17 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | [Customer cannot explain idle behavior and unexpectedly high usage](bugs/acb47320-idle-usage-customer-unexplained.md) | work-and-spend-truth | open | unverified | unconfirmed |
 | [Repeated project verification reportedly consumes overnight budget](bugs/f8d479d9-repeated-project-verification-reportedly-consume.md) | autonomous-completion-and-cost | open | unverified | unconfirmed |
 | [Zoho Mail bootstrap tool reportedly requires undiscoverable account](bugs/54564ff9-zoho-mail-bootstrap-tool-reportedly-requires-und.md) | connector-schema-projection | open | unverified | unconfirmed |
+| [Google Drive authorization is hard blocked for a fresh personal account](bugs/f2ac6356-google-drive-authorization-is-hard-blocked-for-a.md) | google-drive-oauth-block | open | unverified | unconfirmed |
 | [Customer reports unusable visibility without build or platform details](bugs/6bb9d2a1-visibility-failure-without-diagnostics.md) | uncorrelated-visibility | open | unverified | unconfirmed |
+| [Connector sign-in is lost after credential-store recovery](bugs/e7b2ffcd-connector-sign-in-is-lost-after-credential-store.md) | connector-credential-persistence | open | unverified | persists |
+| [Funded account runs fail again after a credit-limit workaround](bugs/a5060cc3-funded-account-runs-fail-again-after-a-credit-li.md) | funded-account-run-refusal | open | unverified | persists |
 | [Managed Sonnet request still returns an uncorrelated HTTP 400](bugs/fd9c4b4d-managed-sonnet-400-unresolved.md) | production-request-truth | open | unverified | persists |
 | [Ollama run times out with no chat POST observed by reporter](bugs/5274c7b7-ollama-chat-request-not-observed.md) | local-provider-transport | open | unverified | unconfirmed |
+| [Reported macOS web fetch TLS decode and socket failures](bugs/1d3ac09a-reported-macos-web-fetch-tls-decode-and-socket-f.md) | outbound-transport | open | unverified | unconfirmed |
 | [Mac installer reports application unsupported on the computer](bugs/ff3fb4cb-mac-unsupported-installation-uncorrelated.md) | mac-install-compatibility | open | unverified | unconfirmed |
+| [Windows 0.13.2 startup fails loading a packaged backend module](bugs/85f602c4-windows-0132-packaged-backend-startup.md) | packaged-backend-integrity | open | unverified | unconfirmed |
+| [Execution history shows a shortened shell command instead of the full redacted command](bugs/9f908b02-execution-history-shows-a-shortened-shell-comman.md) | shell-consent-history-visibility | open | unverified | unconfirmed |
+| [Saved station opening is blocked despite a reachable engine](bugs/4c0efd8c-saved-station-opening-is-blocked-despite-a-reach.md) | saved-station-load | open | unverified | unconfirmed |
 | [Deliverable naming instruction conflicts with explicit stop limits](bugs/5a35bcfe-deliverable-note-overrides-stop.md) | task-scope | fixed | unverified | unconfirmed |
 | [Paused routines falsely keep an idle desktop armed](bugs/ce430c35-paused-routines-falsely-keep-an-idle-desktop-arm.md) | lifecycle-truth | fixed | verified | unconfirmed |
 | [Dense service cards squeeze technical prose into tiny columns](bugs/734b469e-dense-service-cards-squeeze-technical-prose-into.md) | record-readability | fixed | unverified | unconfirmed |
@@ -136,16 +137,6 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | P0 | fixed | safecell | [The Permissions panel's normalizeGrants regex drops every path: and mcp: standing grant — the ledger prints "No standing approvals yet" while the backend holds](bugs/7274ff21-the-permissions-panel-s-normalizegrants-regex-dr.md) | sweep/safecell | 6afeb9ee |
 | P0 | fixed | sessions | [An attachment-bearing user turn is dropped from the durable transcript and the PREVIOUS turn is written in its place — the string-only scan at index.js:11299 fa](bugs/e7dcb889-an-attachment-bearing-user-turn-is-dropped-from.md) | sweep/sessions | 6afeb9ee |
 | P0 | fixed | skills | [skill.view's hydrate-then-bump stores the RENDERED SKILL.md as the skill's body, so every view→persist cycle re-appends '## Setup' and '## Support Files' — unbo](bugs/c70f8965-skill-view-s-hydrate-then-bump-stores-the-render.md) | sweep/skills | 598ab4a4 |
-| P1 | open | onboarding | [Google Drive authorization is hard blocked for a fresh personal account](bugs/f2ac6356-google-drive-authorization-is-hard-blocked-for-a.md) | memory-proof-1011 | — |
-| P1 | open | providers | [Connector sign-in is lost after credential-store recovery](bugs/e7b2ffcd-connector-sign-in-is-lost-after-credential-store.md) | memory-proof-1011 | — |
-| P1 | open | providers | [Funded account runs fail again after a credit-limit workaround](bugs/a5060cc3-funded-account-runs-fail-again-after-a-credit-li.md) | memory-proof-1011 | — |
-| P1 | open | providers | [Reported macOS web fetch TLS decode and socket failures](bugs/1d3ac09a-reported-macos-web-fetch-tls-decode-and-socket-f.md) | mac-fetch-investigation-1003 | — |
-| P1 | open | providers | [Unavailable spend history blocks work without usable recovery](bugs/d688ea20-unavailable-spend-history-blocks-work-without-us.md) | memory-proof-1011 | — |
-| P1 | open | release | [Windows 0.13.2 startup fails loading a packaged backend module](bugs/85f602c4-windows-0132-packaged-backend-startup.md) | agent/session-handoff-1011 | — |
-| P1 | open | safecell | [Shell approvals and history hide full command arguments](bugs/082ee8e5-shell-approvals-and-history-hide-full-command-ar.md) | memory-proof-1011 | — |
-| P1 | open | sessions | [Saved station opening is blocked despite a reachable engine](bugs/4c0efd8c-saved-station-opening-is-blocked-despite-a-reach.md) | memory-proof-1011 | — |
-| P1 | open | skills | [Approved skill is withheld from autonomous workers](bugs/f702f2f6-approved-skill-is-withheld-from-autonomous-worke.md) | memory-proof-1011 | — |
-| P1 | open | world | [GPU loss replaces authored props with legacy art and disables floor recovery](bugs/0db3e69c-gpu-loss-replaces-authored-props-with-legacy-art.md) | agent/qwen-render-loss-1012 | — |
 | P1 | fixed | autonomy | [Agent loop pause leaves cancelled iteration running and lease held](bugs/c66e8c39-agent-loop-pause-leaves-cancelled-iteration-runn.md) | agent/seam-audit-0912-b | b5c5cba75 |
 | P1 | fixed | autonomy | [Ambiguous permission and routine acknowledgements report unproven changes](bugs/95d13aaf-ambiguous-permission-and-routine-acknowledgement.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
 | P1 | fixed | autonomy | [Autonomy controls claim unconfirmed settings and overwrite server state on reload](bugs/b0349a7c-autonomy-controls-claim-unconfirmed-settings-and.md) | agent/system-polish-0920 | 4a2028759 |
@@ -215,6 +206,7 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | P1 | fixed | providers | [Saved fallback changes model without switching provider](bugs/8b22d414-saved-fallback-changes-model-without-switching-p.md) | release-0112-finalprep-0911 | 44c6b4952cd1e468f7caaf4d7ead804dc280cc40 |
 | P1 | fixed | providers | [Tier picker reports available managed models missing](bugs/ddea3c5d-tiers-ignore-managed-catalog.md) | reliability-followup | e33914cb2 |
 | P1 | fixed | providers | [Unavailable OAuth model catalog clears the saved model selection](bugs/ebe2861a-unavailable-oauth-model-catalog-clears-the-saved.md) | release-0120-prep-0915 | 20be5165bcf5f2ec99f882b572cdb10e442ecb6c |
+| P1 | fixed | providers | [Unavailable spend history blocks work without usable recovery](bugs/d688ea20-unavailable-spend-history-blocks-work-without-us.md) | release-0135-prep | 80eadd838 |
 | P1 | fixed | providers | [Unavailable spend history grants capped runs fresh headroom](bugs/1746d326-unavailable-spend-history-grants-capped-runs-fre.md) | reliability-audit-0919 | 410252bbb |
 | P1 | fixed | release | [Desktop bundle drops required calibration texture and disables graphical refresh](bugs/4a108286-desktop-bundle-drops-required-calibration-textur.md) | agent/release-0120-prep-0915 | d1848af00 |
 | P1 | fixed | release | [Dismissed frame name suppresses unrelated visual changes](bugs/8993bb79-dismissed-frame-name-suppresses-unrelated-visual.md) | cleanup-0112-0910 | 0a3a605a9c41ecf944760782a4938ec442d02e6c |
@@ -233,6 +225,7 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | P1 | fixed | safecell | [Late permission responses replace newer authority and survive store reinitialization](bugs/dde8e66f-late-permission-responses-replace-newer-authorit.md) | agent/systemic-bugs-0919 | 8eb87b0d3 |
 | P1 | fixed | safecell | [Patch guesses an unmatched block interior and corrupts source](bugs/81da21e4-patch-guesses-an-unmatched-block-interior-and-co.md) | reliability-review-1011 | f0a53efb0 |
 | P1 | fixed | safecell | [Local peer ownership can match an unrelated loopback socket](bugs/1df2d6f8-peer-owner-matches-unrelated-loopback-sockets.md) | agent/runtime-triage-1011 | f7553cd3e19a00873cf702913da85358e2181303 |
+| P1 | fixed | safecell | [Shell approvals and history hide full command arguments](bugs/082ee8e5-shell-approvals-and-history-hide-full-command-ar.md) | release-0135-prep | 4c89890bc |
 | P1 | fixed | safecell | [The Projects rail's ADD doorway records a NON-canonical path grant, so blessing a folder reached through a junction/symlink reports success and grants nothing](bugs/cf0cd4cd-the-projects-rail-s-add-doorway-records-a-non-ca.md) | sweep/safecell | 226cec3c |
 | P1 | fixed | safecell | [Token overlap attests inverted memory as owner instruction](bugs/ecd03ee7-token-overlap-attests-inverted-memory-as-owner-i.md) | agent/provider-triage-1011 | 05618ec62 |
 | P1 | fixed | sessions | [Add agents silently fails when group backend is unavailable](bugs/0245a284-add-agents-silently-fails-when-group-backend-is.md) | comms-add-agents-0906 | cf6b3ca03c372c404bcb46997a56d570d7747d70 |
@@ -268,6 +261,7 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | P1 | fixed | sessions | [Worker completion can outlive the only complete answer](bugs/4a66278b-worker-final-output-durability.md) | thread-ux-review-1011 | 18c1ec59f094775ada818175d927e9c4ffc845d8 |
 | P1 | fixed | sessions | [Large accepted worker output can be silently truncated](bugs/2d537ab3-worker-final-output-truncation.md) | thread-ux-review-1011 | 18c1ec59f094775ada818175d927e9c4ffc845d8 |
 | P1 | fixed | sessions | [Workshop reports a completed web tool when its entry file is missing](bugs/097269b5-workshop-reports-a-completed-web-tool-when-its-e.md) | agent/release-ui-audit-0906 | 44a8c3006 |
+| P1 | fixed | skills | [Approved skill is withheld from autonomous workers](bugs/f702f2f6-approved-skill-is-withheld-from-autonomous-worke.md) | release-0135-prep | df73589b8 |
 | P1 | fixed | skills | [Campaign cards missing from browser element discovery](bugs/305a9e3d-campaign-cards-missing-from-browser-element-disc.md) | agent/browser-campaign-navigation-0912 | dcbc2b941 |
 | P1 | fixed | skills | [gate.verify()'s tamper branch re-enters decide(), which clears the tamper against the STALE stored contentDigest — one approval permanently blesses whatever is](bugs/76d5dc8a-gate-verify.md) | sweep/skills | 598ab4a4 |
 | P1 | fixed | voice | [A stale sidecar token lets Local Live open a silent microphone session after restart](bugs/ff73b79a-a-stale-sidecar-token-lets-local-live-open-a-sil.md) | agent/voice-release-sweep | 8bc9ff9a |
@@ -282,6 +276,7 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | P1 | fixed | world | [Agents cross walls beside hallway openings](bugs/49192a68-agents-cross-walls-beside-hallway-openings.md) | wall-clearance-0916 | 2dbc0ef5a |
 | P1 | fixed | world | [Approved agent sprites remain behind preview switch in normal desktop](bugs/84e26970-approved-agent-sprites-remain-behind-preview-swi.md) | agent/release-0120-prep-0915 | df4d1ba25 |
 | P1 | fixed | world | [Bay names are unreadable at normal station zoom](bugs/0ff9dfc6-bay-names-are-unreadable-at-normal-station-zoom.md) | release-0110 | 86560bea9 |
+| P1 | fixed | world | [GPU loss replaces authored props with legacy art and disables floor recovery](bugs/0db3e69c-gpu-loss-replaces-authored-props-with-legacy-art.md) | release-0135-prep | 5c73343b9 |
 | P1 | fixed | world | [New backdrops stall switching and zoomed-out terrain rendering](bugs/04ca4207-new-backdrops-stall-switching-and-zoomed-out-ter.md) | agent/backdrop-performance-0910 | 2c041bbe69124eda1f60a6eb5a11cc44676028cb |
 | P1 | fixed | world | [Refit entry freezes the installed remastered station for roughly ten seconds](bugs/bf3be27e-refit-entry-freezes-the-installed-remastered-sta.md) | release-0120-prep-0915 | 15ac83ceb |
 | P1 | fixed | world | [Render refresh publishes unfinished edits while Build remains open](bugs/b5c41b7c-render-refresh-publishes-held-build-edits.md) | agent/session-handoff-1011 | f90409837a5a69faf32ca3bf2e918bed8c508d4a |
@@ -294,12 +289,19 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | P2 | open | autonomy | [Customer cannot explain idle behavior and unexpectedly high usage](bugs/acb47320-idle-usage-customer-unexplained.md) | reliability-followup | — |
 | P2 | open | autonomy | [Repeated project verification reportedly consumes overnight budget](bugs/f8d479d9-repeated-project-verification-reportedly-consume.md) | agent/reliability-audit-0919 | — |
 | P2 | open | channels | [Zoho Mail bootstrap tool reportedly requires undiscoverable account](bugs/54564ff9-zoho-mail-bootstrap-tool-reportedly-requires-und.md) | agent/reliability-audit-0919 | — |
+| P2 | open | onboarding | [Google Drive authorization is hard blocked for a fresh personal account](bugs/f2ac6356-google-drive-authorization-is-hard-blocked-for-a.md) | release-0135-prep | — |
 | P2 | open | onboarding | [Customer reports unusable visibility without build or platform details](bugs/6bb9d2a1-visibility-failure-without-diagnostics.md) | release-0120-prep-0915 | — |
+| P2 | open | providers | [Connector sign-in is lost after credential-store recovery](bugs/e7b2ffcd-connector-sign-in-is-lost-after-credential-store.md) | release-0135-prep | — |
+| P2 | open | providers | [Funded account runs fail again after a credit-limit workaround](bugs/a5060cc3-funded-account-runs-fail-again-after-a-credit-li.md) | release-0135-prep | — |
 | P2 | open | providers | [Managed Sonnet request still returns an uncorrelated HTTP 400](bugs/fd9c4b4d-managed-sonnet-400-unresolved.md) | reliability-followup | — |
 | P2 | open | providers | [Ollama run times out with no chat POST observed by reporter](bugs/5274c7b7-ollama-chat-request-not-observed.md) | release-0120-prep-0915 | — |
+| P2 | open | providers | [Reported macOS web fetch TLS decode and socket failures](bugs/1d3ac09a-reported-macos-web-fetch-tls-decode-and-socket-f.md) | release-0135-prep | — |
 | P2 | open | release | [Mac installer reports application unsupported on the computer](bugs/ff3fb4cb-mac-unsupported-installation-uncorrelated.md) | release-0120-prep-0915 | — |
+| P2 | open | release | [Windows 0.13.2 startup fails loading a packaged backend module](bugs/85f602c4-windows-0132-packaged-backend-startup.md) | release-0135-prep | — |
 | P2 | open | release | [Windows Node 24 HTTP test exits with a native libuv assertion after passing](bugs/6e29727c-windows-node-24-http-test-exits-with-a-native-li.md) | reliability-audit-0919 | — |
+| P2 | open | safecell | [Execution history shows a shortened shell command instead of the full redacted command](bugs/9f908b02-execution-history-shows-a-shortened-shell-comman.md) | release-0135-prep | — |
 | P2 | open | safecell | [First file write in a fresh station can time out while the checkpoint runs inside its 10s budget](bugs/e47efecf-first-file-write-in-a-fresh-station-can-time-out.md) | agent/ollama-fixes | — |
+| P2 | open | sessions | [Saved station opening is blocked despite a reachable engine](bugs/4c0efd8c-saved-station-opening-is-blocked-despite-a-reach.md) | release-0135-prep | — |
 | P2 | open | world | [station.test_line claims an unconfirmed onward hand-off for a job that landed in a non-sending OUTBOX](bugs/3ee2d13a-test-line-unconfirmed-hand-off-from-a-non-sendin.md) | conveyor-final-runtime | — |
 | P2 | fixed | autonomy | [Cancelled edit starts a replacement language server](bugs/37059128-cancelled-edit-starts-a-replacement-language-ser.md) | reliability-audit | 547dd03d7 |
 | P2 | fixed | autonomy | [Commander-reported plan step shown as StarNet recorded](bugs/024e4e15-commander-reported-plan-step-shown-as-starnet-re.md) | sweep/autonomy | e0b979995 |
@@ -420,12 +422,12 @@ User/owner reports: **114** · source fixed: **94** · installer verified: **6**
 | --- | --- |
 | channels | 1 |
 | autonomy | 3 |
-| providers | 6 |
+| providers | 5 |
 | safecell | 2 |
 | sessions | 1 |
-| skills | 1 |
+| skills | 0 |
 | onboarding | 2 |
-| world | 2 |
+| world | 1 |
 | voice | 0 |
 | release | 3 |
 

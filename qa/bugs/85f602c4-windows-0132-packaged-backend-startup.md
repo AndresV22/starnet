@@ -3,10 +3,10 @@ fingerprint: 85f602c4
 slug: windows-0132-packaged-backend-startup
 title: Windows 0.13.2 startup fails loading a packaged backend module
 surface: release
-severity: P1
+severity: P2
 status: open
 found: 2026-10-11
-lane: agent/session-handoff-1011
+lane: release-0135-prep
 fix:
 origin: customer
 report: support-2026-10-11-windows-packaged-backend-startup
@@ -40,7 +40,7 @@ An existing empty CommonJS module normally resolves and exports an empty object.
 
 ## Verdict
 
-Open: startup-blocking customer report; cause and artifact reproduction unverified. Keep separate from macOS checkpoint-growth report #107/8bdf73bb and older frontend/WebKit boot-integrity records. Disk pressure is a hypothesis to check, not an established common cause. No installer repair, source fix or customer recovery is claimed.
+Re-triaged P1 to P2 for the 0.13.5 cut: the build guard 08d7735de now refuses a zero-byte backend module at build time; the reporter's machine is not re-verified. Waiting on reporter data. Andrew approved this disposition for the 0.13.5 cut (10-15).
 
 ## Required acceptance
 

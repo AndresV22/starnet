@@ -4,10 +4,10 @@ slug: unavailable-spend-history-blocks-work-without-us
 title: Unavailable spend history blocks work without usable recovery
 surface: providers
 severity: P1
-status: open
+status: fixed
 found: 2026-10-11
-lane: memory-proof-1011
-fix:
+lane: release-0135-prep
+fix: 80eadd838
 origin: customer
 report: support-2026-10-01-to-09-spend-history-seven-reports
 affected: Seven independent reports; Windows x64 and Intel or Apple Silicon Mac; 0.12.5 through 0.13.1 where specified
@@ -49,13 +49,31 @@ Investigation anchors: test/spend-authority.test.js and test/spend-authority.htt
 
 ## Verdict
 
-_Filled in when the bug leaves the backlog: what was true, and why it is closed._
+Source repair 80eadd838 is in the 0.13.5 candidate: a damaged spend-ledger line is one named unknown charge the Commander can settle, not a block on all work (see Regression). Fixed in source only; customer retest pending. Andrew approved this disposition for the 0.13.5 cut (10-15).
 
 ## Regression
 
+Before the fix, one torn or glued line in ledger.jsonl made the strict reader report the whole spend history as unreadable. To show this I took the candidate 42805ac7c (exported to scratch) and reversed the product changes from all three spend-lane commits: 80eadd838, copy follow-up 55b50e088 and glued-row follow-up fb98537f6. All three reversed cleanly. I then ran the candidate's four tests against that tree, and all four failed.
+- test/ledger-damaged-line.http.test.js exited 1 at line 41. `assert.equal(st.accounting.readError, 'UNSETTLED_SPEND', 'one unknown line, not an unreadable logbook')` got 'ledger_read_failed'.
+- test/spend-authority.test.js passed its first 4 of 6 sections, then exited 1 at line 132. The deepStrictEqual got [false,'UNSETTLED_SPEND',1,undefined] where [...,1] was expected, because damagedLines does not exist before the fix.
+- test/settle-managed-copy.test.js exited 1 at line 109. The row read 'INTERRUPTED — unreadable spend record line (run old-a) · … · BILLING SOURCE UNKNOWN' instead of /^DAMAGED RECORD — /.
+- test/friendlyerror.test.js reported '1 problem(s), 461 ok'. The FAIL was 'the damaged cause is never called an interrupted run': the refusal got the generic spend-unknown headline.
 
+The same pattern shows on the literal parent. The fix commit's own versions of these tests fail on 80eadd838^ at the same assertions: HTTP line 36 'ledger_read_failed', spend-authority line 132, settle-managed-copy line 109, friendlyerror '1 problem(s), 359 ok'. On 80eadd838 itself they all pass: HTTP 12 s, spend-authority 6/6 sections, settle-managed-copy PASS, friendlyerror 'OK (360 assertions)'.
+
+A scratch probe confirms the customer symptom of "no recourse" on the pre-fix tree. With a glued line, two boots returned readError ledger_read_failed, 0 items to settle, no spend floor, resume 409 and settle 404, and the ledger was untouched. The candidate on the same ledger listed 1 damaged item with a $0.95 floor.
+
+After the fix, on the candidate worktree (29aa4af68 = 42805ac7c plus bug-register edits; git status clean before and after), all four pass:
+- the HTTP test passes in 20 s, covering listed-not-bricked, settled once, record preserved, journaled torn tail, glued row counted once, and restart;
+- spend-authority passes all 6 PASS sections;
+- settle-managed-copy prints PASS;
+- friendlyerror prints 'OK (462 assertions)'.
+
+Each run used a temporary APPDATA/LOCALAPPDATA. The same four tests also passed in an untouched scratch export of the candidate, which shows the scratch setup does not cause failures by itself. This is source-level proof only. No customer has retested, no installer was exercised, and none of the seven reports is shown to have this damaged-line cause.
 
 ## Sibling coverage
+
+{"adapters":[{"target":"ledger.jsonl reader (sidecar ledgerIo.readAll), glued middle line","state":"covered","test":"test/ledger-damaged-line.http.test.js","scenario":"a fragment glued to a whole row is one DAMAGED unsettled item (fragment's own run/agent/model, no borrowed time) instead of ledger_read_failed; the glued whole row counts in the floor (0.95), then in the exact total after a $0.30 settlement (1.25), with resolvesLine = sha256 of the line","gate":"http"},{"target":"ledger.jsonl reader, torn tail and glued-row variants","state":"covered","test":"test/ledger-damaged-line.http.test.js","scenario":"journaled torn tail recovered without asking (counted once, two boots); torn tail with no journal is unknown and listed; glued row also in the journal or in a later clean copy is counted once; whitespace/BOM before a row records no charge; two whole rows on one line","gate":"http"},{"target":"pure ledger and budget modules","state":"covered","test":"test/spend-authority.test.js","scenario":"health reports damagedLines; unknownCause is 'damaged' only when every open item is a damaged line (a mix keeps 'unsettled'); settleUnsettled writes resolvesLine; history is complete and B.check returns null after settlement; an ordinary row can never claim resolvesLine","gate":"fast"},{"target":"provider adapters (OpenRouter, Anthropic, DeepSeek, managed credits)","state":"not-applicable","reason":"No provider adapter changed. The damaged-line mechanism is in the shared ledger reader and applies whichever provider wrote the row."}],"entrypoints":[{"target":"run-loop paid-call admission (runAgentLoop budget check)","state":"covered","test":"test/spend-authority.test.js","scenario":"cause 'damaged' refuses before any paid call (0 provider calls), failureCode spend_history_unavailable, message names the damaged line and SETTINGS › SPENDING LIMITS, never 'interrupted'","gate":"fast"},{"target":"POST /api/budget/resume and POST /api/budget/settle","state":"covered","test":"test/ledger-damaged-line.http.test.js","scenario":"resume 409 while spend is unknown; settle in limit mode 400 (no cap to count at); settle $0.30 returns 200; a second settle returns 404","gate":"http"},{"target":"night shift, routine/Run Now, station one-shot and aux pre-dispatch checks (budget.check(null, …) in sidecar/index.js)","state":"blocked","reason":"These checks share budget.check, which the unit test shows clears after settlement. No test boots a damaged ledger and drives each of these entry points before and after settling."}],"displays":[{"target":"SETTINGS › SPENDING LIMITS damaged row and headline","state":"covered","test":"test/settle-managed-copy.test.js","scenario":"row labeled DAMAGED RECORD, never INTERRUPTED or BILLING SOURCE UNKNOWN; tooltip names the model and says the damaged line is kept untouched; no COUNT AS; a blank charge is never booked as $0; one-sentence headline; 'damaged record line settled' toast; mixed-item wording","gate":"fast"},{"target":"run refusal copy (friendlyError)","state":"covered","test":"test/friendlyerror.test.js","scenario":"the loop's damaged-line message maps to spend_unknown, names the damaged line and the SETTLE door, and never says 'earlier run'","gate":"fast"},{"target":"real panel rendered in a running station","state":"blocked","reason":"The record cites a manual check on an isolated station (port 9716). No registered test renders the real panel, and that check was not repeated for this proof."}],"lifecycle":[{"target":"sidecar restart before and after settlement","state":"covered","test":"test/ledger-damaged-line.http.test.js","scenario":"the damaged line keeps the same identity across a restart; after settling, history stays complete with the exact total across two restarts; the damaged line stays byte-identical and nothing is rewritten","gate":"http"},{"target":"installed builds (0.12.5–0.13.1, Windows x64, Intel/Apple Silicon Mac) and the seven customer reports","state":"blocked","reason":"No installer was exercised, no customer has retested, and none of the seven reports is shown to have the damaged-line cause."}]}
 
 ## Narrow legacy-receipt guidance repair
 

@@ -3,10 +3,10 @@ fingerprint: 1d3ac09a
 slug: reported-macos-web-fetch-tls-decode-and-socket-f
 title: Reported macOS web fetch TLS decode and socket failures
 surface: providers
-severity: P1
+severity: P2
 status: open
 found: 2026-10-03
-lane: mac-fetch-investigation-1003
+lane: release-0135-prep
 fix:
 origin: customer
 report: support-macos-fetch-2026-10-03
@@ -48,7 +48,7 @@ A live-network module probe with bundled Windows Node v22.23.2 and Undici 6.28.1
 
 ## Verdict
 
-Open investigation. No confirmed Apple Silicon-specific cause, supported transport-reset control, configuration cure, or verified patched installer established. Request the expanded failing tool result and same-Mac curl comparison. Do not prescribe certificate-validation bypass, CA overrides or TLS downgrades from these codes alone.
+Re-triaged P1 to P2 for the 0.13.5 cut: waiting on reporter data; not reproduced locally and no source defect is proven. Reopen at P1 when the reporter's data shows a defect. Andrew approved this disposition for the 0.13.5 cut (10-15).
 
 ## Regression
 
