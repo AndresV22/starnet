@@ -188,7 +188,9 @@ const { note: failNote } = require('../../failopen');
       for (;;) {
         try { await fsp.lstat(cur); return cur; }
         catch (e) {
-          if (!e || e.code !== 'ENOENT') throw e;
+          // ENOTDIR = a path THROUGH a file (docs/guide.md/inner) on macOS/Linux; Windows says ENOENT. Both mean "not
+          // there": walk up to the real ancestor, so the caller's own missing-path answer runs (fs.search's "(no such path)").
+          if (!e || (e.code !== 'ENOENT' && e.code !== 'ENOTDIR')) throw e;
           const parent = P.dirname(cur);
           if (!parent || parent === cur) return base;
           cur = parent;
