@@ -1626,6 +1626,9 @@ const App = (() => {
       const why = (!Save.writeQuotaFull || Save.writeQuotaFull()) ? 'Browser storage for this window is full (a browser limit — freeing disk space will not help).' : 'Browser storage refused this window’s save.';
       if (!saveFailureNotified && typeof StationUI !== 'undefined') StationUI.notify(why + ' Station changes now go to the station file only; the ● save light in the top bar says whether your latest change is confirmed there.', 'warn', undefined, { kind: 'alert', key: 'save-failed' });
       saveFailureNotified = true;
+      // repaint the light NOW (no green flash: nothing reached the cache) — waiting for its 1 s tick left "autosave" or
+      // "confirmed in the station file" showing for a change the station file has not confirmed yet (live proof 10-15)
+      if (typeof StationUI !== 'undefined' && StationUI.refreshSave) StationUI.refreshSave();
       return false;
     }
     saveFailureNotified = false;

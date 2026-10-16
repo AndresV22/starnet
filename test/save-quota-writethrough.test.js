@@ -98,14 +98,15 @@ const cachedFloor = (ls, room) => floorOf(JSON.parse(ls.getItem('starnet.save') 
 
 function livePage(localStorage, fetch, station, ws) {
   const notices = [];
+  const ui = { flash: 0, refresh: 0 };   // the save light: a green flash means "the cache was written"; a refresh repaints its words
   const c = pageContext(localStorage, fetch, {
     station, agent: { id: 'agent', name: 'NOVA' }, agents: new Map(), liveAgents: () => [],
     Harness: { totals: () => ({}) }, Workstreams: { serialize: () => ws.slice }, rosterPushFailed: false, pushRoster() {},
-    StationUI: { flashSave() {}, notify: (...a) => notices.push(a) }
+    StationUI: { flashSave() { ui.flash++; }, refreshSave() { ui.refresh++; }, notify: (...a) => notices.push(a) }
   });
   vm.runInContext(app.slice(start, end), c);
   vm.runInContext('watchStationSave()', c);
-  return { c, notices };
+  return { c, notices, ui };
 }
 async function reloadPage(localStorage, fetch) {
   const c = pageContext(localStorage, fetch);
@@ -142,10 +143,15 @@ async function scenario(label, opts) {
   }
   // weeks of history push the save past the quota, then the refit lands
   ws.slice = { workstreams: [{ id: 'general', history: [{ role: 'user', content: 'x'.repeat(20000) }] }], activeId: 'general', generalId: 'general' };
+  const flashBefore = page.ui.flash, refreshBefore = page.ui.refresh;
   station.setFloor(room, 'verdant'); await tick();
   const writeFailed = page.notices.some(n => n[3] && n[3].key === 'save-failed');
   A.ok(station.serialize().rooms[room].floorStyle === 'verdant' && writeFailed && cachedFloor(ls, room) === 'amber',
     label + ' precondition: live room shows verdant, the cache write failed, the cache still holds amber');
+  // L1 (live proof 10-15): the light used to keep "autosave" / "confirmed in the station file" for up to the 1 s tick
+  // after a refused write. The refused write repaints it at once, and never flashes the green "cache written" pulse.
+  A.ok(page.ui.refresh > refreshBefore, label + ' L1: a refused cache write repaints the save light at once (no 1 s window of a stale "saved")');
+  A.ok(page.ui.flash === flashBefore, label + ' L1: a refused cache write never flashes the green "cache written" pulse');
   // G1: before the station file confirms, a re-entry must not read the stale cache
   const early = reentrySave(page.c);
   A.ok(early.memory === true && floorOf(early.doc, room) === 'verdant', label + ' G1: re-entry resumes the in-memory station, never the stale cache (got ' + floorOf(early.doc, room) + ')');
