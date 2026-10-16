@@ -316,7 +316,24 @@ const NeedsYou = (() => {
         + '<div class="ny-what" title="' + esc(i.what + (i.tip ? ' — ' + i.tip : '') + (rv ? ' — ' + REVIEW_TIP : '')) + '">' + lineHtml(i) + '</div>'
         + (keys ? '<div class="ny-keys">' + keys + '</div>' : '')
         + '</li>'; }).join('') + '</ul>'
-      + (rows.length > SHOW ? '<button type="button" class="ny-more" data-ny-act="more" aria-expanded="' + expanded + '">' + (expanded ? 'Show fewer' : (rows.length - SHOW) + ' more') + '</button>' : '');
+      + (rows.length > 1 ? '<button type="button" class="ny-more" data-ny-act="more" data-ny-rows="' + rows.length + '" aria-expanded="' + expanded + '"'
+        + (rows.length > SHOW || expanded ? '' : ' hidden') + '>' + (expanded ? 'Show fewer' : (rows.length - SHOW) + ' more') + '</button>' : '');
+  }
+  /* EVERY TEXT SIZE (Andrew 10-15: "many people have it on large or x-large … make sure that left sidebar is able to be seen"):
+     the collapsed list shows only the rows that fit WHOLE in the section's room; the rest fold into "N more", so a row is
+     never cut by the section's own scroll at LARGE / X-LARGE or on a narrow rail. Run after every build and on the 1 s
+     heartbeat (TEXT SIZE and the rail's width change the room without a rebuild). Expanded, the list scrolls as before. */
+  function fitRows(host) {
+    if (!host || expanded || typeof host.querySelector !== 'function' || typeof host.querySelectorAll !== 'function') return;
+    const lis = Array.from(host.querySelectorAll('li.ny-item[data-ny-key]'));
+    const more = host.querySelector('.ny-more');
+    if (!lis.length || !more) return;
+    lis.forEach(li => { li.hidden = false; });
+    const total = Number(more.dataset.nyRows) || lis.length;
+    let shown = lis.length;
+    const fold = () => { const n = total - shown; more.hidden = n <= 0; const t = n + ' more'; if (more.textContent !== t) more.textContent = t; };
+    fold();
+    while (shown > 1 && host.scrollHeight > host.clientHeight + 1) { lis[--shown].hidden = true; fold(); }
   }
   // each card's portrait: the same figure the CREW card paints (AgentPortraits), from the agent the wait names
   function paintFaces(host) {
@@ -352,6 +369,7 @@ const NeedsYou = (() => {
         if (el && el.textContent !== text) el.textContent = text;
       });
       remeasure(host, list);   // …and re-read each line: TEXT SIZE or the rail's width may have moved under it
+      fitRows(host);           // …and how many rows fit whole in the room
       return;
     }
     lastShape = shape;
@@ -364,6 +382,7 @@ const NeedsYou = (() => {
     parked = null;
     host.innerHTML = html(list, now);
     paintFaces(host);
+    fitRows(host);
     if (fAct) {
       // "in <where>" and Review/Open share an action: the class tells them apart
       const keys = Array.from(host.querySelectorAll('[data-ny-act]'));

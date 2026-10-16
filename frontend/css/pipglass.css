@@ -549,7 +549,7 @@ body.glass-demo:not(.hud-mode) #left .ws-needs {
 #left .ws-needs[hidden] { display: none !important; }
 /* bounded in every rail mode (glass, plain, hud): an expanded "N more" scrolls inside its card, so the lower asks' keys
    and "Show fewer" stay reachable and SESSIONS keeps its rows. The scrollbar is themed like COMMS', never a white native one */
-#left .ws-needs { max-height: min(55%, 460px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; }
+#left .ws-needs { max-height: min(48%, 440px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; }
 #left .ws-needs::-webkit-scrollbar { width: 8px; }
 #left .ws-needs::-webkit-scrollbar-track { background: transparent; }
 #left .ws-needs::-webkit-scrollbar-thumb { background: var(--ph-dim); border-radius: 4px; }
@@ -575,6 +575,11 @@ body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item {
   transition: background var(--t-fast, .12s) ease;
 }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item + .ny-item { border-top: 1px solid rgba(var(--ph-rgb), .1); }
+#left .ws-needs .ny-item[hidden], #left .ws-needs .ny-more[hidden] { display: none !important; }
+/* the name line on a narrow rail or a large TEXT SIZE: "in <where>" steps aside rather than leave a two-letter stub
+   ("in DELIV…"); the name and the time always show, the place stays on the row's hover tip and its door */
+body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item { container-type: inline-size; }
+@container (max-width: 250px) { body.glass-demo:not(.hud-mode) #left .ws-needs .ny-where { display: none; } }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item:is(:hover, :focus-within) { background: rgba(var(--ph-rgb), .06); }
 body.glass-demo:not(.hud-mode) #left .ws-needs .ny-item > :not(.ny-face) { grid-column: 2; min-width: 0; }
 /* the small portrait well (the CREW card's, scaled to a row) with the figure the floor draws and the lamp in its corner */
