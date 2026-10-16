@@ -79,6 +79,11 @@ const NY = require('../frontend/app/needsyou.js');
   A.eq(keys(byKind('build')[0]), '', 'a build → no key, its row opens it');
   const buildRow = NY._internals.html([byKind('build')[0]], NOW);
   A.ok(!/class="ny-keys"/.test(buildRow) && /<span class="ny-verb">keep or discard<\/span> · Pricing page v2/.test(buildRow), 'a build row leads with its ask and carries no empty key strip');
+  // (Andrew 10-15, premium pass) one agent's builds are ONE card, never the same line repeated per build
+  const b0 = byKind('build')[0], twoBuilds = NY._internals.html([b0, Object.assign({}, b0, { key: 'build:b2', since: (b0.since || NOW) + 1000, rail: { verb: 'keep or discard', text: 'Pricing page v3' } })], NOW);
+  A.eq((twoBuilds.match(/class="ny-item /g) || []).length, 1, 'two builds from one agent are one card');
+  A.ok(/<span class="ny-verb">keep or discard<\/span> · 2 builds/.test(twoBuilds) && /<span class="ny-count">2<\/span>/.test(twoBuilds), '…that says how many, while the header still counts every wait');
+  A.ok(/class="ny-face"[^>]*data-ny-aid=/.test(twoBuilds), 'each card carries the agent\'s portrait well');
 
   // the doors
   NY.openKey('stepin:h1'); A.eq(opened.pop(), ['stepin', 'h1'], 'STEP-IN opens its window on THAT handoff');
